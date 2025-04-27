@@ -23,15 +23,40 @@ static size_t free_count = 0;         // Number of free objects
 // We need a check specifically for int64_t range if long != int64_t.
 // For simplicity here, we assume long is sufficient or handle potential truncation.
 // A more robust solution might involve mpz_export or string conversion.
-static bool fits_int64(const mpz_t val) {
+bool fits_int64(const mpz_t val) {
 #if LONG_MAX >= INT64_MAX && LONG_MIN <= INT64_MIN
+    // If long is guaranteed to be at least 64 bits, mpz_fits_slong_p is sufficient
     return mpz_fits_slong_p(val);
 #else
-    // If long is smaller than int64_t, mpz_fits_slong_p is too strict.
-    // If long is larger, it might allow values outside int64_t.
-    // A more complex check is needed. For now, we use the long check.
-    // Consider using mpz_sizeinbase(val, 2) <= 63 as an approximation.
-    return mpz_fits_slong_p(val);  // Simplification - potentially inaccurate
+    // If long might be smaller than 64 bits (e.g., 32-bit systems),
+    // mpz_fits_slong_p is too strict. We need a more direct check.
+    // Check if the number of bits is within the range for a signed 64-bit integer.
+    // mpz_sizeinbase(val, 2) gives the number of bits.
+    // It must be less than 64 for positive numbers (0 to 2^63 - 1)
+    // or exactly 64 for the most negative number (-2^63).
+    size_t bits = mpz_sizeinbase(val, 2);
+    if (bits < 64) {
+        return true;  // Fits within 63 bits + sign bit
+    } else if (bits == 64) {
+        // Check if it's exactly the minimum int64_t value (-2^63)
+        // We can do this by comparing it to a temporary mpz_t initialized to INT64_MIN
+        static bool min_int64_initialized = false;
+        static mpz_t min_int64_z;
+        if (!min_int64_initialized) {
+            mpz_init(min_int64_z);
+            // Set mpz from int64_t requires intermediate string conversion or careful bit manipulation
+            // Using string is easiest here.
+            char min_int64_str[30];  // Sufficient buffer
+            snprintf(min_int64_str, sizeof(min_int64_str), "%" PRId64, INT64_MIN);
+            mpz_set_str(min_int64_z, min_int64_str, 10);
+            min_int64_initialized = true;
+            // TODO: Add cleanup for min_int64_z in sl_mem_shutdown or via atexit?
+        }
+        return mpz_cmp(val, min_int64_z) == 0;
+    } else {
+        // More than 64 bits, definitely doesn't fit.
+        return false;
+    }
 #endif
 }
 
@@ -218,10 +243,28 @@ sl_object *sl_make_number_z(const mpz_t num_z) {
 sl_object *sl_make_number_q(const mpq_t value_q) {
     sl_object *new_num = sl_allocate_object();
     new_num->type = SL_TYPE_NUMBER;
-    new_num->data.number.is_bignum = true;
-    mpq_init(new_num->data.number.value.big_num);
-    mpq_set(new_num->data.number.value.big_num, value_q);
-    mpq_canonicalize(new_num->data.number.value.big_num);  // Ensure canonical form
+
+    // Check if the GMP rational fits into int64_t components
+    mpz_t num_z, den_z;
+    mpz_inits(num_z, den_z, NULL);
+    mpq_get_num(num_z, value_q);
+    mpq_get_den(den_z, value_q);  // Denominator is always positive after canonicalization
+
+    if (fits_int64(num_z) && fits_int64(den_z)) {
+        // It fits, store as smallnum
+        new_num->data.number.is_bignum = false;
+        new_num->data.number.value.small.num = mpz_get_si(num_z);  // Assuming long fits int64_t based on fits_int64 logic
+        new_num->data.number.value.small.den = mpz_get_si(den_z);
+    } else {
+        // Doesn't fit, store as bignum
+        new_num->data.number.is_bignum = true;
+        mpq_init(new_num->data.number.value.big_num);
+        mpq_set(new_num->data.number.value.big_num, value_q);
+        // No need to canonicalize here, assuming input value_q is already canonical or mpq_set handles it.
+        // If input might not be canonical, add: mpq_canonicalize(new_num->data.number.value.big_num);
+    }
+
+    mpz_clears(num_z, den_z, NULL);
     return new_num;
 }
 

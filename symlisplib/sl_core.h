@@ -70,7 +70,7 @@ struct sl_object {
     sl_object_type type;
     bool marked;  // For garbage collection
     union {
-        sl_number number;      // Rational number (placeholder precision)
+        sl_number number;      // Rational number (fixed or arbitrary precision)
         char *string;          // Allocated UTF-8 string
         bool boolean;          // Boolean value (#t or #f)
         char *symbol;          // Allocated, interned symbol name
@@ -95,12 +95,13 @@ extern sl_object *SL_FALSE;  // The unique boolean false object
 
 // --- Memory Management Functions ---
 
-// Initialize the memory management system
+// Initialize the memory management system (Must also initialize GMP if needed)
 void sl_mem_init(size_t initial_heap_size);
 
-// Allocate specific object types (examples)
-sl_object *sl_make_number_si(int64_t num, int64_t den);  // Create from signed integers
-// sl_object* sl_make_number_big(gmp_num, gmp_den); // Example for bignums
+// Allocate specific object types
+sl_object *sl_make_number_si(int64_t num, int64_t den);  // Create from signed 64-bit integers
+sl_object *sl_make_number_z(const mpz_t num);            // Create integer from GMP mpz_t
+sl_object *sl_make_number_q(const mpq_t value);          // Create rational from GMP mpq_t
 sl_object *sl_make_string(const char *str);
 sl_object *sl_make_symbol(const char *name);  // Interns the symbol
 sl_object *sl_make_pair(sl_object *car, sl_object *cdr);
@@ -108,15 +109,19 @@ sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_env *env);
 sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *args));
 
 // Trigger garbage collection
+// NOTE: GC sweep phase must call mpq_clear() on unreachable SL_TYPE_NUMBER objects
+//       where is_bignum is true before adding them to the free list.
 void sl_gc();
 
-// Clean up memory management system
+// Clean up memory management system (Must also clean up any global GMP state if needed)
 void sl_mem_shutdown();
 
 // --- Type Checking Macros/Functions ---
 #define sl_is_pair(obj) ((obj) != NULL && (obj)->type == SL_TYPE_PAIR)
 #define sl_is_nil(obj) ((obj) == SL_NIL)
 #define sl_is_number(obj) ((obj) != NULL && (obj)->type == SL_TYPE_NUMBER)
+#define sl_is_bignum(obj) (sl_is_number(obj) && (obj)->data.number.is_bignum)
+#define sl_is_smallnum(obj) (sl_is_number(obj) && !(obj)->data.number.is_bignum)
 #define sl_is_string(obj) ((obj) != NULL && (obj)->type == SL_TYPE_STRING)
 #define sl_is_boolean(obj) ((obj) != NULL && (obj)->type == SL_TYPE_BOOLEAN)
 #define sl_is_true(obj) ((obj) == SL_TRUE)
@@ -127,18 +132,32 @@ void sl_mem_shutdown();
 #define sl_is_builtin(obj) (sl_is_function(obj) && (obj)->data.function.is_builtin)
 
 // --- Accessor Macros/Functions (Add error checking!) ---
+// Pair accessors
 #define sl_car(obj) ((obj)->data.pair.car)
 #define sl_cdr(obj) ((obj)->data.pair.cdr)
 #define sl_set_car(obj, val) ((obj)->data.pair.car = (val))
 #define sl_set_cdr(obj, val) ((obj)->data.pair.cdr = (val))
 
-#define sl_number_num(obj) ((obj)->data.number.num)  // Placeholder
-#define sl_number_den(obj) ((obj)->data.number.den)  // Placeholder
+// Number accessors (Implementations needed in .c file)
+// Attempts to get value as int64_t. Returns false if it's a bignum or doesn't fit.
+bool sl_number_get_si(sl_object *obj, int64_t *num, int64_t *den);
+// Gets the value as a GMP rational (copies into rop). Converts smallnum if necessary.
+// 'rop' must be initialized by the caller (mpq_init).
+void sl_number_get_q(sl_object *obj, mpq_t rop);
+// Gets the numerator as GMP integer (copies into rop).
+// 'rop' must be initialized by the caller (mpz_init).
+void sl_number_get_num_z(sl_object *obj, mpz_t rop);
+// Gets the denominator as GMP integer (copies into rop).
+// 'rop' must be initialized by the caller (mpz_init).
+void sl_number_get_den_z(sl_object *obj, mpz_t rop);
+bool fits_int64(const mpz_t val);
 
+// String, Symbol, Boolean accessors
 #define sl_string_value(obj) ((obj)->data.string)
 #define sl_symbol_name(obj) ((obj)->data.symbol)
 #define sl_boolean_value(obj) ((obj)->data.boolean)  // Direct bool value
 
+// Function accessors
 #define sl_closure_params(obj) ((obj)->data.function.def.closure.params)
 #define sl_closure_body(obj) ((obj)->data.function.def.closure.body)
 #define sl_closure_env(obj) ((obj)->data.function.def.closure.env)

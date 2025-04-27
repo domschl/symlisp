@@ -1,13 +1,45 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <ctype.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
 #include <readline/readline.h>
 #include <readline/history.h>
 
+// Include the SymLisp library headers
+#include "sl_core.h"
+#include "sl_parse.h"
+
+// Simple parenthesis balance checker (replace with more robust later if needed)
+int check_balance(const char *str) {
+    int balance = 0;
+    bool in_string = false;
+    while (*str) {
+        if (*str == '"') {
+            in_string = !in_string;
+        } else if (!in_string) {
+            if (*str == '(') {
+                balance++;
+            } else if (*str == ')') {
+                balance--;
+            }
+        }
+        // Basic escape handling (just skip next char) - needs improvement
+        if (*str == '\\' && str[1] != '\0') {
+            str++;
+        }
+        str++;
+    }
+    return balance;
+}
+
 void run_repl() {
+    // --- Initialize SymLisp Memory ---
+    sl_mem_init(0);  // Use default heap size for now
+
     char *home_dir = getenv("HOME");
     char history_dir[1024] = "";
     char history_file[1024] = "";
@@ -31,13 +63,14 @@ void run_repl() {
         stifle_history(1000);
     }
 
-    printf("symlisp REPL (Ctrl+D to exit)\n");
+    printf("SymLisp REPL (Ctrl+D to exit)\n");
 
     // Use dynamic allocation instead of fixed buffer
     size_t buffer_size = 1024;  // Initial size
     char *buffer = malloc(buffer_size);
     if (!buffer) {
-        printf("Memory allocation failed\n");
+        perror("Memory allocation failed for input buffer");
+        sl_mem_shutdown();  // Clean up library memory
         return;
     }
     buffer[0] = '\0';
@@ -53,15 +86,15 @@ void run_repl() {
             continue;
         }
 
-        // Handle comments
-        char *comment = strchr(line, ';');
-        if (comment) *comment = '\0';
-
-        // Skip empty lines
-        if (strlen(line) == 0) {
+        // Handle comments (simple version: only if ';' is first non-space char)
+        const char *temp_line = line;
+        while (isspace(*temp_line))
+            temp_line++;
+        if (*temp_line == ';') {
             free(line);
             continue;
         }
+        // More robust comment handling (anywhere on line) could be added here if needed
 
         // Resize buffer if needed
         size_t current_len = strlen(buffer);
@@ -77,9 +110,10 @@ void run_repl() {
 
             char *new_buffer = realloc(buffer, new_size);
             if (!new_buffer) {
-                printf("Memory reallocation failed\n");
+                perror("Memory reallocation failed for input buffer");
                 free(buffer);
                 free(line);
+                sl_mem_shutdown();  // Clean up library memory
                 return;
             }
 
@@ -93,32 +127,44 @@ void run_repl() {
 
         free(line);
 
-        // Check balance using the library function
-        int error_pos = -1;
-        int paren_balance = 0;  // symlisp_validate_parentheses(buffer, &error_pos);
+        // Check balance using the simple checker
+        int paren_balance = check_balance(buffer);
 
         // If balanced, process the expression
         if (paren_balance == 0) {
             if (strlen(buffer) > 0) {
-                // symlispValue *result = symlisp_parse_eval_multi(buffer, global_env);
+                const char *parse_ptr = buffer;
+                const char *end_ptr = NULL;
+                sl_object *result = sl_parse_string(parse_ptr, &end_ptr);
 
-                // Print the result using the output system
-                // symlisp_write_value(result);
-                printf("\n");
+                if (result != SL_NIL) {
+                    const char *check_end = end_ptr;
+                    while (isspace(*check_end))
+                        check_end++;
 
-                // symlisp_free(result);
-                add_history(buffer);  // Add to history only if balanced
+                    if (*check_end == '\0') {
+                        // Successfully parsed the whole buffer
+                        printf("--- DEBUG ---\n");                 // Add separator
+                        sl_debug_print_object(result, stdout, 0);  // Call debug print
+                        printf("-------------\n");                 // Add separator
+                        printf("=> ");                             // Indicate standard result
+                        sl_write_to_stream(result, stdout);
+                        printf("\n");
+                        add_history(buffer);
+                    } else {
+                        fprintf(stderr, "Error: Could not parse entire input. Remaining: '%s'\n", end_ptr);
+                    }
+                } else {
+                    fprintf(stderr, "Error during parsing.\n");
+                }
             }
-            buffer[0] = '\0';  // Reset buffer but keep allocated memory
-
+            buffer[0] = '\0';
             strcpy(prompt, "symlisp> ");
         } else if (paren_balance < 0) {
-            // Unbalanced closing parenthesis - syntax error
-            printf("Error: Unexpected closing bracket at position %d\n", error_pos);
-            buffer[0] = '\0';  // Reset buffer
+            fprintf(stderr, "Error: Unexpected closing parenthesis.\n");
+            buffer[0] = '\0';
             strcpy(prompt, "symlisp> ");
         } else {
-            // Change prompt to show we're awaiting more input
             strcpy(prompt, "...... ");
         }
     }
@@ -132,6 +178,9 @@ void run_repl() {
     }
 
     printf("\nGoodbye!\n");
+
+    // --- Shutdown SymLisp Memory ---
+    sl_mem_shutdown();
 }
 
 int main(int argc, char *argv[]) {

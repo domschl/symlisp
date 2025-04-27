@@ -38,6 +38,7 @@ add_executable(symlisp symlisp.c)
 
 # Include directories and link libraries
 target_include_directories(symlisp PRIVATE
+    ${CMAKE_SOURCE_DIR}/symlisplib  # Explicitly add path to symlisplib headers
     ${Readline_INCLUDE_DIR}
     ${GMP_INCLUDE_DIRS}  # Use the variable set by find_package or manual search
 )

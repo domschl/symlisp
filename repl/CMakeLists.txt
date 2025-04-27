@@ -39,6 +39,8 @@ add_executable(symlisp symlisp.c)
 target_include_directories(symlisp PRIVATE ${Readline_INCLUDE_DIR})
 target_link_libraries(symlisp PRIVATE ${Readline_LIBRARY})
 
+target_link_libraries(symlisp PRIVATE symlisplib)
+
 # On some systems, readline requires additional libraries
 find_library(NCURSES_LIBRARY NAMES ncurses)
 if(NCURSES_LIBRARY)

@@ -35,7 +35,7 @@ typedef struct {
         struct {
             int64_t num;  // Numerator
             int64_t den;  // Denominator (must be > 0)
-        } small;
+        } small_num;
         // Large number representation (using GMP)
         // mpq_t is an array type (mpq_t[1]), so it's stored directly.
         mpq_t big_num;

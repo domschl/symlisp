@@ -5,10 +5,12 @@
 - [x] Implement quote special form in eval.
 - [x] Implement a few simple builtins (car, cdr, cons) and the apply logic for builtins.
 - [x] Populate the global environment with these builtins. Test simple calls like (car (quote (1 2))).
+- [x] Add math for +, -, *, /
 - [ ] Implement lambda special form (creating closures) and apply logic for closures.
 - [ ] Implement define special form. Test defining and calling simple functions.
 - [ ] Implement if special form.
 - [ ] Implement set! special form.
+- [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set
 - [ ] Gradually add more builtins.
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
 

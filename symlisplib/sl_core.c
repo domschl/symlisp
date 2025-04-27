@@ -238,8 +238,8 @@ sl_object *sl_make_number_si(int64_t num, int64_t den) {
     sl_object *new_num = sl_allocate_object();
     new_num->type = SL_TYPE_NUMBER;
     new_num->data.number.is_bignum = false;  // Assume small initially
-    new_num->data.number.value.small.num = num;
-    new_num->data.number.value.small.den = den;
+    new_num->data.number.value.small_num.num = num;
+    new_num->data.number.value.small_num.den = den;
 
     // Note: We don't automatically promote to bignum here.
     // Arithmetic operations will need to handle potential overflow
@@ -272,8 +272,8 @@ sl_object *sl_make_number_q(const mpq_t value_q) {
     if (fits_int64(num_z) && fits_int64(den_z)) {
         // It fits, store as smallnum
         new_num->data.number.is_bignum = false;
-        new_num->data.number.value.small.num = mpz_get_si(num_z);  // Assuming long fits int64_t based on fits_int64 logic
-        new_num->data.number.value.small.den = mpz_get_si(den_z);
+        new_num->data.number.value.small_num.num = mpz_get_si(num_z);  // Assuming long fits int64_t based on fits_int64 logic
+        new_num->data.number.value.small_num.den = mpz_get_si(den_z);
     } else {
         // Doesn't fit, store as bignum
         new_num->data.number.is_bignum = true;
@@ -436,8 +436,8 @@ bool sl_number_get_si(sl_object *obj, int64_t *num_out, int64_t *den_out) {
         return fits;
     } else {
         // It's already a small number
-        *num_out = obj->data.number.value.small.num;
-        *den_out = obj->data.number.value.small.den;
+        *num_out = obj->data.number.value.small_num.num;
+        *den_out = obj->data.number.value.small_num.den;
         return true;
     }
 }
@@ -454,8 +454,8 @@ void sl_number_get_q(sl_object *obj, mpq_t rop) {
     } else {
         // Convert small number to mpq_t
         mpq_set_si(rop,
-                   obj->data.number.value.small.num,
-                   obj->data.number.value.small.den);
+                   obj->data.number.value.small_num.num,
+                   obj->data.number.value.small_num.den);
         mpq_canonicalize(rop);  // Ensure canonical form
     }
 }
@@ -469,7 +469,7 @@ void sl_number_get_num_z(sl_object *obj, mpz_t rop) {
     if (obj->data.number.is_bignum) {
         mpq_get_num(rop, obj->data.number.value.big_num);
     } else {
-        mpz_set_si(rop, obj->data.number.value.small.num);
+        mpz_set_si(rop, obj->data.number.value.small_num.num);
     }
 }
 
@@ -482,7 +482,7 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop) {
     if (obj->data.number.is_bignum) {
         mpq_get_den(rop, obj->data.number.value.big_num);
     } else {
-        mpz_set_si(rop, obj->data.number.value.small.den);
+        mpz_set_si(rop, obj->data.number.value.small_num.den);
     }
 }
 

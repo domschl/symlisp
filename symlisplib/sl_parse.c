@@ -271,8 +271,8 @@ static bool sl_write_recursive(sl_object *obj, sl_string_buffer *sbuf) {
             return ok;
         } else {
             // Small number
-            int64_t num = obj->data.number.value.small.num;
-            int64_t den = obj->data.number.value.small.den;
+            int64_t num = obj->data.number.value.small_num.num;
+            int64_t den = obj->data.number.value.small_num.den;
             if (den == 1) {
                 snprintf(num_buffer, sizeof(num_buffer), "%" PRId64, num);
             } else {
@@ -384,8 +384,8 @@ static bool sl_write_stream_recursive(sl_object *obj, FILE *stream) {
             return true;  // mpq_out_str returns non-zero on success
         } else {
             // Small number
-            int64_t num = obj->data.number.value.small.num;
-            int64_t den = obj->data.number.value.small.den;
+            int64_t num = obj->data.number.value.small_num.num;
+            int64_t den = obj->data.number.value.small_num.den;
             if (den == 1) {
                 return fprintf(stream, "%" PRId64, num) >= 0;
             } else {
@@ -488,8 +488,8 @@ void sl_debug_print_object(sl_object *obj, FILE *stream, int indent) {
             }
         } else {
             fprintf(stream, "[NUMBER:SMALL] %" PRId64 "/%" PRId64 "\n",
-                    obj->data.number.value.small.num,
-                    obj->data.number.value.small.den);
+                    obj->data.number.value.small_num.num,
+                    obj->data.number.value.small_num.den);
         }
         break;
     case SL_TYPE_PAIR:

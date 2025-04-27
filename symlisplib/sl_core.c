@@ -1,12 +1,13 @@
 #include "sl_core.h"
+#include "sl_env.h"  // Include environment functions
 #include <stdio.h>
 #include <stdlib.h>  // For malloc, free, exit
 #include <string.h>  // For memset, strdup
-#include <limits.h>  // For LONG_MIN, LONG_MAX (used for mpz_fits_slong_p check)
+#include <limits.h>  // For LONG_MIN, LONG_MAX
 #include <gmp.h>     // For GMP types and functions
 
 // --- Global Variables ---
-sl_object *sl_global_env = NULL;    // The global environment
+sl_object *sl_global_env = NULL;    // Now an sl_object* pointing to an SL_TYPE_ENV object
 sl_object *sl_symbol_table = NULL;  // Interned symbol table (needs proper init/management)
 sl_object *SL_NIL = NULL;           // The unique empty list object
 sl_object *SL_TRUE = NULL;          // The unique boolean true object
@@ -125,9 +126,14 @@ void sl_mem_init(size_t initial_heap_size) {
     SL_FALSE->next = NULL;
     SL_FALSE->data.boolean = false;
 
-    // Initialize global environment and symbol table (e.g., empty lists)
-    sl_global_env = SL_NIL;
-    sl_symbol_table = SL_NIL;  // Needs a proper implementation (hash table?)
+    // Initialize global environment and symbol table
+    sl_global_env = sl_env_create(SL_NIL);  // Create the global env object (outer is NIL)
+    if (sl_global_env == SL_NIL) {
+        fprintf(stderr, "FATAL: Failed to create global environment.\n");
+        // Maybe free constants and heap before exiting?
+        exit(EXIT_FAILURE);
+    }
+    sl_symbol_table = SL_NIL;  // Placeholder
 }
 
 void sl_mem_shutdown() {
@@ -160,11 +166,11 @@ void sl_mem_shutdown() {
                 if (obj->type == SL_TYPE_NUMBER && obj->data.number.is_bignum) {
                     mpq_clear(obj->data.number.value.big_num);
                 } else if (obj->type == SL_TYPE_STRING && obj->data.string) {
-                    // Free non-symbol strings
                     free(obj->data.string);
                     obj->data.string = NULL;
                 }
-                // No need to handle SL_TYPE_SYMBOL here anymore, done above.
+                // No need to handle SL_TYPE_SYMBOL here (done above).
+                // No need to handle SL_TYPE_ENV here (contents are GC'd objects).
             }
         }
     }
@@ -185,15 +191,14 @@ void sl_mem_shutdown() {
     SL_FALSE = NULL;
 
     // --- Clean up Globals ---
-    // Symbol table pointer already cleared above.
-    sl_global_env = NULL;  // Assuming env cleanup happens elsewhere or is GC'd
+    sl_global_env = NULL;  // Clear the global env pointer
 
     // --- GMP Cleanup ---
     // mp_set_memory_functions(NULL, NULL, NULL); // Restore default allocators if changed
 }
 
 // Simple allocation from the free list
-static sl_object *sl_allocate_object() {
+sl_object *sl_allocate_object() {
     if (free_list == NULL) {
         sl_gc();  // Attempt to collect garbage
         if (free_list == NULL) {
@@ -337,13 +342,19 @@ sl_object *sl_make_pair(sl_object *car, sl_object *cdr) {
     return new_pair;
 }
 
-sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_env *env) {
+sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env_obj) {
+    if (!sl_is_env(env_obj) && env_obj != SL_NIL) {  // Allow NIL env? Maybe not.
+        fprintf(stderr, "Error (make_closure): Invalid environment object provided.\n");
+        return SL_NIL;  // Indicate error
+    }
     sl_object *new_func = sl_allocate_object();
+    if (!new_func) return SL_NIL;  // Allocation failed
+
     new_func->type = SL_TYPE_FUNCTION;
     new_func->data.function.is_builtin = false;
     new_func->data.function.def.closure.params = params;
     new_func->data.function.def.closure.body = body;
-    new_func->data.function.def.closure.env = env;  // Environment capture
+    new_func->data.function.def.closure.env = env_obj;  // Store the env object pointer
     return new_func;
 }
 
@@ -431,7 +442,7 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop) {
 // --- Garbage Collection (Mark and Sweep) ---
 
 // Mark phase: Recursively mark all reachable objects
-static void sl_gc_mark(sl_object *obj) {
+void sl_gc_mark(sl_object *obj) {
     // Check if obj pointer is valid within the heap range OR if it's a known constant
     bool is_in_heap = (obj >= heap_start && obj < heap_start + heap_size);
     bool is_constant = (obj == SL_NIL || obj == SL_TRUE || obj == SL_FALSE);
@@ -464,9 +475,13 @@ static void sl_gc_mark(sl_object *obj) {
             // Mark closure components
             sl_gc_mark(obj->data.function.def.closure.params);
             sl_gc_mark(obj->data.function.def.closure.body);
-            // TODO: Mark the environment (sl_env*) - requires defining sl_env marking
-            // sl_gc_mark_env(obj->data.function.def.closure.env);
+            // Mark the captured environment object
+            sl_gc_mark(obj->data.function.def.closure.env);  // Mark the sl_object*
         }
+        break;
+    case SL_TYPE_ENV:                        // New case for environment objects
+        sl_gc_mark(obj->data.env.bindings);  // Mark the list of bindings
+        sl_gc_mark(obj->data.env.outer);     // Mark the outer environment object
         break;
     case SL_TYPE_NUMBER:   // Numbers don't reference other sl_objects
     case SL_TYPE_STRING:   // String data is freed in sweep, no sl_object refs
@@ -503,7 +518,7 @@ static void sl_gc_sweep() {
             // Reachable: unmark for the next cycle
             obj->marked = false;
         } else {
-            // Unreachable: free associated resources and add to free list
+            // Unreachable: free associated resources
             switch (obj->type) {
             case SL_TYPE_NUMBER:
                 if (obj->data.number.is_bignum) {
@@ -520,9 +535,9 @@ static void sl_gc_sweep() {
                 free(obj->data.symbol);   // XXX Note: Once you implement proper symbol interning, you will need to change this again. With interning, the symbol table would own the strings, and they would only be freed during sl_mem_shutdown after clearing the table, not during the regular GC sweep.)
                 obj->data.symbol = NULL;  // Optional: clear pointer after freeing
                 break;
-            // Pairs, Functions, Booleans, Nil don't allocate extra memory handled here
             case SL_TYPE_PAIR:
-            case SL_TYPE_FUNCTION:
+            case SL_TYPE_FUNCTION:  // No extra freeing needed for function object itself
+            case SL_TYPE_ENV:       // No extra freeing needed for env object itself
             case SL_TYPE_BOOLEAN:
             case SL_TYPE_NIL:
                 break;  // No extra freeing needed besides the object slot itself
@@ -550,10 +565,10 @@ void sl_gc() {
     // printf("Starting GC... Free count before: %zu\n", free_count);
 
     // 1. Mark all objects reachable from the root set
-    sl_gc_mark(sl_global_env);
-    sl_gc_mark(sl_symbol_table);  // Mark symbols reachable via the table
+    sl_gc_mark(sl_global_env);  // Mark the global environment object
+    sl_gc_mark(sl_symbol_table);
 
-    // TODO: Mark objects reachable from the C stack (crucial!)
+    // TODO: Mark stack roots
 
     // 2. Sweep unreachable objects
     sl_gc_sweep();

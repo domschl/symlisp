@@ -507,7 +507,7 @@ void sl_debug_print_object(sl_object *obj, FILE *stream, int indent) {
     case SL_TYPE_FUNCTION:
         if (obj->data.function.is_builtin) {
             fprintf(stream, "[FUNCTION:BUILTIN] %s\n",
-                    obj->data.function.def.builtin.name ? obj->data.function.def.builtin.name : "<???>");
+                    obj->data.function.def.builtin.name ? obj->data.function.def.builtin.name : "<unknown>");
         } else {
             fprintf(stream, "[FUNCTION:CLOSURE]\n");
             // Optionally print params/body structure if needed later

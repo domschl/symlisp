@@ -1,14 +1,28 @@
 #ifndef SL_CORE_H
 #define SL_CORE_H
 
-#include <stddef.h>   // For size_t
-#include <stdbool.h>  // For bool
-#include <stdint.h>   // For int64_t
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <gmp.h>
 
-// Forward declarations
-typedef struct sl_object sl_object;
-typedef struct sl_env sl_env;  // Environment structure (to be defined elsewhere, e.g., sl_eval.h)
+// Forward declaration
+struct sl_object;
+// Remove forward declaration for sl_env, it's integrated now
+// struct sl_env;
+
+// --- Core Object Types ---
+typedef enum {
+    SL_TYPE_FREE = 0,  // Must be 0 for default memset state
+    SL_TYPE_NIL,
+    SL_TYPE_BOOLEAN,
+    SL_TYPE_NUMBER,
+    SL_TYPE_STRING,
+    SL_TYPE_SYMBOL,
+    SL_TYPE_PAIR,
+    SL_TYPE_FUNCTION,
+    SL_TYPE_ENV  // New type for environment objects
+} sl_object_type;
 
 // --- Number Representation ---
 // Represents an arbitrary precision rational number.
@@ -31,60 +45,46 @@ typedef struct {
 typedef struct {
     bool is_builtin;
     union {
-        // User-defined function (closure)
-        struct {
-            sl_object *params;  // List of symbols
-            sl_object *body;    // List of expressions
-            sl_env *env;        // Captured environment
-        } closure;
-        // Built-in function
+        // Builtin function (implemented in C)
         struct {
             const char *name;  // Name for debugging/printing
-            // Signature: takes list of evaluated args, returns result
-            sl_object *(*func_ptr)(sl_object *args);
+            struct sl_object *(*func_ptr)(struct sl_object *args);
         } builtin;
+        // User-defined function (closure)
+        struct {
+            struct sl_object *params;  // List of parameter symbols
+            struct sl_object *body;    // List of body expressions
+            struct sl_object *env;     // Captured environment (now an sl_object*)
+        } closure;
     } def;
 } sl_function;
 
-// --- Core Object Types ---
-typedef enum {
-    SL_TYPE_NUMBER,
-    SL_TYPE_STRING,
-    SL_TYPE_BOOLEAN,
-    SL_TYPE_SYMBOL,
-    SL_TYPE_PAIR,
-    SL_TYPE_FUNCTION,
-    SL_TYPE_NIL,
-    SL_TYPE_FREE  // Internal type for free list management
-} sl_object_type;
-
-// Structure for a Scheme pair (cons cell)
-typedef struct {
-    sl_object *car;
-    sl_object *cdr;
-} sl_pair;
-
-// The core Scheme object structure
-// Using a union for type-specific data
-struct sl_object {
+// --- Core Object Structure ---
+typedef struct sl_object {
     sl_object_type type;
-    bool marked;  // For garbage collection
+    bool marked;             // For garbage collection
+    struct sl_object *next;  // Used for free list linking
+
     union {
-        sl_number number;      // Rational number (fixed or arbitrary precision)
-        char *string;          // Allocated UTF-8 string
-        bool boolean;          // Boolean value (#t or #f)
-        char *symbol;          // Allocated, interned symbol name
-        sl_pair pair;          // Cons cell
-        sl_function function;  // Function (builtin or closure)
-        // NIL has no specific data field
+        bool boolean;
+        sl_number number;
+        char *string;
+        char *symbol;  // Pointer to the interned symbol name string
+        struct {
+            struct sl_object *car;
+            struct sl_object *cdr;
+        } pair;
+        sl_function function;
+        // New struct for environment data within the object
+        struct {
+            struct sl_object *bindings;  // List of pairs: ((symbol . value) ...)
+            struct sl_object *outer;     // Pointer to the enclosing environment object (or SL_NIL)
+        } env;
     } data;
-    sl_object *next;  // For managing the heap / free list
-};
+} sl_object;
 
 // --- Global Variables ---
-
-// The 'root set' for garbage collection (start with globals/stack)
-extern sl_object *sl_global_env;    // The global environment
+extern sl_object *sl_global_env;    // Now an sl_object*
 extern sl_object *sl_symbol_table;  // Interned symbol table (e.g., a list or hash table)
 
 // --- Constants ---
@@ -105,13 +105,15 @@ sl_object *sl_make_number_q(const mpq_t value);          // Create rational from
 sl_object *sl_make_string(const char *str);
 sl_object *sl_make_symbol(const char *name);  // Interns the symbol
 sl_object *sl_make_pair(sl_object *car, sl_object *cdr);
-sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_env *env);
+sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env_obj);  // Takes sl_object* env
 sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *args));
 
 // Trigger garbage collection
 // NOTE: GC sweep phase must call mpq_clear() on unreachable SL_TYPE_NUMBER objects
 //       where is_bignum is true before adding them to the free list.
 void sl_gc();
+void sl_gc_mark(sl_object *obj);
+sl_object *sl_allocate_object();
 
 // Clean up memory management system (Must also clean up any global GMP state if needed)
 void sl_mem_shutdown();
@@ -130,6 +132,7 @@ void sl_mem_shutdown();
 #define sl_is_function(obj) ((obj) != NULL && (obj)->type == SL_TYPE_FUNCTION)
 #define sl_is_closure(obj) (sl_is_function(obj) && !(obj)->data.function.is_builtin)
 #define sl_is_builtin(obj) (sl_is_function(obj) && (obj)->data.function.is_builtin)
+#define sl_is_env(obj) ((obj) && (obj)->type == SL_TYPE_ENV)
 
 // --- Accessor Macros/Functions (Add error checking!) ---
 // Pair accessors
@@ -161,7 +164,25 @@ bool fits_int64(const mpz_t val);
 #define sl_closure_params(obj) ((obj)->data.function.def.closure.params)
 #define sl_closure_body(obj) ((obj)->data.function.def.closure.body)
 #define sl_closure_env(obj) ((obj)->data.function.def.closure.env)
-#define sl_builtin_name(obj) ((obj)->data.function.def.builtin.name)
-#define sl_builtin_func(obj) ((obj)->data.function.def.builtin.func_ptr)
+
+// Environment accessors
+#define sl_env_bindings(obj) ((obj)->data.env.bindings)
+#define sl_env_outer(obj) ((obj)->data.env.outer)
+#define sl_set_env_bindings(obj, val) ((obj)->data.env.bindings = (val))
+
+// --- Number accessors and helpers ---
+// Gets the value as a GMP rational (copies into rop). Converts smallnum if necessary.
+// 'rop' must be initialized by the caller (mpq_init).
+void sl_number_get_q(sl_object *obj, mpq_t rop);
+// Gets the numerator as GMP integer (copies into rop).
+// 'rop' must be initialized by the caller (mpz_init).
+void sl_number_get_num_z(sl_object *obj, mpz_t rop);
+// Gets the denominator as GMP integer (copies into rop).
+// 'rop' must be initialized by the caller (mpz_init).
+void sl_number_get_den_z(sl_object *obj, mpz_t rop);
+bool fits_int64(const mpz_t val);
+
+// --- Garbage Collection ---
+void sl_gc_mark(sl_object *obj);  // Declaration remains
 
 #endif  // SL_CORE_H

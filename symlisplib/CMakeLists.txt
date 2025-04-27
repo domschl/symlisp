@@ -5,6 +5,7 @@ cmake_minimum_required(VERSION 3.10)
 add_library(symlisplib STATIC
     sl_core.c
     sl_parse.c
+    sl_env.c
 )
 
 # Make the header files in the current directory available

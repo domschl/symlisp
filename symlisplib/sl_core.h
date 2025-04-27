@@ -42,22 +42,26 @@ typedef struct {
     } value;
 } sl_number;
 
-// --- Function Representation ---
+// --- Function Definition ---
+typedef struct sl_object *(*sl_builtin_func_ptr)(struct sl_object *args);
+
+typedef union {
+    // Builtin function
+    struct {
+        const char *name;  // Name for debugging/printing
+        sl_builtin_func_ptr func_ptr;
+    } builtin;
+    // Closure (user-defined function)
+    struct {
+        struct sl_object *params;  // List of parameter symbols
+        struct sl_object *body;    // Body expression (or list for implicit begin)
+        struct sl_object *env;     // Captured environment (SL_TYPE_ENV)
+    } closure;
+} sl_function_def;
+
 typedef struct {
     bool is_builtin;
-    union {
-        // Builtin function (implemented in C)
-        struct {
-            const char *name;  // Name for debugging/printing
-            struct sl_object *(*func_ptr)(struct sl_object *args);
-        } builtin;
-        // User-defined function (closure)
-        struct {
-            struct sl_object *params;  // List of parameter symbols
-            struct sl_object *body;    // List of body expressions
-            struct sl_object *env;     // Captured environment (now an sl_object*)
-        } closure;
-    } def;
+    sl_function_def def;
 } sl_function;
 
 // --- Core Object Structure ---
@@ -107,7 +111,7 @@ sl_object *sl_make_number_q(const mpq_t value);          // Create rational from
 sl_object *sl_make_string(const char *str);
 sl_object *sl_make_symbol(const char *name);  // Interns the symbol
 sl_object *sl_make_pair(sl_object *car, sl_object *cdr);
-sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env_obj);  // Takes sl_object* env
+sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env);
 sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *args));
 /**
  * @brief Creates a new error object with a formatted message.
@@ -124,7 +128,7 @@ sl_object *sl_make_errorf(const char *fmt, ...);
 // NOTE: GC sweep phase must call mpq_clear() on unreachable SL_TYPE_NUMBER objects
 //       where is_bignum is true before adding them to the free list.
 void sl_gc();
-void sl_gc_mark(sl_object *obj);
+static void sl_gc_mark(sl_object *obj);
 sl_object *sl_allocate_object();
 
 // Clean up memory management system (Must also clean up any global GMP state if needed)
@@ -147,7 +151,7 @@ void sl_mem_shutdown();
 #define sl_is_env(obj) ((obj) && (obj)->type == SL_TYPE_ENV)
 #define sl_is_error(obj) ((obj) && (obj)->type == SL_TYPE_ERROR)
 
-// --- Accessor Macros/Functions (Add error checking!) ---
+// --- Accessor Macros/Functions ---
 // Pair accessors
 #define sl_car(obj) ((obj)->data.pair.car)
 #define sl_cdr(obj) ((obj)->data.pair.cdr)
@@ -177,6 +181,8 @@ bool fits_int64(const mpz_t val);
 #define sl_closure_params(obj) ((obj)->data.function.def.closure.params)
 #define sl_closure_body(obj) ((obj)->data.function.def.closure.body)
 #define sl_closure_env(obj) ((obj)->data.function.def.closure.env)
+#define sl_builtin_name(obj) ((obj)->data.function.def.builtin.name)
+#define sl_builtin_ptr(obj) ((obj)->data.function.def.builtin.func_ptr)
 
 // Environment accessors
 #define sl_env_bindings(obj) ((obj)->data.env.bindings)
@@ -194,9 +200,6 @@ void sl_number_get_num_z(sl_object *obj, mpz_t rop);
 // 'rop' must be initialized by the caller (mpz_init).
 void sl_number_get_den_z(sl_object *obj, mpz_t rop);
 bool fits_int64(const mpz_t val);
-
-// --- Garbage Collection ---
-void sl_gc_mark(sl_object *obj);  // Declaration remains
 
 // --- Error Handling Accessors ---
 #define sl_error_message(obj) ((obj)->data.error_message)

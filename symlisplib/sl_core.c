@@ -343,20 +343,24 @@ sl_object *sl_make_pair(sl_object *car, sl_object *cdr) {
     return new_pair;
 }
 
-sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env_obj) {
-    if (!sl_is_env(env_obj) && env_obj != SL_NIL) {  // Allow NIL env? Maybe not.
-        fprintf(stderr, "Error (make_closure): Invalid environment object provided.\n");
-        return SL_NIL;  // Indicate error
+sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env) {
+    if (!sl_is_env(env)) {
+        fprintf(stderr, "Internal Error: sl_make_closure requires a valid environment.\n");
+        return SL_NIL;  // Or perhaps an internal error object?
     }
-    sl_object *new_func = sl_allocate_object();
-    if (!new_func) return SL_NIL;  // Allocation failed
+    // Basic validation of params (should be list of symbols or NIL) - can enhance later
+    // Basic validation of body (should not be NULL) - can enhance later
 
-    new_func->type = SL_TYPE_FUNCTION;
-    new_func->data.function.is_builtin = false;
-    new_func->data.function.def.closure.params = params;
-    new_func->data.function.def.closure.body = body;
-    new_func->data.function.def.closure.env = env_obj;  // Store the env object pointer
-    return new_func;
+    sl_object *func_obj = sl_allocate_object();
+    if (!func_obj) return SL_NIL;
+
+    func_obj->type = SL_TYPE_FUNCTION;
+    func_obj->data.function.is_builtin = false;
+    func_obj->data.function.def.closure.params = params;
+    func_obj->data.function.def.closure.body = body;
+    func_obj->data.function.def.closure.env = env;
+
+    return func_obj;
 }
 
 sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *args)) {
@@ -489,46 +493,29 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop) {
 // --- Garbage Collection (Mark and Sweep) ---
 
 // Mark phase: Recursively mark all reachable objects
-void sl_gc_mark(sl_object *obj) {
-    // Check if obj pointer is valid within the heap range OR if it's a known constant
-    bool is_in_heap = (obj >= heap_start && obj < heap_start + heap_size);
-    bool is_constant = (obj == SL_NIL || obj == SL_TRUE || obj == SL_FALSE);
-
-    if (obj == NULL || (!is_in_heap && !is_constant)) {
-        // fprintf(stderr, "Warning: Trying to mark invalid pointer: %p\n", (void*)obj);
-        return;  // Not a valid object pointer we manage or NULL
-    }
-
-    // Constants don't live in the heap, don't try to mark them directly
-    if (is_constant) {
+static void sl_gc_mark(sl_object *root) {
+    if (!root || root->marked) {
         return;
     }
+    root->marked = true;
 
-    // If it's in the heap, check if already marked
-    if (obj->marked) {
-        return;
-    }
-
-    obj->marked = true;
-
-    // Recursively mark children based on type
-    switch (obj->type) {
+    switch (root->type) {
     case SL_TYPE_PAIR:
-        sl_gc_mark(obj->data.pair.car);
-        sl_gc_mark(obj->data.pair.cdr);
+        sl_gc_mark(sl_car(root));
+        sl_gc_mark(sl_cdr(root));
         break;
     case SL_TYPE_FUNCTION:
-        if (!obj->data.function.is_builtin) {
+        if (!root->data.function.is_builtin) {
             // Mark closure components
-            sl_gc_mark(obj->data.function.def.closure.params);
-            sl_gc_mark(obj->data.function.def.closure.body);
-            // Mark the captured environment object
-            sl_gc_mark(obj->data.function.def.closure.env);  // Mark the sl_object*
+            sl_gc_mark(root->data.function.def.closure.params);
+            sl_gc_mark(root->data.function.def.closure.body);
+            sl_gc_mark(root->data.function.def.closure.env);
         }
+        // Builtin name is const char*, func_ptr is code - no marking needed
         break;
-    case SL_TYPE_ENV:                        // New case for environment objects
-        sl_gc_mark(obj->data.env.bindings);  // Mark the list of bindings
-        sl_gc_mark(obj->data.env.outer);     // Mark the outer environment object
+    case SL_TYPE_ENV:
+        sl_gc_mark(root->data.env.bindings);
+        sl_gc_mark(root->data.env.outer);
         break;
     case SL_TYPE_NUMBER:   // Numbers don't reference other sl_objects
     case SL_TYPE_STRING:   // String data is freed in sweep, no sl_object refs
@@ -539,7 +526,7 @@ void sl_gc_mark(sl_object *obj) {
         break;
     default:
         // Should not happen
-        fprintf(stderr, "Warning: Unknown object type %d during GC mark.\n", obj->type);
+        fprintf(stderr, "Warning: Unknown object type %d during GC mark.\n", root->type);
         break;
     }
 }

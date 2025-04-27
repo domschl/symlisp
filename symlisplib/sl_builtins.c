@@ -286,6 +286,113 @@ static sl_object *sl_builtin_div(sl_object *args) {
     return result_obj;
 }
 
+// --- Comparison Builtins ---
+
+// (= num1 num2) - Numeric equality
+static sl_object *sl_builtin_num_eq(sl_object *args) {
+    sl_object *arity_check = check_arity("=", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    mpq_t num1_q, num2_q;
+    // get_number_as_mpq initializes the mpq_t vars if successful
+    if (!get_number_as_mpq(sl_car(args), num1_q, "=")) {
+        // Error: first arg not number. num1_q not initialized.
+        return sl_make_errorf("Error (=): First argument is not a number.");
+    }
+    if (!get_number_as_mpq(sl_car(sl_cdr(args)), num2_q, "=")) {
+        // Error: second arg not number. num2_q not initialized.
+        mpq_clear(num1_q);  // Clear the first one which was initialized.
+        return sl_make_errorf("Error (=): Second argument is not a number.");
+    }
+
+    // Both numbers successfully retrieved and mpq_t initialized
+    int cmp_result = mpq_cmp(num1_q, num2_q);
+
+    mpq_clears(num1_q, num2_q, NULL);  // Clear both temporaries
+
+    return (cmp_result == 0) ? SL_TRUE : SL_FALSE;
+}
+
+// (> num1 num2) - Greater than
+static sl_object *sl_builtin_gt(sl_object *args) {
+    sl_object *arity_check = check_arity(">", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    mpq_t num1_q, num2_q;
+    if (!get_number_as_mpq(sl_car(args), num1_q, ">")) {
+        return sl_make_errorf("Error (>): First argument is not a number.");
+    }
+    if (!get_number_as_mpq(sl_car(sl_cdr(args)), num2_q, ">")) {
+        mpq_clear(num1_q);
+        return sl_make_errorf("Error (>): Second argument is not a number.");
+    }
+
+    int cmp_result = mpq_cmp(num1_q, num2_q);
+    mpq_clears(num1_q, num2_q, NULL);
+
+    return (cmp_result > 0) ? SL_TRUE : SL_FALSE;
+}
+
+// (< num1 num2) - Less than
+static sl_object *sl_builtin_lt(sl_object *args) {
+    sl_object *arity_check = check_arity("<", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    mpq_t num1_q, num2_q;
+    if (!get_number_as_mpq(sl_car(args), num1_q, "<")) {
+        return sl_make_errorf("Error (<): First argument is not a number.");
+    }
+    if (!get_number_as_mpq(sl_car(sl_cdr(args)), num2_q, "<")) {
+        mpq_clear(num1_q);
+        return sl_make_errorf("Error (<): Second argument is not a number.");
+    }
+
+    int cmp_result = mpq_cmp(num1_q, num2_q);
+    mpq_clears(num1_q, num2_q, NULL);
+
+    return (cmp_result < 0) ? SL_TRUE : SL_FALSE;
+}
+
+// (>= num1 num2) - Greater than or equal to
+static sl_object *sl_builtin_ge(sl_object *args) {
+    sl_object *arity_check = check_arity(">=", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    mpq_t num1_q, num2_q;
+    if (!get_number_as_mpq(sl_car(args), num1_q, ">=")) {
+        return sl_make_errorf("Error (>=): First argument is not a number.");
+    }
+    if (!get_number_as_mpq(sl_car(sl_cdr(args)), num2_q, ">=")) {
+        mpq_clear(num1_q);
+        return sl_make_errorf("Error (>=): Second argument is not a number.");
+    }
+
+    int cmp_result = mpq_cmp(num1_q, num2_q);
+    mpq_clears(num1_q, num2_q, NULL);
+
+    return (cmp_result >= 0) ? SL_TRUE : SL_FALSE;
+}
+
+// (<= num1 num2) - Less than or equal to
+static sl_object *sl_builtin_le(sl_object *args) {
+    sl_object *arity_check = check_arity("<=", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    mpq_t num1_q, num2_q;
+    if (!get_number_as_mpq(sl_car(args), num1_q, "<=")) {
+        return sl_make_errorf("Error (<=): First argument is not a number.");
+    }
+    if (!get_number_as_mpq(sl_car(sl_cdr(args)), num2_q, "<=")) {
+        mpq_clear(num1_q);
+        return sl_make_errorf("Error (<=): Second argument is not a number.");
+    }
+
+    int cmp_result = mpq_cmp(num1_q, num2_q);
+    mpq_clears(num1_q, num2_q, NULL);
+
+    return (cmp_result <= 0) ? SL_TRUE : SL_FALSE;
+}
+
 // --- Builtin Initialization ---
 
 // Helper to define a builtin
@@ -307,23 +414,25 @@ void sl_builtins_init(sl_object *global_env) {
         return;
     }
 
+    // Core list operations
     define_builtin(global_env, "car", sl_builtin_car);
     define_builtin(global_env, "cdr", sl_builtin_cdr);
     define_builtin(global_env, "cons", sl_builtin_cons);
 
-    // Add math builtins
+    // Arithmetic operations
     define_builtin(global_env, "+", sl_builtin_add);
     define_builtin(global_env, "-", sl_builtin_sub);
     define_builtin(global_env, "*", sl_builtin_mul);
     define_builtin(global_env, "/", sl_builtin_div);
 
+    // Comparison operations
+    define_builtin(global_env, "=", sl_builtin_num_eq);
+    define_builtin(global_env, ">", sl_builtin_gt);
+    define_builtin(global_env, "<", sl_builtin_lt);
+    define_builtin(global_env, ">=", sl_builtin_ge);
+    define_builtin(global_env, "<=", sl_builtin_le);
+
     // Add more builtins here later...
-    // define_builtin(global_env, "=", sl_builtin_num_eq);
-    // define_builtin(global_env, "<", sl_builtin_num_lt);
-    // define_builtin(global_env, ">", sl_builtin_num_gt);
-    // define_builtin(global_env, "eq?", sl_builtin_eq_q);
-    // define_builtin(global_env, "pair?", sl_builtin_pair_q);
-    // define_builtin(global_env, "null?", sl_builtin_null_q);
     // define_builtin(global_env, "display", sl_builtin_display);
     // define_builtin(global_env, "newline", sl_builtin_newline);
 }

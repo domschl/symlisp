@@ -10,6 +10,14 @@ add_library(symlisplib STATIC
 
 # Make the header files in the current directory available
 # to targets linking against this library.
+# Also add GMP include directories publicly because sl_core.h includes gmp.h
 target_include_directories(symlisplib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${GMP_INCLUDE_DIRS} # Add GMP include path
+)
+
+# Link the library against GMP.
+# Use PUBLIC because the interface (sl_core.h) exposes GMP types.
+target_link_libraries(symlisplib PUBLIC
+    ${GMP_LIBRARIES} # Link against GMP
 )

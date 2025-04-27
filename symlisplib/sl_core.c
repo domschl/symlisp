@@ -131,25 +131,40 @@ void sl_mem_init(size_t initial_heap_size) {
 }
 
 void sl_mem_shutdown() {
-    // --- Clear GMP numbers and free strings/symbols in the heap ---
-    // This is crucial to release resources held by live objects before freeing the heap itself.
+    // --- Clean up Symbol Table Strings (Placeholder Logic) ---
+    // Since the placeholder sl_make_symbol uses strdup and adds all symbols
+    // to the table, we must free the strings here before freeing the heap.
+    sl_object *current = sl_symbol_table;
+    while (sl_is_pair(current)) {
+        sl_object *pair = current;
+        sl_object *symbol_obj = sl_car(pair);
+        // Check if the car is actually a symbol (it should be)
+        if (symbol_obj && symbol_obj->type == SL_TYPE_SYMBOL && symbol_obj->data.symbol) {
+            // Free the string allocated by strdup in the placeholder sl_make_symbol
+            free(symbol_obj->data.symbol);
+            // Set to NULL to prevent potential double-free if somehow processed again
+            symbol_obj->data.symbol = NULL;
+        }
+        current = sl_cdr(pair);
+        // Note: We don't free the pair objects themselves here; they are part of the main heap
+        // and will be freed along with it.
+    }
+    sl_symbol_table = SL_NIL;  // Clear the root pointer after processing
+
+    // --- Clear GMP numbers and free strings in the rest of the heap ---
+    // (Strings other than symbol names, if any were left)
     if (heap_start) {
         for (size_t i = 0; i < heap_size; ++i) {
             sl_object *obj = &heap_start[i];
             if (obj->type != SL_TYPE_FREE) {
                 if (obj->type == SL_TYPE_NUMBER && obj->data.number.is_bignum) {
                     mpq_clear(obj->data.number.value.big_num);
-                } else if (obj->type == SL_TYPE_STRING) {
-                    free(obj->data.string);  // Free string data
-                } else if (obj->type == SL_TYPE_SYMBOL) {
-                    // Symbol strings might be shared/interned - careful cleanup needed
-                    // If symbols are truly interned, cleanup happens via symbol table.
-                    // If not interned, free here: free(obj->data.symbol);
-                    // Assuming symbol table owns strings for now.
+                } else if (obj->type == SL_TYPE_STRING && obj->data.string) {
+                    // Free non-symbol strings
+                    free(obj->data.string);
+                    obj->data.string = NULL;
                 }
-                // Clear object memory for safety
-                obj->type = SL_TYPE_FREE;
-                memset(&obj->data, 0, sizeof(obj->data));
+                // No need to handle SL_TYPE_SYMBOL here anymore, done above.
             }
         }
     }
@@ -170,12 +185,10 @@ void sl_mem_shutdown() {
     SL_FALSE = NULL;
 
     // --- Clean up Globals ---
-    // Proper cleanup of symbol table (freeing list nodes and symbol strings) needed here
-    sl_symbol_table = NULL;
-    sl_global_env = NULL;
+    // Symbol table pointer already cleared above.
+    sl_global_env = NULL;  // Assuming env cleanup happens elsewhere or is GC'd
 
     // --- GMP Cleanup ---
-    // If using GMP's custom memory allocation, clean it up here.
     // mp_set_memory_functions(NULL, NULL, NULL); // Restore default allocators if changed
 }
 
@@ -502,11 +515,10 @@ static void sl_gc_sweep() {
                 obj->data.string = NULL;
                 break;
             case SL_TYPE_SYMBOL:
-                // If symbols are NOT interned and managed solely by the object:
-                // free(obj->data.symbol);
-                // obj->data.symbol = NULL;
-                // If symbols ARE interned, the symbol table manages freeing strings.
-                // Do nothing here regarding the string pointer itself.
+                // Since the current sl_make_symbol uses strdup (no interning),
+                // we MUST free the string when the symbol object is collected.
+                free(obj->data.symbol);   // XXX Note: Once you implement proper symbol interning, you will need to change this again. With interning, the symbol table would own the strings, and they would only be freed during sl_mem_shutdown after clearing the table, not during the regular GC sweep.)
+                obj->data.symbol = NULL;  // Optional: clear pointer after freeing
                 break;
             // Pairs, Functions, Booleans, Nil don't allocate extra memory handled here
             case SL_TYPE_PAIR:

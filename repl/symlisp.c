@@ -151,6 +151,9 @@ void run_repl() {
                         sl_write_to_stream(result, stdout);
                         printf("\n");
                         add_history(buffer);
+                        // --- Trigger Garbage Collection ---
+                        sl_gc();
+                        // ----------------------------------
                     } else {
                         fprintf(stderr, "Error: Could not parse entire input. Remaining: '%s'\n", end_ptr);
                     }

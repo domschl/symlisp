@@ -34,11 +34,12 @@ void sl_env_define(sl_object *env_obj, sl_object *symbol, sl_object *value) {
         return;
     }
 
-    // Check if the symbol already exists *in this specific frame*
+    // Check if the symbol already exists *in this specific frame* using strcmp
     sl_object *current_binding = sl_env_bindings(env_obj);
     while (sl_is_pair(current_binding)) {
         sl_object *pair = sl_car(current_binding);
-        if (sl_is_pair(pair) && sl_car(pair) == symbol) {
+        if (sl_is_pair(pair) && sl_is_symbol(sl_car(pair)) &&
+            strcmp(sl_symbol_name(sl_car(pair)), sl_symbol_name(symbol)) == 0) {
             // Found existing binding in this frame, update it
             sl_set_cdr(pair, value);
             return;
@@ -48,10 +49,10 @@ void sl_env_define(sl_object *env_obj, sl_object *symbol, sl_object *value) {
 
     // Not found in this frame, create a new binding pair and prepend it
     sl_object *new_binding_pair = sl_make_pair(symbol, value);
-    // Prepend to the bindings list stored within the env object
     sl_set_env_bindings(env_obj, sl_make_pair(new_binding_pair, sl_env_bindings(env_obj)));
 }
 
+// Update sl_env_set to use strcmp
 bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     if (!sl_is_symbol(symbol)) {
         fprintf(stderr, "Error (set!): Invalid symbol.\n");
@@ -59,19 +60,18 @@ bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     }
 
     sl_object *current_env_obj = env_obj;
-    while (sl_is_env(current_env_obj)) {  // Iterate as long as we have a valid env object
+    while (sl_is_env(current_env_obj)) {
         sl_object *current_binding = sl_env_bindings(current_env_obj);
         while (sl_is_pair(current_binding)) {
             sl_object *pair = sl_car(current_binding);
-            // Direct pointer comparison (assumes interning)
-            if (sl_is_pair(pair) && sl_car(pair) == symbol) {
-                // Found the binding, update the value
+            // Use strcmp for comparison
+            if (sl_is_pair(pair) && sl_is_symbol(sl_car(pair)) &&
+                strcmp(sl_symbol_name(sl_car(pair)), sl_symbol_name(symbol)) == 0) {
                 sl_set_cdr(pair, value);
                 return true;
             }
             current_binding = sl_cdr(current_binding);
         }
-        // Not found in this frame, check the outer environment
         current_env_obj = sl_env_outer(current_env_obj);
     }
     // If current_env_obj became SL_NIL, we reached the end without finding it.
@@ -85,6 +85,7 @@ bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     return false;
 }
 
+// Update sl_env_lookup to use strcmp
 sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
     if (!sl_is_symbol(symbol)) {
         fprintf(stderr, "Error (lookup): Invalid symbol.\n");
@@ -92,18 +93,18 @@ sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
     }
 
     sl_object *current_env_obj = env_obj;
-    while (sl_is_env(current_env_obj)) {  // Iterate as long as we have a valid env object
+    while (sl_is_env(current_env_obj)) {
         sl_object *current_binding = sl_env_bindings(current_env_obj);
         while (sl_is_pair(current_binding)) {
             sl_object *pair = sl_car(current_binding);
-            // Direct pointer comparison (assumes interning)
-            if (sl_is_pair(pair) && sl_car(pair) == symbol) {
+            // Use strcmp for comparison
+            if (sl_is_pair(pair) && sl_is_symbol(sl_car(pair)) &&
+                strcmp(sl_symbol_name(sl_car(pair)), sl_symbol_name(symbol)) == 0) {
                 // Found the binding, return the value (cdr of the inner pair)
                 return sl_cdr(pair);
             }
             current_binding = sl_cdr(current_binding);
         }
-        // Not found in this frame, check the outer environment
         current_env_obj = sl_env_outer(current_env_obj);
     }
     // If current_env_obj became SL_NIL, we reached the end without finding it.

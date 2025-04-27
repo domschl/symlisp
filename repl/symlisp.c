@@ -12,6 +12,9 @@
 // Include the SymLisp library headers
 #include "sl_core.h"
 #include "sl_parse.h"
+#include "sl_env.h"  // Include for sl_global_env access (though it's extern in sl_core.h)
+#include "sl_eval.h"
+#include "sl_builtins.h"  // Include builtins header
 
 // Simple parenthesis balance checker (replace with more robust later if needed)
 int check_balance(const char *str) {
@@ -37,8 +40,10 @@ int check_balance(const char *str) {
 }
 
 void run_repl() {
-    // --- Initialize SymLisp Memory ---
-    sl_mem_init(0);  // Use default heap size for now
+    // --- Initialize SymLisp Memory & Builtins ---
+    sl_mem_init(0);
+    sl_builtins_init(sl_global_env);  // Initialize builtins after memory/global env
+    // -------------------------------------------
 
     char *home_dir = getenv("HOME");
     char history_dir[1024] = "";
@@ -135,29 +140,39 @@ void run_repl() {
             if (strlen(buffer) > 0) {
                 const char *parse_ptr = buffer;
                 const char *end_ptr = NULL;
-                sl_object *result = sl_parse_string(parse_ptr, &end_ptr);
+                sl_object *parse_result = sl_parse_string(parse_ptr, &end_ptr);
 
-                if (result != SL_NIL) {
+                if (parse_result != SL_NIL) {
                     const char *check_end = end_ptr;
                     while (isspace(*check_end))
                         check_end++;
 
                     if (*check_end == '\0') {
                         // Successfully parsed the whole buffer
-                        printf("--- DEBUG ---\n");                 // Add separator
-                        sl_debug_print_object(result, stdout, 0);  // Call debug print
-                        printf("-------------\n");                 // Add separator
-                        printf("=> ");                             // Indicate standard result
-                        sl_write_to_stream(result, stdout);
-                        printf("\n");
-                        add_history(buffer);
-                        // --- Trigger Garbage Collection ---
+                        add_history(buffer);  // Add valid input to history
+
+                        // --- Evaluate ---
+                        sl_object *eval_result = sl_eval(parse_result, sl_global_env);
+                        // ----------------
+
+                        // --- Print Result/Error ---
+                        if (sl_is_error(eval_result)) {
+                            fprintf(stderr, "Error: %s\n", sl_error_message(eval_result));
+                        } else {
+                            printf("=> ");  // Indicate standard result
+                            sl_write_to_stream(eval_result, stdout);
+                            printf("\n");
+                        }
+                        // --------------------------
+
+                        // --- GC ---
                         sl_gc();
-                        // ----------------------------------
+                        // --------
                     } else {
                         fprintf(stderr, "Error: Could not parse entire input. Remaining: '%s'\n", end_ptr);
                     }
                 } else {
+                    // Parsing failed (sl_parse_string prints errors internally for now)
                     fprintf(stderr, "Error during parsing.\n");
                 }
             }

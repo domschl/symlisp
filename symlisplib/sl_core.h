@@ -21,7 +21,8 @@ typedef enum {
     SL_TYPE_SYMBOL,
     SL_TYPE_PAIR,
     SL_TYPE_FUNCTION,
-    SL_TYPE_ENV  // New type for environment objects
+    SL_TYPE_ENV,
+    SL_TYPE_ERROR  // New type for error objects
 } sl_object_type;
 
 // --- Number Representation ---
@@ -80,6 +81,7 @@ typedef struct sl_object {
             struct sl_object *bindings;  // List of pairs: ((symbol . value) ...)
             struct sl_object *outer;     // Pointer to the enclosing environment object (or SL_NIL)
         } env;
+        char *error_message;  // Store error message string
     } data;
 } sl_object;
 
@@ -107,6 +109,16 @@ sl_object *sl_make_symbol(const char *name);  // Interns the symbol
 sl_object *sl_make_pair(sl_object *car, sl_object *cdr);
 sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env_obj);  // Takes sl_object* env
 sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *args));
+/**
+ * @brief Creates a new error object with a formatted message.
+ * Allocates the error object and the message string from the SymLisp heap.
+ *
+ * @param fmt The format string (printf-style).
+ * @param ... Variable arguments for the format string.
+ * @return sl_object* A pointer to the newly created error object (SL_TYPE_ERROR),
+ *                  or SL_NIL on allocation failure.
+ */
+sl_object *sl_make_errorf(const char *fmt, ...);
 
 // Trigger garbage collection
 // NOTE: GC sweep phase must call mpq_clear() on unreachable SL_TYPE_NUMBER objects
@@ -133,6 +145,7 @@ void sl_mem_shutdown();
 #define sl_is_closure(obj) (sl_is_function(obj) && !(obj)->data.function.is_builtin)
 #define sl_is_builtin(obj) (sl_is_function(obj) && (obj)->data.function.is_builtin)
 #define sl_is_env(obj) ((obj) && (obj)->type == SL_TYPE_ENV)
+#define sl_is_error(obj) ((obj) && (obj)->type == SL_TYPE_ERROR)
 
 // --- Accessor Macros/Functions (Add error checking!) ---
 // Pair accessors
@@ -184,5 +197,8 @@ bool fits_int64(const mpz_t val);
 
 // --- Garbage Collection ---
 void sl_gc_mark(sl_object *obj);  // Declaration remains
+
+// --- Error Handling Accessors ---
+#define sl_error_message(obj) ((obj)->data.error_message)
 
 #endif  // SL_CORE_H

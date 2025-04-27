@@ -1,8 +1,8 @@
 #ifndef SL_PARSE_H
 #define SL_PARSE_H
 
-#include "sl_core.h"  // Include core definitions
-#include <stdio.h>    // For FILE*
+#include "sl_core.h"
+#include <stdio.h>  // For FILE*
 
 /**
  * @brief Parses a Scheme expression from a null-terminated string.
@@ -67,5 +67,16 @@ int sl_write_to_stream(sl_object *obj, FILE *stream);
  * @param indent The initial indentation level (usually 0).
  */
 void sl_debug_print_object(sl_object *obj, FILE *stream, int indent);
+
+/**
+ * @brief Writes a minimal string representation of an object to a buffer.
+ * Primarily intended for use in error messages where a full recursive write
+ * might be too complex or undesirable. This is a simplified version.
+ *
+ * @param obj The object to represent.
+ * @param buffer The character buffer to write into.
+ * @param size The size of the buffer.
+ */
+void sl_object_to_string_buf(sl_object *obj, char *buffer, size_t size);
 
 #endif  // SL_PARSE_H

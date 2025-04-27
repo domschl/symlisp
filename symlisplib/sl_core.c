@@ -1,10 +1,11 @@
 #include "sl_core.h"
-#include "sl_env.h"  // Include environment functions
+#include "sl_env.h"
 #include <stdio.h>
-#include <stdlib.h>  // For malloc, free, exit
-#include <string.h>  // For memset, strdup
-#include <limits.h>  // For LONG_MIN, LONG_MAX
-#include <gmp.h>     // For GMP types and functions
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+#include <gmp.h>
+#include <stdarg.h>  // For variadic functions (va_list, etc.)
 
 // --- Global Variables ---
 sl_object *sl_global_env = NULL;    // Now an sl_object* pointing to an SL_TYPE_ENV object
@@ -368,6 +369,52 @@ sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *a
     return new_func;
 }
 
+sl_object *sl_make_errorf(const char *fmt, ...) {
+    sl_object *err_obj = sl_allocate_object();
+    if (!err_obj) return SL_NIL;  // Allocation failed
+
+    err_obj->type = SL_TYPE_ERROR;
+
+    va_list args1, args2;
+    va_start(args1, fmt);
+    va_copy(args2, args1);  // Need a copy because vsnprintf might be called twice
+
+    // Determine required size
+    int size = vsnprintf(NULL, 0, fmt, args1);
+    va_end(args1);
+
+    if (size < 0) {
+        perror("vsnprintf size calculation failed");
+        // Put object back on free list?
+        err_obj->type = SL_TYPE_FREE;
+        err_obj->next = free_list;
+        free_list = err_obj;
+        free_count++;
+        va_end(args2);
+        return SL_NIL;  // Indicate failure
+    }
+
+    // Allocate buffer (+1 for null terminator)
+    char *buffer = (char *)malloc(size + 1);
+    if (!buffer) {
+        perror("malloc failed for error message");
+        // Put object back on free list?
+        err_obj->type = SL_TYPE_FREE;
+        err_obj->next = free_list;
+        free_list = err_obj;
+        free_count++;
+        va_end(args2);
+        return SL_NIL;  // Indicate failure
+    }
+
+    // Format the string into the buffer
+    vsnprintf(buffer, size + 1, fmt, args2);
+    va_end(args2);
+
+    err_obj->data.error_message = buffer;  // Store the allocated string
+    return err_obj;
+}
+
 // --- Number Accessors ---
 
 bool sl_number_get_si(sl_object *obj, int64_t *num_out, int64_t *den_out) {
@@ -515,7 +562,6 @@ static void sl_gc_sweep() {
 
         // Object was allocated, check if marked
         if (obj->marked) {
-            // Reachable: unmark for the next cycle
             obj->marked = false;
         } else {
             // Unreachable: free associated resources
@@ -534,6 +580,10 @@ static void sl_gc_sweep() {
                 // we MUST free the string when the symbol object is collected.
                 free(obj->data.symbol);   // XXX Note: Once you implement proper symbol interning, you will need to change this again. With interning, the symbol table would own the strings, and they would only be freed during sl_mem_shutdown after clearing the table, not during the regular GC sweep.)
                 obj->data.symbol = NULL;  // Optional: clear pointer after freeing
+                break;
+            case SL_TYPE_ERROR:  // Add case for ERROR
+                free(obj->data.error_message);
+                obj->data.error_message = NULL;
                 break;
             case SL_TYPE_PAIR:
             case SL_TYPE_FUNCTION:  // No extra freeing needed for function object itself

@@ -3,14 +3,14 @@
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
-#include <inttypes.h>  // For PRId64
-#include <stdarg.h>    // For variadic functions if needed later
-#include <gmp.h>       // For GMP types and functions
+#include <inttypes.h>
+#include <stdarg.h>
+#include <gmp.h>
 
-#include "sl_core.h"  // Make sure this is included
-#include "sl_parse.h"
+#include "sl_core.h"
+#include "sl_parse.h"  // Include its own header
 
-// --- Buffer Management for String Building ---
+// --- Buffer Management ---
 
 typedef struct {
     char *buffer;
@@ -68,8 +68,7 @@ static bool sbuf_append_str(sl_string_buffer *sbuf, const char *str) {
     return true;
 }
 
-// --- Forward Declarations for Static Helper Functions ---
-
+// --- Forward Declarations ---
 // Parsing helpers
 static sl_object *parse_expression(const char **input);
 static sl_object *parse_list(const char **input);
@@ -531,281 +530,429 @@ void sl_debug_print_object(sl_object *obj, FILE *stream, int indent) {
     }
 }
 
-// --- Parsing Helper Functions ---
+// --- Minimal String Representation for Errors ---
 
+// Helper to write object to string buffer (minimal representation)
+void sl_object_to_string_buf(sl_object *obj, char *buffer, size_t size) {
+    if (size == 0) return;  // No space
+
+    if (!obj) {
+        strncpy(buffer, "#<NULL>", size - 1);
+        buffer[size - 1] = '\0';
+        return;
+    }
+    switch (obj->type) {
+    case SL_TYPE_NIL:
+        strncpy(buffer, "()", size - 1);
+        break;
+    case SL_TYPE_BOOLEAN:
+        strncpy(buffer, obj->data.boolean ? "#t" : "#f", size - 1);
+        break;
+    case SL_TYPE_SYMBOL:
+        snprintf(buffer, size, "%s", sl_symbol_name(obj));
+        break;
+    case SL_TYPE_NUMBER:
+        snprintf(buffer, size, "#<number>");
+        break;  // Simple placeholder
+    case SL_TYPE_STRING:
+        snprintf(buffer, size, "\"%s\"", obj->data.string ? obj->data.string : "");
+        break;  // Basic
+    case SL_TYPE_PAIR:
+        snprintf(buffer, size, "(...)");
+        break;  // Simple placeholder
+    case SL_TYPE_FUNCTION:
+        if (obj->data.function.is_builtin) {
+            snprintf(buffer, size, "#<builtin:%s>", obj->data.function.def.builtin.name ? obj->data.function.def.builtin.name : "???");
+        } else {
+            snprintf(buffer, size, "#<closure>");
+        }
+        break;
+    case SL_TYPE_ENV:
+        snprintf(buffer, size, "#<environment>");
+        break;
+    case SL_TYPE_ERROR:
+        snprintf(buffer, size, "#<error:%s>", obj->data.error_message ? obj->data.error_message : "");
+        break;  // Basic
+    case SL_TYPE_FREE:
+        strncpy(buffer, "#<FREE>", size - 1);
+        break;
+    default:
+        snprintf(buffer, size, "#<type:%d>", obj->type);
+        break;
+    }
+    buffer[size - 1] = '\0';  // Ensure null termination
+}
+
+// --- Parsing Implementation ---
+
+// Skips whitespace and single-line comments starting with ';'
 static void skip_whitespace_and_comments(const char **input) {
-    while (**input) {
-        if (isspace(**input)) {
-            (*input)++;
-        } else if (**input == ';') {  // Scheme comment
-            (*input)++;               // Skip ';'
-            while (**input && **input != '\n') {
-                (*input)++;  // Skip until newline
+    const char *ptr = *input;
+    while (true) {
+        // Skip whitespace characters
+        while (isspace(*ptr)) {
+            ptr++;
+        }
+        // Check for comment start
+        if (*ptr == ';') {
+            // Skip until newline or end of string
+            while (*ptr && *ptr != '\n') {
+                ptr++;
             }
-            if (**input == '\n') {
-                (*input)++;  // Skip newline itself
+            // If we stopped at a newline, consume it too and continue skipping
+            if (*ptr == '\n') {
+                ptr++;
+                continue;  // Go back to check for more whitespace/comments
+            } else {
+                // End of string reached after comment
+                break;
             }
         } else {
-            break;  // Not whitespace or comment start
+            // Not whitespace, not comment start, so stop skipping
+            break;
         }
     }
+    *input = ptr;  // Update the caller's pointer
 }
 
-// Check if a character can delimit an atom
-static bool is_delimiter(char c) {
-    return isspace(c) || c == '(' || c == ')' || c == '"' || c == '\'' || c == ';' || c == '\0';
-}
-
-// Main recursive parsing function
+// Parses the next S-expression from the input stream
 static sl_object *parse_expression(const char **input) {
     skip_whitespace_and_comments(input);
 
     char current_char = **input;
 
     if (current_char == '\0') {
-        // This is okay if called recursively at the end, but not initially.
-        // sl_parse_string handles the initial empty string case.
-        // fprintf(stderr, "Error: Unexpected end of input.\n");
-        return SL_NIL;  // Indicate end or error depending on context
+        // End of input
+        fprintf(stderr, "Error: Unexpected end of input.\n");
+        return SL_NIL;
     } else if (current_char == '(') {
-        (*input)++;  // Consume '('
+        // Start of a list
         return parse_list(input);
     } else if (current_char == ')') {
+        // Unexpected closing parenthesis
         fprintf(stderr, "Error: Unexpected ')'.\n");
         return SL_NIL;
     } else if (current_char == '\'') {
-        (*input)++;  // Consume '''
-        sl_object *quoted_expr = parse_expression(input);
-        if (quoted_expr == SL_NIL && **input != ')') {  // Check if NIL was due to error or end
-            fprintf(stderr, "Error: Expression expected after quote.\n");
-            return SL_NIL;  // Propagate error
+        // Quote reader macro: '<datum> -> (quote <datum>)
+        (*input)++;                                  // Consume the quote character
+        sl_object *datum = parse_expression(input);  // Parse the datum
+        if (!datum) {
+            // Error parsing the datum after quote
+            return SL_NIL;
         }
-        // Build (quote <expr>)
+        // TODO: Use interned 'quote' symbol
         sl_object *quote_sym = sl_make_symbol("quote");
-        // Error check make_symbol?
-        return sl_make_pair(quote_sym, sl_make_pair(quoted_expr, SL_NIL));
+        // Construct (quote <datum>)
+        sl_object *quoted_list = sl_make_pair(datum, SL_NIL);
+        return sl_make_pair(quote_sym, quoted_list);
     } else if (current_char == '"') {
-        (*input)++;                          // Consume '"'
-        return parse_string_literal(input);  // Use renamed function
+        // Start of a string literal
+        return parse_string_literal(input);
     } else {
+        // Assume it's an atom (symbol, number, boolean)
         return parse_atom(input);
     }
 }
 
-// Parses the contents of a list after '(' has been consumed
+// --- Other Parsing Helpers ---
+
+// Checks if a character is a delimiter for atoms
+static bool is_delimiter(char c) {
+    return isspace(c) || c == '(' || c == ')' || c == '"' || c == ';' || c == '\0';
+}
+
+// Parses a list starting after the opening '('
 static sl_object *parse_list(const char **input) {
-    skip_whitespace_and_comments(input);
+    (*input)++;  // Consume '('
 
-    if (**input == ')') {
-        (*input)++;     // Consume ')'
-        return SL_NIL;  // Empty list
-    }
-
-    // Use sentinel head for easier list building
-    sl_object *head = sl_make_pair(SL_NIL, SL_NIL);  // Dummy head
-    sl_object *tail = head;
+    sl_object *head = SL_NIL;
+    sl_object *tail = SL_NIL;
 
     while (true) {
         skip_whitespace_and_comments(input);
         char current_char = **input;
 
         if (current_char == ')') {
+            // End of list
             (*input)++;  // Consume ')'
-            break;       // End of list
+            return head;
         }
 
         if (current_char == '\0') {
-            fprintf(stderr, "Error: Unterminated list.\n");
-            // Need to potentially free partially built list if not using GC immediately
+            fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
+            // TODO: GC potentially partially built list? Rely on GC for now.
             return SL_NIL;
         }
 
-        // Check for dotted pair syntax: . <expr> )
+        // Check for dotted pair syntax: . <datum> )
         if (current_char == '.' && is_delimiter((*input)[1])) {
-            (*input)++;  // Consume '.'
-            skip_whitespace_and_comments(input);
-            sl_object *cdr_expr = parse_expression(input);
-            if (cdr_expr == SL_NIL && **input != ')') {  // Check if NIL was due to error
-                fprintf(stderr, "Error: Expression expected after dot in list.\n");
-                return SL_NIL;  // Propagate error
+            (*input)++;                           // Consume '.'
+            skip_whitespace_and_comments(input);  // Skip space after dot
+
+            sl_object *cdr_val = parse_expression(input);
+            if (!cdr_val) {
+                fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
+                return SL_NIL;  // Error parsing cdr
             }
 
             skip_whitespace_and_comments(input);
             if (**input != ')') {
-                fprintf(stderr, "Error: Expected ')' after dot in list.\n");
+                fprintf(stderr, "Error: Expected ')' after datum following '.' in list, got '%c'.\n", **input);
+                return SL_NIL;  // Missing closing parenthesis
+            }
+            (*input)++;  // Consume ')'
+
+            if (head == SL_NIL) {
+                fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
                 return SL_NIL;
             }
-            (*input)++;                  // Consume ')'
-            sl_set_cdr(tail, cdr_expr);  // Set the cdr of the last *real* element
-            return head->data.pair.cdr;  // Return the actual list start
+
+            // Set the cdr of the last pair
+            sl_set_cdr(tail, cdr_val);
+            return head;  // Return the head of the now dotted list
         }
 
-        // Regular list element
+        // Parse the next element in the list
         sl_object *element = parse_expression(input);
-        if (element == SL_NIL && **input != ')') {  // Check if NIL was due to error
-            // Need to potentially free partially built list
-            fprintf(stderr, "Error parsing list element.\n");
-            return SL_NIL;  // Propagate error
+        if (!element) {
+            // Error parsing element, parse_expression should have printed details
+            // TODO: GC potentially partially built list? Rely on GC for now.
+            return SL_NIL;
         }
 
+        // Append the element to the list
         sl_object *new_pair = sl_make_pair(element, SL_NIL);
-        sl_set_cdr(tail, new_pair);
-        tail = new_pair;
-    }
+        if (!new_pair) {
+            // Allocation failure
+            return SL_NIL;
+        }
 
-    return head->data.pair.cdr;  // Skip dummy head
+        if (head == SL_NIL) {
+            // First element
+            head = new_pair;
+            tail = new_pair;
+        } else {
+            // Subsequent elements
+            sl_set_cdr(tail, new_pair);
+            tail = new_pair;
+        }
+    }
 }
 
-// Parses an atom (number, boolean, symbol)
+// Parses an atom (symbol, number, boolean)
 static sl_object *parse_atom(const char **input) {
     const char *start = *input;
-    while (**input && !is_delimiter(**input)) {
-        (*input)++;
+    const char *ptr = start;
+
+    // Read until a delimiter is found
+    while (!is_delimiter(*ptr)) {
+        ptr++;
     }
-    size_t len = *input - start;
+
+    size_t len = ptr - start;
     if (len == 0) {
-        // This can happen if input is just "( )" - parse_expression returns NIL
-        // which is correct. Only an error if not immediately followed by ')'.
-        // Let the caller (parse_list/parse_expression) handle unexpected delimiters.
-        // fprintf(stderr, "Error: Expected an atom, found delimiter '%c'.\n", **input);
-        return SL_NIL;  // Indicate no atom found here
+        // This shouldn't happen if called correctly after checking non-delimiter start
+        fprintf(stderr, "Error: Tried to parse empty atom.\n");
+        return SL_NIL;
     }
 
-    // Try parsing as number first
-    // Pass a copy of start, parse_number shouldn't modify input pointer directly
-    const char *temp_input = start;
-    sl_object *num_obj = parse_number(&temp_input, start, len);
-    if (num_obj) {
-        // *input is already advanced by the loop above, just return the object
-        return num_obj;
+    // Try parsing as a number first
+    sl_object *num_result = parse_number(input, start, len);  // Pass start and len
+    if (num_result) {
+        *input = ptr;  // Consume the atom characters if number parsing succeeded
+        return num_result;
     }
 
-    // If not a number, try boolean or symbol
-    // Pass a copy of start, parse_symbol_or_bool shouldn't modify input pointer directly
-    temp_input = start;
-    return parse_symbol_or_bool(&temp_input, start, len);
+    // If not a number, try parsing as a symbol or boolean
+    sl_object *sym_result = parse_symbol_or_bool(input, start, len);  // Pass start and len
+    if (sym_result) {
+        *input = ptr;  // Consume the atom characters if symbol parsing succeeded
+        return sym_result;
+    }
+
+    // If neither worked, it's an error (parse_number/parse_symbol should handle details)
+    // We need to consume the characters anyway to avoid infinite loops
+    *input = ptr;
+    fprintf(stderr, "Error: Could not parse '%.*s' as a number, symbol, or boolean.\n", (int)len, start);
+    return SL_NIL;
 }
 
-// Parses a string literal after '"' has been consumed
-static sl_object *parse_string_literal(const char **input) {  // Renamed
-    const char *start = *input;
-    // Use dynamic buffer instead of fixed size
+// Parses a string literal starting after the opening '"'
+static sl_object *parse_string_literal(const char **input) {
+    (*input)++;  // Consume opening '"'
+    const char *ptr = *input;
     sl_string_buffer sbuf;
     sbuf_init(&sbuf);
+    bool success = true;
 
-    while (**input != '"') {
-        if (**input == '\0') {
-            fprintf(stderr, "Error: Unterminated string literal.\n");
-            sbuf_free(&sbuf);
-            return SL_NIL;
+    while (true) {
+        char current_char = *ptr;
+
+        if (current_char == '"') {
+            // End of string
+            ptr++;  // Consume closing '"'
+            break;
         }
 
-        char char_to_add;
-        if (**input == '\\') {  // Handle escape sequences
-            (*input)++;
-            switch (**input) {
+        if (current_char == '\0') {
+            fprintf(stderr, "Error: Unterminated string literal.\n");
+            success = false;
+            break;
+        }
+
+        if (current_char == '\\') {
+            // Escape sequence
+            ptr++;  // Consume '\'
+            char escaped_char = *ptr;
+            char char_to_append;
+            switch (escaped_char) {
             case 'n':
-                char_to_add = '\n';
+                char_to_append = '\n';
                 break;
             case 't':
-                char_to_add = '\t';
-                break;
-            case '\\':
-                char_to_add = '\\';
+                char_to_append = '\t';
                 break;
             case '"':
-                char_to_add = '"';
+                char_to_append = '"';
                 break;
-            case '\0':  // Unterminated escape at end of input
-                fprintf(stderr, "Error: Unterminated escape sequence in string.\n");
-                sbuf_free(&sbuf);
-                return SL_NIL;
-            default:  // Unknown escape sequence, just insert the char itself
-                char_to_add = **input;
+            case '\\':
+                char_to_append = '\\';
+                break;
+            // Add other escapes like \r if needed
+            case '\0':  // Unterminated escape sequence
+                fprintf(stderr, "Error: Unterminated escape sequence in string literal.\n");
+                success = false;
+                goto end_loop;  // Use goto to break out of nested structure cleanly
+            default:
+                // Invalid escape sequence, treat as literal backslash followed by char?
+                // Or signal error? Let's signal error for now.
+                fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
+                success = false;
+                goto end_loop;
+            }
+            if (!sbuf_append_char(&sbuf, char_to_append)) {
+                success = false;  // Allocation error
                 break;
             }
+            ptr++;  // Consume the character after '\'
         } else {
-            char_to_add = **input;
+            // Regular character
+            if (!sbuf_append_char(&sbuf, current_char)) {
+                success = false;  // Allocation error
+                break;
+            }
+            ptr++;  // Consume the regular character
         }
-
-        if (!sbuf_append_char(&sbuf, char_to_add)) {
-            // Error appending (likely memory allocation)
-            sbuf_free(&sbuf);
-            return SL_NIL;
-        }
-
-        (*input)++;
     }
 
-    (*input)++;  // Consume closing '"'
+end_loop:  // Label for goto
 
-    sl_object *result = sl_make_string(sbuf.buffer ? sbuf.buffer : "");  // Handle empty string case
-    sbuf_free(&sbuf);                                                    // Free the temporary buffer
-    return result;
+    *input = ptr;  // Update the main input pointer
+
+    if (success) {
+        // Create the string object. sl_make_string copies the buffer.
+        sl_object *str_obj = sl_make_string(sbuf.buffer);
+        sbuf_free(&sbuf);  // Free the temporary buffer
+        return str_obj;    // Returns SL_NIL on allocation failure within sl_make_string
+    } else {
+        sbuf_free(&sbuf);  // Free buffer even on failure
+        return SL_NIL;
+    }
 }
 
-// Tries to parse a token as a number (integer, rational, or float converted to rational)
-static sl_object *parse_number(const char **input_ptr, const char *start, size_t len) {
-    // input_ptr is not used here, only start and len
-    char *buffer = (char *)malloc(len + 1);
-    if (!buffer) return NULL;  // Allocation failure
-    memcpy(buffer, start, len);
-    buffer[len] = '\0';
+// --- parse_number and parse_symbol_or_bool implementations ---
 
-    mpq_t value_q;
-    mpq_init(value_q);
-    int base = 10;  // Assume base 10 for now
+// Parses a token as a number (integer or rational)
+// Returns a number object or NULL if parsing fails.
+// Does NOT consume input; parse_atom handles that.
+static sl_object *parse_number(const char **input_ptr, const char *start, size_t len) {
+    // Create a null-terminated copy for C string functions
+    char *token = (char *)malloc(len + 1);
+    if (!token) {
+        perror("malloc failed for number token");
+        return NULL;
+    }
+    memcpy(token, start, len);
+    token[len] = '\0';
+
     sl_object *result = NULL;
 
-    // 1. Try parsing directly as an integer or rational (e.g., "123", "-45", "1/2", "-3/4")
-    if (mpq_set_str(value_q, buffer, base) == 0) {
-        // Successfully parsed by mpq_set_str
-        mpq_canonicalize(value_q);           // Ensure lowest terms, positive denominator
-        result = sl_make_number_q(value_q);  // Let sl_make_number_q handle smallnum check
-        // Fall through to cleanup and return
-    } else {
-        // 2. mpq_set_str failed, try parsing as a float (e.g., "3.14", "-0.5", "1e3")
-        mpf_t value_f;
-        mpf_init(value_f);  // Initialize a multi-precision float
+    // --- Try GMP parsing directly ---
+    mpq_t temp_q;
+    mpq_init(temp_q);
 
-        if (mpf_set_str(value_f, buffer, base) == 0) {
-            // Successfully parsed as a float by mpf_set_str
-            mpq_set_f(value_q, value_f);  // Convert the float to a rational
-            // mpq_set_f result is already canonical if the float is finite.
-            // mpq_canonicalize(value_q); // Usually not needed after mpq_set_f
+    // mpq_set_str returns 0 on success, -1 on failure
+    if (mpq_set_str(temp_q, token, 10) == 0) {
+        // Successfully parsed by GMP
+        // Canonicalize the fraction (e.g., 4/2 -> 2/1)
+        mpq_canonicalize(temp_q);
 
-            result = sl_make_number_q(value_q);  // Create the number object
+        // Check if it fits into a small int representation
+        mpz_t num_z, den_z;
+        mpz_inits(num_z, den_z, NULL);
+        mpq_get_num(num_z, temp_q);
+        mpq_get_den(den_z, temp_q);
+
+        // Check if denominator is 1 and numerator fits int64_t
+        if (mpz_cmp_si(den_z, 1) == 0 && fits_int64(num_z)) {
+            result = sl_make_number_si(mpz_get_si(num_z), 1);
         }
-        // else: mpf_set_str also failed, result remains NULL
+        // Check if both numerator and denominator fit int64_t
+        else if (fits_int64(num_z) && fits_int64(den_z)) {
+            result = sl_make_number_si(mpz_get_si(num_z), mpz_get_si(den_z));
+        } else {
+            // Doesn't fit small int, use the bignum directly
+            result = sl_make_number_q(temp_q);  // This copies temp_q
+        }
 
-        mpf_clear(value_f);  // Clean up the temporary float
+        mpz_clears(num_z, den_z, NULL);
+
+    } else {
+        // mpq_set_str failed, so it's not a valid number format for GMP
+        result = NULL;
     }
 
-    // Cleanup and return
-    mpq_clear(value_q);
-    free(buffer);
-    return result;  // Returns NULL if both mpq_set_str and mpf_set_str failed
+    mpq_clear(temp_q);  // Clear the temporary GMP rational
+    free(token);        // Free the temporary token string
+    return result;      // NULL if parsing failed
 }
 
-// Parses an atom as a boolean or symbol
+// Parses a token as a symbol or boolean (#t, #f)
+// Returns a symbol or boolean object, or NULL on allocation failure.
+// Does NOT consume input; parse_atom handles that.
 static sl_object *parse_symbol_or_bool(const char **input_ptr, const char *start, size_t len) {
-    // input_ptr is not used here, only start and len
-    char *buffer = (char *)malloc(len + 1);
-    if (!buffer) return SL_NIL;  // Allocation failure
-    memcpy(buffer, start, len);
-    buffer[len] = '\0';
+    // Create a null-terminated copy for strcmp
+    char *token = (char *)malloc(len + 1);
+    if (!token) {
+        perror("malloc failed for symbol token");
+        return NULL;
+    }
+    memcpy(token, start, len);
+    token[len] = '\0';
 
-    sl_object *result = SL_NIL;
-    if (len == 2 && strcmp(buffer, "#t") == 0) {
+    sl_object *result = NULL;
+
+    // Check for booleans
+    if (strcmp(token, "#t") == 0) {
         result = SL_TRUE;
-    } else if (len == 2 && strcmp(buffer, "#f") == 0) {
+    } else if (strcmp(token, "#f") == 0) {
         result = SL_FALSE;
     } else {
-        // Assume it's a symbol
-        // TODO: Add validation for valid symbol characters?
-        result = sl_make_symbol(buffer);
+        // Not a boolean, assume it's a symbol
+        // TODO: Validate symbol characters? (e.g., cannot start with number if not a number)
+        // The current structure relies on parse_number failing first.
+        result = sl_make_symbol(token);  // sl_make_symbol handles copying/interning
     }
 
-    free(buffer);
-    return result;
+    free(token);    // Free the temporary token string
+    return result;  // SL_NIL if sl_make_symbol fails allocation
 }
+
+// --- Writing Implementation ---
+// ...
+
+// --- Debug Printing ---
+// ...
+
+// --- Minimal String Representation ---
+// ...

@@ -7,4 +7,4 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)           # Use standard C23 instead of GNU extensions
 
 # Add executable
-add_executable(symlisp src/symlisp.c)
+add_executable(symlisp repl/symlisp.c)

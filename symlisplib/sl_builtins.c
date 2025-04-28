@@ -517,6 +517,18 @@ static sl_object *sl_builtin_le(sl_object *args) {
     return (cmp_result <= 0) ? SL_TRUE : SL_FALSE;
 }
 
+// (not obj) -> Returns #t if obj is #f, otherwise returns #f.
+static sl_object *sl_builtin_not(sl_object *args) {
+    sl_object *arity_check = check_arity("not", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *obj = sl_car(args);
+
+    // In Scheme, only #f is false. Everything else is true.
+    // So, 'not' returns #t only if the input is exactly #f.
+    return (obj == SL_FALSE) ? SL_TRUE : SL_FALSE;
+}
+
 // (display obj)
 static sl_object *sl_builtin_display(sl_object *args) {
     sl_object *arity_check = check_arity("display", args, 1);
@@ -761,6 +773,7 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "<=", sl_builtin_le);
     define_builtin(global_env, "eq?", sl_builtin_eq);        // <<< ADDED
     define_builtin(global_env, "equal?", sl_builtin_equal);  // <<< ADDED
+    define_builtin(global_env, "not", sl_builtin_not);       // <<< ADDED
 
     // Basic I/O
     define_builtin(global_env, "display", sl_builtin_display);

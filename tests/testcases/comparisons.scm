@@ -85,3 +85,13 @@
 (define test-equal-func (lambda () 1))
 (define-test "equal?-same-func-var" (assert-equal (equal? test-equal-func test-equal-func) #t))
 (define-test "equal?-diff-func-def" (assert-equal (equal? (lambda () 1) (lambda () 1)) #f)) ; Functions equal only if eq?
+
+;; --- NOT ---
+(define-test "not-false" (assert-equal (not #f) #t))
+(define-test "not-true" (assert-equal (not #t) #f))
+(define-test "not-nil" (assert-equal (not '()) #f)) ; NIL is truthy
+(define-test "not-zero" (assert-equal (not 0) #f)) ; 0 is truthy
+(define-test "not-number" (assert-equal (not 1) #f)) ; Numbers are truthy
+(define-test "not-string" (assert-equal (not "hello") #f)) ; Strings are truthy
+(define-test "not-list" (assert-equal (not (list 1 2)) #f)) ; Lists are truthy
+(define-test "not-func" (assert-equal (not (lambda () 1)) #f)) ; Functions are truthy

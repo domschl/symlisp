@@ -21,8 +21,14 @@
 - [x] let and named let
 - [x] Test framwork
 - [x] CI with valgrind
+- [x] cond
+- [ ] Boolean ops: or, and, not
+- [ ] List functions: length, append, reverse
+- [ ] Predicate tester functions
+- [ ] String functions
 - [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set
 - [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
+- [ ] map
 - [ ] Refine parameter binding error handling (GC).
 - [ ] Gradually add more builtins.
 - [ ] Macros: define-syntax, let-syntax

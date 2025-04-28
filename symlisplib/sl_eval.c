@@ -639,6 +639,102 @@ top_of_eval:;
                 sl_gc_remove_root(&args);  // Final unroot of clause list
                 break;                     // Break from switch case 'cond'
             }  // End COND block
+            // --- AND --- <<< ADDED BLOCK
+            else if (strcmp(op_name, "and") == 0) {
+                // (and expr1 expr2 ...)
+                // Short-circuits on #f. Returns last value if all true. Returns #t if no args.
+                sl_gc_add_root(&args);  // Root the list of expressions
+                result = SL_TRUE;       // Default for (and)
+
+                sl_object *current_node = args;
+                while (sl_is_pair(current_node)) {
+                    sl_object *expr_to_eval = sl_car(current_node);
+                    sl_object *next_node = sl_cdr(current_node);
+
+                    // Check for tail call position (last expression)
+                    if (next_node == SL_NIL) {
+                        sl_gc_remove_root(&args);  // Unroot args list
+                        obj = expr_to_eval;        // Set up for tail call
+                        goto top_of_eval;          // Jump!
+                    } else {
+                        // Not the last expression, evaluate normally
+                        result = sl_eval(expr_to_eval, env);  // MIGHT GC
+                        sl_gc_add_root(&result);              // Root intermediate result
+
+                        if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
+                            sl_gc_remove_root(&args);  // Unroot before cleanup
+                            goto cleanup;              // Error occurred
+                        }
+
+                        // Check for short-circuit condition (#f)
+                        if (result == SL_FALSE) {
+                            sl_gc_remove_root(&args);  // Unroot args list
+                            goto cleanup;              // Result is already #f
+                        }
+                        sl_gc_remove_root(&result);  // Unroot intermediate result
+                    }
+                    current_node = next_node;
+                }
+
+                // Check for improper list of arguments
+                if (current_node != SL_NIL) {
+                    result = sl_make_errorf("Eval: Malformed 'and' (improper argument list)");
+                }
+                // If loop finished normally (e.g. empty args), result is SL_TRUE.
+                // If error occurred, result holds the error.
+                // If short-circuited, result is SL_FALSE.
+
+                sl_gc_remove_root(&args);  // Final unroot of args list
+                break;                     // Break from switch case 'and'
+            }  // End AND block
+            // --- OR --- <<< ADDED BLOCK
+            else if (strcmp(op_name, "or") == 0) {
+                // (or expr1 expr2 ...)
+                // Short-circuits on first non-#f value. Returns #f if all #f. Returns #f if no args.
+                sl_gc_add_root(&args);  // Root the list of expressions
+                result = SL_FALSE;      // Default for (or)
+
+                sl_object *current_node = args;
+                while (sl_is_pair(current_node)) {
+                    sl_object *expr_to_eval = sl_car(current_node);
+                    sl_object *next_node = sl_cdr(current_node);
+
+                    // Check for tail call position (last expression)
+                    if (next_node == SL_NIL) {
+                        sl_gc_remove_root(&args);  // Unroot args list
+                        obj = expr_to_eval;        // Set up for tail call
+                        goto top_of_eval;          // Jump!
+                    } else {
+                        // Not the last expression, evaluate normally
+                        result = sl_eval(expr_to_eval, env);  // MIGHT GC
+                        sl_gc_add_root(&result);              // Root intermediate result
+
+                        if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
+                            sl_gc_remove_root(&args);  // Unroot before cleanup
+                            goto cleanup;              // Error occurred
+                        }
+
+                        // Check for short-circuit condition (non-#f)
+                        if (result != SL_FALSE) {
+                            sl_gc_remove_root(&args);  // Unroot args list
+                            goto cleanup;              // Result is the first truthy value
+                        }
+                        sl_gc_remove_root(&result);  // Unroot intermediate result (it was #f)
+                    }
+                    current_node = next_node;
+                }
+
+                // Check for improper list of arguments
+                if (current_node != SL_NIL) {
+                    result = sl_make_errorf("Eval: Malformed 'or' (improper argument list)");
+                }
+                // If loop finished normally (e.g. empty args), result is SL_FALSE.
+                // If error occurred, result holds the error.
+                // If short-circuited, result holds the first truthy value.
+
+                sl_gc_remove_root(&args);  // Final unroot of args list
+                break;                     // Break from switch case 'or'
+            }  // End OR block
 
             // --- END OF SPECIAL FORMS ---
             // If none of the above matched, it's not a special form we handle here.

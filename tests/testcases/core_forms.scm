@@ -130,3 +130,25 @@
   (assert-equal (cond ((list) 1) ; Empty list is truthy
                       (else 2))
                 1))
+
+;; --- AND ---
+(define-test "and-empty" (assert-equal (and) #t))
+(define-test "and-true" (assert-equal (and #t) #t))
+(define-test "and-false" (assert-equal (and #f) #f))
+(define-test "and-two-true" (assert-equal (and #t #t) #t))
+(define-test "and-true-false" (assert-equal (and #t #f) #f))
+(define-test "and-false-true" (assert-equal (and #f #t) #f)) ; Short-circuits
+(define-test "and-returns-last-value" (assert-equal (and 1 2 'three) 'three))
+(define-test "and-short-circuit-value" (assert-equal (and #f (/ 1 0)) #f)) ; Division by zero should not happen
+(define-test "and-truthy-values" (assert-equal (and '() 0 "yes") "yes"))
+
+;; --- OR ---
+(define-test "or-empty" (assert-equal (or) #f))
+(define-test "or-false" (assert-equal (or #f) #f))
+(define-test "or-true" (assert-equal (or #t) #t))
+(define-test "or-two-false" (assert-equal (or #f #f) #f))
+(define-test "or-false-true" (assert-equal (or #f #t) #t))
+(define-test "or-true-false" (assert-equal (or #t #f) #t)) ; Short-circuits
+(define-test "or-returns-first-truthy" (assert-equal (or #f 0 'ignored) 0))
+(define-test "or-short-circuit-value" (assert-equal (or #t (/ 1 0)) #t)) ; Division by zero should not happen
+(define-test "or-all-false" (assert-equal (or #f #f #f) #f))

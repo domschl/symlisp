@@ -22,20 +22,37 @@ static sl_object *get_global_var(const char *name) {
     }
     // Root symbol temporarily during lookup
     sl_gc_add_root(&sym);
-    sl_object *val = sl_env_lookup(sl_global_env, sym);
+    sl_object *binding_pair = sl_env_lookup(sl_global_env, sym);  // Lookup returns the pair
     sl_gc_remove_root(&sym);
 
-    if (val == SL_NIL) {
+    if (binding_pair == SL_NIL) {
         fprintf(stderr, "Tester Error: Global variable '%s' not found.\n", name);
-        return NULL;  // Indicate failure
+        return NULL;  // Indicate failure (not found)
     }
-    if (sl_is_error(val)) {
-        char *err_str = sl_object_to_string(val);
+    if (!sl_is_pair(binding_pair)) {
+        // Should not happen with correct lookup, but check defensively
+        fprintf(stderr, "Tester Error: Internal error - lookup for '%s' did not return a pair.\n", name);
+        return NULL;  // Indicate failure (internal error)
+    }
+    if (sl_is_error(binding_pair)) {  // Check if the lookup itself returned an error object
+        char *err_str = sl_object_to_string(binding_pair);
         fprintf(stderr, "Tester Error: Error looking up global variable '%s': %s\n", name, err_str ? err_str : "Unknown error");
         free(err_str);
-        return NULL;  // Indicate failure
+        return NULL;  // Indicate failure (lookup error)
     }
-    return val;
+
+    // <<< ADDED: Extract the value (cdr) from the binding pair >>>
+    sl_object *value = sl_cdr(binding_pair);
+
+    // Optional: Check if the extracted value is an error (shouldn't be if define worked)
+    if (sl_is_error(value)) {
+        char *err_str = sl_object_to_string(value);
+        fprintf(stderr, "Tester Error: Value associated with '%s' is an error: %s\n", name, err_str ? err_str : "Unknown error");
+        free(err_str);
+        return NULL;  // Indicate failure (value is error)
+    }
+
+    return value;  // Return the actual value
 }
 
 int main(int argc, char *argv[]) {

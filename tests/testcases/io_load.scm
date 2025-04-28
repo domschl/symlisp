@@ -22,5 +22,5 @@
 ;; Assuming tests/testcases/load_target.scm exists:
 (define-test "load-file-check-var"
   (begin
-    (load "tests/testcases/load_target.scm") ; Path relative to execution dir
+    (load "../tests/testcases/data/load_target.scm") ; Path relative to execution dir
     (assert-equal loaded-variable 999)))

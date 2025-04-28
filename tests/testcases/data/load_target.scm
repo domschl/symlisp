@@ -1,0 +1,1 @@
+(define loaded-variable 999)

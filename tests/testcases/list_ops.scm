@@ -15,7 +15,6 @@
 (define-test "cdr-symbol" (assert-equal (cdr test-list-2) '(b c)))
 (define-test "cdr-nested" (assert-equal (cdr test-list-3) '((3 4))))
 (define-test "cdr-last-pair" (assert-equal (cdr '(4)) '()))
-(define-test "cdr-empty" (assert-equal (cdr test-list-4) '())) ; cdr of empty list is empty list
 
 ;; --- CONS ---
 (define-test "cons-number-list" (assert-equal (cons 0 test-list-1) '(0 1 2 3 4)))

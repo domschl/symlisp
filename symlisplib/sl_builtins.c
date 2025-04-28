@@ -130,6 +130,52 @@ static sl_object *sl_builtin_cons(sl_object *args) {
     return sl_make_pair(car_val, cdr_val);
 }
 
+// Helper to check if a number object represents an integer and get its value as mpz_t
+// Initializes 'out' - caller must clear 'out'
+// Returns true on success, false on failure (non-number, non-integer, or error)
+static bool get_number_as_mpz(sl_object *obj, mpz_t out, const char *func_name) {
+    mpq_t temp_q;
+    // get_number_as_mpq initializes temp_q if successful
+    if (!get_number_as_mpq(obj, temp_q, func_name)) {
+        // Error already printed by get_number_as_mpq or obj is not a number
+        // temp_q is not initialized here.
+        return false;
+    }
+
+    // Check if the rational is actually an integer (denominator is 1)
+    mpz_t den_z;
+    mpz_init(den_z);
+    mpq_get_den(den_z, temp_q);
+
+    if (mpz_cmp_si(den_z, 1) != 0) {
+        // Not an integer
+        mpz_clear(den_z);
+        mpq_clear(temp_q);  // Clear the temporary rational
+        // We need to return an error object from the calling builtin
+        // This helper just signals failure.
+        return false;
+    }
+
+    // It's an integer, get the numerator
+    mpz_clear(den_z);          // Don't need denominator anymore
+    mpz_init(out);             // Initialize the output mpz_t
+    mpq_get_num(out, temp_q);  // Get the numerator into 'out'
+
+    mpq_clear(temp_q);  // Clear the temporary rational
+    return true;
+}
+
+// Helper to create a number object from mpz_t, simplifying if possible
+static sl_object *make_number_from_mpz(mpz_t val) {
+    // Check if it fits in int64_t
+    if (fits_int64(val)) {  // Assuming fits_int64 checks mpz_t
+        return sl_make_number_si(mpz_get_si(val), 1);
+    } else {
+        // Doesn't fit small int, use bignum integer
+        return sl_make_number_z(val);  // Assumes this copies val
+    }
+}
+
 // (+) or (+ x y ...)
 static sl_object *sl_builtin_add(sl_object *args) {
     // No specific arity check needed for +, 0 args is valid (returns 0)
@@ -291,6 +337,79 @@ static sl_object *sl_builtin_div(sl_object *args) {
     return result_obj;
 }
 
+// (modulo int1 int2)
+static sl_object *sl_builtin_modulo(sl_object *args) {
+    sl_object *arity_check = check_arity("modulo", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    mpz_t num1_z, num2_z, result_z;
+    sl_object *arg1 = sl_car(args);
+    sl_object *arg2 = sl_cadr(args);
+
+    // Get arguments as integers, get_number_as_mpz initializes num1_z/num2_z
+    if (!get_number_as_mpz(arg1, num1_z, "modulo")) {
+        return sl_make_errorf("Error (modulo): First argument must be an integer.");
+    }
+    if (!get_number_as_mpz(arg2, num2_z, "modulo")) {
+        mpz_clear(num1_z);  // Clear the first one which was initialized
+        return sl_make_errorf("Error (modulo): Second argument must be an integer.");
+    }
+
+    // Check for division by zero
+    if (mpz_sgn(num2_z) == 0) {
+        mpz_clears(num1_z, num2_z, NULL);
+        return sl_make_errorf("Error (modulo): Division by zero.");
+    }
+
+    // Calculate modulo (sign matches divisor) using Euclidean division remainder
+    // Note: R7RS specifies floor division for modulo. mpz_fdiv_r gives remainder for floor division.
+    // Let's re-read R7RS 6.2.6. It says `modulo` corresponds to `floor` division's remainder.
+    // `remainder` corresponds to `truncate` division's remainder.
+    // GMP: mpz_fdiv_r -> floor remainder. mpz_tdiv_r -> truncate remainder.
+    // So, `modulo` should use `mpz_fdiv_r` and `remainder` should use `mpz_tdiv_r`. Let's swap.
+
+    mpz_init(result_z);
+    mpz_fdiv_r(result_z, num1_z, num2_z);  // Floor division remainder for modulo
+
+    sl_object *result_obj = make_number_from_mpz(result_z);
+
+    mpz_clears(num1_z, num2_z, result_z, NULL);  // Clear all mpz_t vars
+    return result_obj;
+}
+
+// --- Let's correct the remainder function based on the R7RS spec ---
+// (remainder int1 int2) -> Truncate division remainder
+static sl_object *sl_builtin_remainder(sl_object *args) {  // Overwrite previous definition
+    sl_object *arity_check = check_arity("remainder", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    mpz_t num1_z, num2_z, result_z;
+    sl_object *arg1 = sl_car(args);
+    sl_object *arg2 = sl_cadr(args);
+
+    if (!get_number_as_mpz(arg1, num1_z, "remainder")) {
+        return sl_make_errorf("Error (remainder): First argument must be an integer.");
+    }
+    if (!get_number_as_mpz(arg2, num2_z, "remainder")) {
+        mpz_clear(num1_z);
+        return sl_make_errorf("Error (remainder): Second argument must be an integer.");
+    }
+
+    if (mpz_sgn(num2_z) == 0) {
+        mpz_clears(num1_z, num2_z, NULL);
+        return sl_make_errorf("Error (remainder): Division by zero.");
+    }
+
+    // Calculate remainder (sign matches dividend) using truncate division remainder
+    mpz_init(result_z);
+    mpz_tdiv_r(result_z, num1_z, num2_z);  // Truncate division remainder for remainder
+
+    sl_object *result_obj = make_number_from_mpz(result_z);
+
+    mpz_clears(num1_z, num2_z, result_z, NULL);
+    return result_obj;
+}
+
 // --- Comparison Builtins ---
 
 // (= num1 num2) - Numeric equality
@@ -430,6 +549,130 @@ static sl_object *sl_builtin_display(sl_object *args) {
     return SL_NIL;
 }
 
+// (list obj ...) -> Creates a new list containing the objects.
+static sl_object *sl_builtin_list(sl_object *args) {
+    // No arity check needed, accepts any number of arguments.
+    // The input 'args' is already the list of arguments.
+    // We just need to return it, as sl_eval_list already evaluated them.
+    // However, the standard 'list' function *constructs* a new list
+    // from its arguments, it doesn't just return the argument list structure.
+    // Let's implement it correctly by copying the argument list structure.
+
+    sl_object *head = SL_NIL;
+    sl_object **tail_ptr = &head;
+    sl_object *current_arg = args;
+
+    sl_gc_add_root(&head);         // Protect the list being built
+    sl_gc_add_root(&current_arg);  // Protect the argument list traversal
+
+    while (sl_is_pair(current_arg)) {
+        sl_object *arg_val = sl_car(current_arg);  // Get the already evaluated argument
+        sl_object *new_pair = sl_make_pair(arg_val, SL_NIL);
+        CHECK_ALLOC(new_pair);  // Check for OOM
+
+        *tail_ptr = new_pair;
+        tail_ptr = &new_pair->data.pair.cdr;
+
+        current_arg = sl_cdr(current_arg);
+    }
+
+    // Check if the argument list itself was improper
+    if (current_arg != SL_NIL) {
+        sl_gc_remove_root(&current_arg);
+        sl_gc_remove_root(&head);
+        return sl_make_errorf("Error (list): Improper argument list provided to list constructor.");
+    }
+
+    sl_gc_remove_root(&current_arg);
+    sl_gc_remove_root(&head);
+    return head;  // Return the newly constructed list
+}
+
+// (eq? obj1 obj2) -> Checks for pointer equality (identity).
+static sl_object *sl_builtin_eq(sl_object *args) {
+    sl_object *arity_check = check_arity("eq?", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *obj1 = sl_car(args);
+    sl_object *obj2 = sl_cadr(args);  // Helper for sl_car(sl_cdr(args))
+
+    // Direct pointer comparison
+    return (obj1 == obj2) ? SL_TRUE : SL_FALSE;
+}
+
+// Forward declaration for recursive equal? helper
+static bool sl_equal_recursive(sl_object *obj1, sl_object *obj2);
+
+// (equal? obj1 obj2) -> Checks for structural equality.
+static sl_object *sl_builtin_equal(sl_object *args) {
+    sl_object *arity_check = check_arity("equal?", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *obj1 = sl_car(args);
+    sl_object *obj2 = sl_cadr(args);
+
+    // Call the recursive helper
+    return sl_equal_recursive(obj1, obj2) ? SL_TRUE : SL_FALSE;
+}
+
+// Recursive helper for equal?
+// NOTE: This implementation does NOT handle circular structures.
+static bool sl_equal_recursive(sl_object *obj1, sl_object *obj2) {
+    // 1. Check for identity (eq?) first - covers NIL, booleans, identical objects
+    if (obj1 == obj2) {
+        return true;
+    }
+
+    // 2. If not identical, check if types are different
+    if (!obj1 || !obj2 || obj1->type != obj2->type) {
+        return false;
+    }
+
+    // 3. Types are the same, compare based on type
+    switch (obj1->type) {
+    case SL_TYPE_NUMBER: {
+        // Compare numerically
+        mpq_t num1_q, num2_q;
+        bool ok1 = get_number_as_mpq(obj1, num1_q, "equal?");  // Initializes num1_q
+        bool ok2 = get_number_as_mpq(obj2, num2_q, "equal?");  // Initializes num2_q
+        // If conversion fails (shouldn't happen if sl_is_number passed), treat as unequal
+        if (!ok1 || !ok2) {
+            if (ok1) mpq_clear(num1_q);
+            if (ok2) mpq_clear(num2_q);
+            return false;
+        }
+        int cmp_result = mpq_cmp(num1_q, num2_q);
+        mpq_clears(num1_q, num2_q, NULL);
+        return (cmp_result == 0);
+    }
+    case SL_TYPE_STRING:
+        // Compare string contents
+        // Assumes sl_string_value returns a null-terminated C string
+        return (strcmp(sl_string_value(obj1), sl_string_value(obj2)) == 0);
+    case SL_TYPE_SYMBOL:
+        // Compare symbol names (since interning is not yet implemented)
+        // Once interning is done, this case can just return true (because if they
+        // weren't eq? they wouldn't be the same symbol).
+        return (strcmp(sl_symbol_name(obj1), sl_symbol_name(obj2)) == 0);
+    case SL_TYPE_PAIR:
+        // Recursively compare car and cdr
+        // Rooting is not strictly necessary here as we are only reading
+        // and not allocating within the recursive calls themselves.
+        return sl_equal_recursive(sl_car(obj1), sl_car(obj2)) &&
+               sl_equal_recursive(sl_cdr(obj1), sl_cdr(obj2));
+
+    // Other types are only equal if they are eq?, which was checked first.
+    case SL_TYPE_NIL:       // Handled by eq? check
+    case SL_TYPE_BOOLEAN:   // Handled by eq? check
+    case SL_TYPE_FUNCTION:  // Not equal unless eq?
+    case SL_TYPE_ENV:       // Not equal unless eq?
+    case SL_TYPE_ERROR:     // Not equal unless eq?
+    case SL_TYPE_FREE:      // Should not be encountered
+    default:
+        return false;
+    }
+}
+
 // (newline)
 static sl_object *sl_builtin_newline(sl_object *args) {
     sl_object *arity_check = check_arity("newline", args, 0);
@@ -500,12 +743,15 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "car", sl_builtin_car);
     define_builtin(global_env, "cdr", sl_builtin_cdr);
     define_builtin(global_env, "cons", sl_builtin_cons);
+    define_builtin(global_env, "list", sl_builtin_list);  // <<< ADDED
 
     // Arithmetic
     define_builtin(global_env, "+", sl_builtin_add);
     define_builtin(global_env, "-", sl_builtin_sub);
     define_builtin(global_env, "*", sl_builtin_mul);
     define_builtin(global_env, "/", sl_builtin_div);
+    define_builtin(global_env, "remainder", sl_builtin_remainder);  // <<< ADDED
+    define_builtin(global_env, "modulo", sl_builtin_modulo);        // <<< ADDED
 
     // Comparison
     define_builtin(global_env, "=", sl_builtin_num_eq);
@@ -513,11 +759,13 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "<", sl_builtin_lt);
     define_builtin(global_env, ">=", sl_builtin_ge);
     define_builtin(global_env, "<=", sl_builtin_le);
+    define_builtin(global_env, "eq?", sl_builtin_eq);        // <<< ADDED
+    define_builtin(global_env, "equal?", sl_builtin_equal);  // <<< ADDED
 
     // Basic I/O
     define_builtin(global_env, "display", sl_builtin_display);
     define_builtin(global_env, "newline", sl_builtin_newline);
-    define_builtin(global_env, "load", sl_builtin_load);  // <<< ADDED
+    define_builtin(global_env, "load", sl_builtin_load);
 
     // Add other builtins here...
 }

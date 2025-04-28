@@ -16,11 +16,13 @@
 - [x] Implement basic I/O: `display`, `newline`.
 - [x] Implement file I/O: `load` function.
 - [x] Implement library loading mechanism (e.g., `load-library` or auto-load from dir).
+- [x] Implement more builtins: list, eq?, equal?
+- [x] Implement more builtins: remainder, modulo // <<< ADDED
+- [ ] let and named let
 - [ ] Test framwork
 - [ ] CI with valgrind
 - [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set
 - [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
-- [ ] let and named let
 - [ ] Refine parameter binding error handling (GC).
 - [ ] Gradually add more builtins.
 - [ ] Macros: define-syntax, let-syntax

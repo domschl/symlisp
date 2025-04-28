@@ -233,12 +233,10 @@ static sl_object *parse_expression(const char **input) {
     skip_whitespace_and_comments(input);  // <<< Call skip here
 
     char current_char = **input;
+    const char *start_ptr = *input;  // <<< Store position before parsing
 
     if (current_char == '\0') {
-        // End of input - This might be okay if called iteratively,
-        // but parse_expression expects an expression.
-        // Let's remove the error message here and let the caller decide.
-        // fprintf(stderr, "Error: Unexpected end of input.\n");
+        // End of input
         return SL_NIL;  // Indicate end of input or nothing found
     } else if (current_char == '(') {
         // Start of a list
@@ -249,17 +247,23 @@ static sl_object *parse_expression(const char **input) {
         return SL_NIL;  // Indicate error
     } else if (current_char == '\'') {
         // Quote reader macro: '<datum> -> (quote <datum>)
-        (*input)++;  // Consume the quote character
-        // No need to skip again here, parse_expression will handle it
+        (*input)++;                            // Consume the quote character
+        const char *datum_start_ptr = *input;  // <<< Store position before parsing datum
+
         sl_object *datum = parse_expression(input);  // Parse the datum
+
+        // --- CORRECTED ERROR/EOF CHECK ---
         if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || sl_is_error(datum)) {
             // Error parsing the datum after quote, or OOM
             return datum;  // Propagate error or OOM
         }
-        if (datum == SL_NIL) {  // Check if datum parsing hit EOF unexpectedly
+        // Check specifically for EOF/failure *before* datum parsing started
+        if (datum == SL_NIL && *input == datum_start_ptr) {
             fprintf(stderr, "Error: Unexpected end of input after quote (').\n");
-            return SL_NIL;
+            return SL_NIL;  // Return NIL indicating parse failure
         }
+        // --- END CORRECTION ---
+        // If we reach here, 'datum' is a valid object (including SL_NIL if '()' was parsed)
 
         sl_object *quote_sym = sl_make_symbol("quote");
         sl_gc_add_root(&quote_sym);  // Protect symbol
@@ -269,7 +273,7 @@ static sl_object *parse_expression(const char **input) {
         sl_gc_remove_root(&quoted_list);
         sl_gc_remove_root(&quote_sym);
         // Check allocation result for the final pair
-        CHECK_ALLOC(result);
+        CHECK_ALLOC(result);  // Use CHECK_ALLOC which returns on failure
         return result;
     } else if (current_char == '"') {
         // Start of a string literal

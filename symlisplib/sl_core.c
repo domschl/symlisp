@@ -33,23 +33,23 @@ static sl_object **gc_roots = NULL;
 static size_t root_count = 0;
 static size_t root_capacity = 0;
 
-// --- Global Constants (Definitions) ---
-sl_object *SL_NIL = NULL;
+// --- Global Constants / Singletons ---
+// Note: These objects themselves are not garbage collected, they live statically.
+// Their string contents are also static.
 sl_object *SL_TRUE = NULL;
 sl_object *SL_FALSE = NULL;
+sl_object *SL_NIL = NULL;
+sl_object *SL_EOF_OBJECT = NULL;
+
+sl_object sl_oom_error_obj = {SL_TYPE_ERROR, .data.error_str = "Out of Memory"};
+sl_object *SL_OUT_OF_MEMORY_ERROR = &sl_oom_error_obj;
+
+sl_object sl_parse_error_obj = {SL_TYPE_ERROR, .data.error_str = "Parse Error"};
+sl_object *SL_PARSE_ERROR = &sl_parse_error_obj;
 
 // --- Global Environment & Symbol Table (Definitions) ---
 sl_object *sl_global_env = NULL;
 sl_object *sl_symbol_table = NULL;  // Simple list for now
-
-// Static Out-of-Memory Error Object
-// Note: This object itself is not garbage collected, it lives statically.
-// Its string contents are also static.
-static sl_object sl_out_of_memory_error_obj = {
-    .type = SL_TYPE_ERROR,
-    .marked = 0,  // Should not be marked/swept
-    .data.error_str = "Out of memory"};
-sl_object *SL_OUT_OF_MEMORY_ERROR = &sl_out_of_memory_error_obj;
 
 // --- Forward Declarations ---
 static void sl_gc_mark(sl_object *root);

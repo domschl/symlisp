@@ -402,15 +402,16 @@ static sl_object *sl_builtin_denominator(sl_object *args) {
     if (!get_number_as_mpq(num_obj, num_q, "denominator")) {
         // Error already created by get_number_as_mpq
         result = sl_make_errorf("Error (denominator): Invalid number format.");  // Fallback
+        mpq_clear(num_q);
     } else {
         mpq_get_den(den_z, num_q);                // Extract denominator
         result = sl_make_number_from_mpz(den_z);  // Create SymLisp number
         CHECK_ALLOC(result);
+        mpq_clear(num_q);
+        mpz_clear(den_z);
     }
 
     sl_gc_remove_root(&num_obj);
-    mpq_clear(num_q);
-    mpz_clear(den_z);
     return result;
 }
 
@@ -432,15 +433,16 @@ static sl_object *sl_builtin_numerator(sl_object *args) {
 
     if (!get_number_as_mpq(num_obj, num_q, "numerator")) {
         result = sl_make_errorf("Error (numerator): Invalid number format.");  // Fallback
+        mpq_clear(num_q);
     } else {
         mpq_get_num(num_z, num_q);                // Extract numerator
         result = sl_make_number_from_mpz(num_z);  // Create SymLisp number
         CHECK_ALLOC(result);
+        mpq_clear(num_q);
+        mpz_clear(num_z);
     }
 
     sl_gc_remove_root(&num_obj);
-    mpq_clear(num_q);
-    mpz_clear(num_z);
     return result;
 }
 

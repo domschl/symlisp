@@ -11,9 +11,9 @@
 - [x] Implement if special form.
 - [x] Implement set! special form.
 - [x] Add API functions for environment get/set/define by C string name.
-- [ ] Remove reliance on fixed allocations for buffers
-- [ ] Implement some I/O: display, newline, read/save env, load/save files
+- [x] Remove reliance on fixed allocations for buffers
 - [ ] Implement `begin` special form (for multi-expression bodies in lambda/define).
+- [ ] Implement some I/O: display, newline, load and eval library files
 - [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set
 - [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
 - [ ] let and named let

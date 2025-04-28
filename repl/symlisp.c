@@ -149,7 +149,7 @@ void run_repl() {
                     if (result_str) {
                         // Check if it's an error object to print to stderr
                         if (sl_is_error(eval_result)) {
-                            fprintf(stderr, "Error: %s\n", result_str);
+                            fprintf(stderr, "%s\n", result_str);
                         } else {
                             printf("=> %s\n", result_str);
                         }

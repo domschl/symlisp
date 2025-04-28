@@ -55,71 +55,83 @@ void sl_env_define(sl_object *env_obj, sl_object *symbol, sl_object *value) {
 }
 
 // Sets the value of an existing variable in the nearest environment where it's defined.
-// Searches outwards from env_obj.
-// Returns true if the variable was found and set, false otherwise.
 bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     if (!sl_is_symbol(symbol)) {
-        fprintf(stderr, "Internal Error (sl_env_set): Expected a symbol.\n");
-        return false;  // Or handle error differently
+        fprintf(stderr, "Error (set!): Target must be a symbol.\n");
+        return false;  // Indicate error
     }
-    if (!sl_is_env(env_obj)) {
-        fprintf(stderr, "Internal Error (sl_env_set): Expected an environment.\n");
-        return false;
-    }
+    const char *target_name = sl_symbol_name(symbol);  // Get name once
 
     sl_object *current_env_obj = env_obj;
-    while (sl_is_env(current_env_obj)) {
-        sl_object *current_binding = sl_env_bindings(current_env_obj);
-        while (sl_is_pair(current_binding)) {
+    while (current_env_obj != NULL && current_env_obj != SL_NIL) {
+        if (!sl_is_env(current_env_obj)) {
+            fprintf(stderr, "Error (set!): Invalid environment structure encountered.\n");
+            return false;  // Indicate error
+        }
+
+        sl_object *bindings = current_env_obj->data.env.bindings;
+        sl_object *current_binding = bindings;
+        while (current_binding != SL_NIL) {
+            if (!sl_is_pair(current_binding)) break;  // Malformed env protection
             sl_object *pair = sl_car(current_binding);
-            // Use strcmp for comparison until interning is implemented
-            if (sl_is_pair(pair) && sl_is_symbol(sl_car(pair)) &&
-                strcmp(sl_symbol_name(sl_car(pair)), sl_symbol_name(symbol)) == 0) {
-                // Found the binding, update the value (cdr of the inner pair)
-                sl_set_cdr(pair, value);
-                return true;  // Successfully set
+            if (!sl_is_pair(pair)) break;  // Malformed env protection
+            sl_object *current_sym = sl_car(pair);
+
+            // --- CORRECTED COMPARISON ---
+            // if (sl_car(pair) == symbol) { // <<< OLD POINTER COMPARISON
+            if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON
+                // Found the symbol in this frame, update the value
+                sl_set_cdr(pair, value);  // Assumes sl_set_cdr handles GC if needed
+                return true;              // Success
             }
             current_binding = sl_cdr(current_binding);
         }
-        // Not found in this environment, move to the outer one
-        current_env_obj = sl_env_outer(current_env_obj);
+        // Not found in current frame, move to outer
+        current_env_obj = current_env_obj->data.env.outer;
     }
 
-    // Variable not found in any enclosing environment
-    return false;
+    // Symbol not found in any environment
+    fprintf(stderr, "Error (set!): Unbound variable '%s'.\n", target_name);
+    return false;  // Indicate error
 }
 
-// Update sl_env_lookup to use strcmp
+// Looks up a variable's value, searching outwards from the given environment.
 sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
     if (!sl_is_symbol(symbol)) {
-        fprintf(stderr, "Error (lookup): Invalid symbol.\n");
-        return NULL;  // Indicate not found
+        fprintf(stderr, "Internal Error (lookup): Target must be a symbol.\n");
+        return SL_NIL;  // Or an error object
     }
+    const char *target_name = sl_symbol_name(symbol);  // Get name once
 
     sl_object *current_env_obj = env_obj;
-    while (sl_is_env(current_env_obj)) {
-        sl_object *current_binding = sl_env_bindings(current_env_obj);
-        while (sl_is_pair(current_binding)) {
+    while (current_env_obj != NULL && current_env_obj != SL_NIL) {
+        if (!sl_is_env(current_env_obj)) {
+            fprintf(stderr, "Error (lookup): Invalid environment structure encountered.\n");
+            return SL_NIL;
+        }
+
+        sl_object *bindings = current_env_obj->data.env.bindings;
+        sl_object *current_binding = bindings;
+        while (current_binding != SL_NIL) {
+            if (!sl_is_pair(current_binding)) break;  // Malformed env protection
             sl_object *pair = sl_car(current_binding);
-            // Use strcmp for comparison
-            if (sl_is_pair(pair) && sl_is_symbol(sl_car(pair)) &&
-                strcmp(sl_symbol_name(sl_car(pair)), sl_symbol_name(symbol)) == 0) {
-                // Found the binding, return the value (cdr of the inner pair)
+            if (!sl_is_pair(pair)) break;  // Malformed env protection
+            sl_object *current_sym = sl_car(pair);
+
+            // --- CORRECTED COMPARISON ---
+            // if (sl_car(pair) == symbol) { // <<< OLD POINTER COMPARISON
+            if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON
+                // Found the symbol, return its value
                 return sl_cdr(pair);
             }
             current_binding = sl_cdr(current_binding);
         }
-        current_env_obj = sl_env_outer(current_env_obj);
-    }
-    // If current_env_obj became SL_NIL, we reached the end without finding it.
-    if (current_env_obj != SL_NIL) {
-        fprintf(stderr, "Error (lookup): Invalid environment structure encountered.\n");
-        return NULL;
+        // Not found in current frame, move to outer
+        current_env_obj = current_env_obj->data.env.outer;
     }
 
-    // Symbol not found in any environment
-    // fprintf(stderr, "Warning (lookup): Unbound variable '%s'.\n", sl_symbol_name(symbol));
-    return NULL;  // Indicate not found
+    // Symbol not found in any environment up to NULL/SL_NIL
+    return SL_NIL;  // Indicate not found
 }
 
 // sl_gc_mark_env is removed as its logic is now in sl_gc_mark

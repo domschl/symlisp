@@ -50,12 +50,21 @@ top_of_eval:;
         result = obj;    // Self-evaluating
         break;
 
-    case SL_TYPE_SYMBOL:
-        result = sl_env_lookup(env, obj);  // Use lookup
-        if (!result) {
-            result = sl_make_errorf("Eval: Unbound symbol '%s'", safe_symbol_name(obj));
+    case SL_TYPE_SYMBOL: {
+        sl_object *lookup_val = sl_env_lookup(env, obj);  // Look up the symbol
+
+        if (lookup_val == SL_NIL) {
+            // Symbol not found. Get name *before* potential allocation.
+            const char *sym_name = sl_symbol_name(obj);
+            // Now create the error object.
+            result = sl_make_errorf("Eval: Unbound symbol '%s'", sym_name);
+            // Assign the new error object to the rooted 'result' slot.
+        } else {
+            // Symbol found. Assign the value to the rooted 'result' slot.
+            result = lookup_val;
         }
-        break;
+        break;  // Break from switch case SL_TYPE_SYMBOL
+    }
 
     case SL_TYPE_PAIR: {
         sl_object *op_obj = sl_car(obj);

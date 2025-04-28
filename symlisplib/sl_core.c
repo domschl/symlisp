@@ -1,12 +1,13 @@
-#include "sl_core.h"
-#include "sl_env.h"  // Include necessary headers
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>  // For va_list
+#include <stdarg.h>    // For va_list
+#include <inttypes.h>  // For PRId64
 #include <limits.h>
 #include <gmp.h>
-#include <inttypes.h>  // For PRId64
+
+#include "sl_core.h"
+#include "sl_env.h"  // Include necessary headers
 
 // Define buffer size for error messages formatted by sl_make_errorf
 #define ERROR_BUFFER_SIZE 256

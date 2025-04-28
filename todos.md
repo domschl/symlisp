@@ -14,6 +14,8 @@
 - [x] Remove reliance on fixed allocations for buffers
 - [ ] Implement `begin` special form (for multi-expression bodies in lambda/define).
 - [ ] Implement some I/O: display, newline, load and eval library files
+- [ ] Test framwork
+- [ ] CI with valgrind
 - [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set
 - [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
 - [ ] let and named let
@@ -24,6 +26,8 @@
 - [ ] Check against r7rs
 - [ ] Standard library
 - [ ] Symbolics libs
+- [ ] Kernel
+- [ ] MCP/agnt
 
 ## Details
 

@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <gmp.h>
 
+// --- Type Definitions ---
 // Forward declaration
 struct sl_object;
 // Remove forward declaration for sl_env, it's integrated now
@@ -92,14 +93,22 @@ typedef struct sl_object {
 extern sl_object *sl_global_env;    // Now an sl_object*
 extern sl_object *sl_symbol_table;  // Interned symbol table (e.g., a list or hash table)
 
-// --- Constants ---
+// --- Global Constants ---
 extern sl_object *SL_NIL;
 extern sl_object *SL_TRUE;
 extern sl_object *SL_FALSE;
 extern sl_object *SL_OUT_OF_MEMORY_ERROR;  // <<< ADDED
 
-// --- Memory Management Functions ---
+// --- Helper macro for checking allocation result ---
+// Place this *after* SL_OUT_OF_MEMORY_ERROR is declared
+#define CHECK_ALLOC(obj_ptr)                                                         \
+    if ((obj_ptr) == SL_OUT_OF_MEMORY_ERROR) { return SL_OUT_OF_MEMORY_ERROR; }      \
+    if (!(obj_ptr)) { /* Should not happen if SL_OUT_OF_MEMORY_ERROR is used */      \
+        fprintf(stderr, "Internal Error: Allocation returned NULL unexpectedly.\n"); \
+        return SL_OUT_OF_MEMORY_ERROR;                                               \
+    }
 
+// --- Memory Management ---
 // Initialize the memory management system (Must also initialize GMP if needed)
 void sl_mem_init(size_t initial_heap_size);
 
@@ -137,6 +146,8 @@ char *sl_object_to_string(sl_object *obj);  // <<< ADDED
 //       where is_bignum is true before adding them to the free list.
 void sl_gc();
 static void sl_gc_mark(sl_object *obj);
+void sl_gc_add_root(sl_object **root_ptr);
+void sl_gc_remove_root(sl_object **root_ptr);
 sl_object *sl_allocate_object();
 
 // Clean up memory management system (Must also clean up any global GMP state if needed)
@@ -165,6 +176,7 @@ void sl_mem_shutdown();
 #define sl_cdr(obj) ((obj)->data.pair.cdr)
 #define sl_set_car(obj, val) ((obj)->data.pair.car = (val))
 #define sl_set_cdr(obj, val) ((obj)->data.pair.cdr = (val))
+sl_object *sl_cadr(sl_object *list);
 
 // Number accessors (Implementations needed in .c file)
 // Attempts to get value as int64_t. Returns false if it's a bignum or doesn't fit.

@@ -9,13 +9,22 @@
 #include <inttypes.h>  // For PRId64
 
 // Define buffer size for error messages formatted by sl_make_errorf
-#define ERROR_BUFFER_SIZE 256  // Or another suitable size
+#define ERROR_BUFFER_SIZE 256
+#define DEFAULT_CHUNK_OBJECT_COUNT 8192  // Objects per chunk
 
-// --- Global Memory Management Variables ---
-static sl_object *heap_start = NULL;  // Pointer to the start of the allocated heap
-static size_t heap_size = 0;          // Total number of objects the heap can hold
-static sl_object *free_list = NULL;   // Head of the linked list of free objects
-static size_t free_count = 0;         // Number of objects currently in the free list
+// --- Memory Management Variables ---
+// Structure to manage heap chunks
+typedef struct heap_chunk {
+    sl_object *objects;             // Pointer to the objects in this chunk
+    size_t object_count;            // Number of objects in this chunk
+    struct heap_chunk *next_chunk;  // Link to the next chunk
+} heap_chunk;
+
+static heap_chunk *first_chunk = NULL;  // Head of the chunk list
+static size_t total_heap_objects = 0;   // Total objects across all chunks
+static sl_object *free_list = NULL;
+static size_t free_count = 0;
+// No need for dynamic_heap flag anymore, it's always dynamic with chunks
 
 // --- GC Root Set ---
 // Simple dynamic array for roots
@@ -42,10 +51,9 @@ static sl_object sl_out_of_memory_error_obj = {
 sl_object *SL_OUT_OF_MEMORY_ERROR = &sl_out_of_memory_error_obj;
 
 // --- Forward Declarations ---
-static void sl_gc_mark(sl_object *root);  // Forward declare static functions if needed
+static void sl_gc_mark(sl_object *root);
 static void sl_gc_sweep();
-void sl_gc_add_root(sl_object **root_ptr);     // <<< ADDED Forward declaration
-void sl_gc_remove_root(sl_object **root_ptr);  // <<< ADDED Forward declaration
+static bool allocate_new_chunk(size_t objects_in_chunk);  // New function
 
 // Helper function to check if a value fits in int64_t
 // Note: GMP's mpz_fits_slong_p uses 'long', which might not be 64-bit.
@@ -91,29 +99,73 @@ bool fits_int64(const mpz_t val) {
 
 // --- Memory Management Functions ---
 
-void sl_mem_init(size_t initial_heap_size) {
-    if (heap_start != NULL) {  // <<< Now declared
-        return;                // Already initialized
+// Allocate and initialize a new heap chunk
+static bool allocate_new_chunk(size_t objects_in_chunk) {
+    if (objects_in_chunk == 0) objects_in_chunk = DEFAULT_CHUNK_OBJECT_COUNT;
+
+    printf("[DEBUG] Allocating new heap chunk with %zu objects...\n", objects_in_chunk);
+
+    heap_chunk *new_chunk_node = (heap_chunk *)malloc(sizeof(heap_chunk));
+    if (!new_chunk_node) {
+        perror("[DEBUG] Failed to allocate heap chunk node");
+        return false;
     }
 
-    heap_size = initial_heap_size;          // <<< Now declared
-    if (heap_size == 0) heap_size = 65536;  // Default heap size (64K objects)
+    sl_object *new_objects = (sl_object *)malloc(objects_in_chunk * sizeof(sl_object));
+    if (!new_objects) {
+        perror("[DEBUG] Failed to allocate objects for new heap chunk");
+        free(new_chunk_node);  // Clean up node allocation
+        return false;
+    }
 
-    heap_start = (sl_object *)malloc(heap_size * sizeof(sl_object));  // <<< Now declared
-    if (heap_start == NULL) {
-        perror("Failed to allocate heap");
+    // Initialize objects in the new chunk and link them to the *front* of the global free list
+    sl_object *new_chunk_free_head = NULL;
+    for (size_t i = 0; i < objects_in_chunk; ++i) {
+        new_objects[i].type = SL_TYPE_FREE;
+        new_objects[i].marked = false;
+        memset(&new_objects[i].data, 0, sizeof(new_objects[i].data));
+        new_objects[i].next = new_chunk_free_head;  // Prepend to local list
+        new_chunk_free_head = &new_objects[i];
+    }
+
+    // Find tail of new list segment
+    if (new_chunk_free_head) {
+        sl_object *tail = new_chunk_free_head;
+        while (tail->next != NULL) {
+            tail = tail->next;
+        }
+        // Link tail of new segment to head of old global free list
+        tail->next = free_list;
+        free_list = new_chunk_free_head;  // Global free list now starts with new chunk's list
+    }
+    // If new_chunk_free_head is NULL (0 objects?), free_list remains unchanged.
+
+    // Update chunk list and counts
+    new_chunk_node->objects = new_objects;
+    new_chunk_node->object_count = objects_in_chunk;
+    new_chunk_node->next_chunk = first_chunk;  // Prepend chunk node to global list
+    first_chunk = new_chunk_node;
+
+    total_heap_objects += objects_in_chunk;
+    free_count += objects_in_chunk;
+
+    printf("[DEBUG] New chunk allocated. Total objects: %zu. Free count: %zu\n", total_heap_objects, free_count);
+    return true;
+}
+
+// Initialize memory. requested_heap_size is now the size of the *first* chunk (0 for default).
+void sl_mem_init(size_t first_chunk_size) {
+    if (first_chunk != NULL) {
+        return;  // Already initialized
+    }
+
+    printf("Initializing SymLisp memory...\n");
+    if (first_chunk_size == 0) first_chunk_size = DEFAULT_CHUNK_OBJECT_COUNT;
+
+    if (!allocate_new_chunk(first_chunk_size)) {
+        fprintf(stderr, "FATAL: Failed to allocate initial heap chunk.\n");
         exit(EXIT_FAILURE);
     }
-
-    // Initialize all objects and link them into the free list
-    free_list = heap_start;                   // <<< Now declared
-    for (size_t i = 0; i < heap_size; ++i) {  // <<< Now declared
-        heap_start[i].type = SL_TYPE_FREE;    // <<< Now declared
-        heap_start[i].marked = false;
-        heap_start[i].next = (i + 1 < heap_size) ? &heap_start[i + 1] : NULL;
-        memset(&heap_start[i].data, 0, sizeof(heap_start[i].data));
-    }
-    free_count = heap_size;  // <<< Now declared
 
     // --- Allocate Constants ---
     // These are allocated outside the main heap for simplicity
@@ -173,49 +225,49 @@ void sl_mem_init(size_t initial_heap_size) {
 }
 
 void sl_mem_shutdown() {
-    // Free any resources associated with objects (like strings, bignums)
-    for (size_t i = 0; i < heap_size; ++i) {  // <<< Now declared
-        sl_object *obj = &heap_start[i];      // <<< Now declared
-        if (obj->type != SL_TYPE_FREE) {
-            switch (obj->type) {
-            case SL_TYPE_NUMBER:
-                if (obj->data.number.is_bignum) {
-                    mpq_clear(obj->data.number.value.big_num);
+    printf("[DEBUG] Shutting down memory...\n");
+    heap_chunk *current_chunk = first_chunk;
+    while (current_chunk != NULL) {
+        heap_chunk *next = current_chunk->next_chunk;
+
+        // Free resources within objects of the current chunk
+        for (size_t i = 0; i < current_chunk->object_count; ++i) {
+            sl_object *obj = &current_chunk->objects[i];
+            if (obj->type != SL_TYPE_FREE) {
+                switch (obj->type) {
+                case SL_TYPE_NUMBER:
+                    if (obj->data.number.is_bignum) mpq_clear(obj->data.number.value.big_num);
+                    break;
+                case SL_TYPE_STRING:
+                    free(obj->data.string_val);
+                    break;
+                case SL_TYPE_SYMBOL:
+                    free(obj->data.symbol_name);
+                    break;
+                case SL_TYPE_ERROR:
+                    if (obj != SL_OUT_OF_MEMORY_ERROR) free(obj->data.error_str);
+                    break;
+                default:
+                    break;
                 }
-                break;
-            case SL_TYPE_STRING:
-                // Use correct member name
-                free(obj->data.string_val);  // <<< CORRECTED
-                obj->data.string_val = NULL;
-                break;
-            case SL_TYPE_SYMBOL:
-                // Use correct member name
-                free(obj->data.symbol_name);  // <<< CORRECTED
-                obj->data.symbol_name = NULL;
-                break;
-            case SL_TYPE_ERROR:
-                // Don't free the static error object's string
-                if (obj != SL_OUT_OF_MEMORY_ERROR && obj->data.error_str) {
-                    free(obj->data.error_str);
-                    obj->data.error_str = NULL;
-                }
-                break;
-            // Add cases for other types needing cleanup if necessary
-            default:
-                break;
             }
         }
+        // Free the object array for this chunk
+        printf("[DEBUG] Freeing objects for chunk %p\n", (void *)current_chunk);
+        free(current_chunk->objects);
+        // Free the chunk management node itself
+        printf("[DEBUG] Freeing chunk node %p\n", (void *)current_chunk);
+        free(current_chunk);
+        current_chunk = next;
     }
 
-    // Free the heap itself
-    free(heap_start);  // <<< Now declared
-    heap_start = NULL;
-    heap_size = 0;
-    free_list = NULL;  // <<< Now declared
+    first_chunk = NULL;
+    total_heap_objects = 0;
+    free_list = NULL;
     free_count = 0;
 
     // Free GC roots array
-    free(gc_roots);  // <<< Now declared
+    free(gc_roots);
     gc_roots = NULL;
     root_count = 0;
     root_capacity = 0;
@@ -232,7 +284,7 @@ void sl_mem_shutdown() {
 }
 
 // Add/Remove GC Roots (Implementation)
-void sl_gc_add_root(sl_object **root_ptr) {  // <<< Definition matches declaration
+void sl_gc_add_root(sl_object **root_ptr) {
     if (root_count >= root_capacity) {
         // Resize roots array
         size_t new_capacity = root_capacity == 0 ? 16 : root_capacity * 2;
@@ -245,13 +297,12 @@ void sl_gc_add_root(sl_object **root_ptr) {  // <<< Definition matches declarati
         gc_roots = new_roots;
         root_capacity = new_capacity;
     }
-    // Assignment is correct: storing sl_object** into array of sl_object**
     gc_roots[root_count++] = root_ptr;
 }
 
-void sl_gc_remove_root(sl_object **root_ptr) {  // <<< Definition matches declaration
+void sl_gc_remove_root(sl_object **root_ptr) {
     for (size_t i = 0; i < root_count; ++i) {
-        // Comparison is correct: comparing sl_object** with sl_object**
+        // Cast root_ptr to sl_object** for comparison (though types match)
         if (gc_roots[i] == root_ptr) {
             gc_roots[i] = gc_roots[root_count - 1];
             root_count--;
@@ -263,20 +314,35 @@ void sl_gc_remove_root(sl_object **root_ptr) {  // <<< Definition matches declar
 
 // Simple allocation from the free list
 sl_object *sl_allocate_object() {
-    if (free_list == NULL) {  // <<< Now declared
+    if (free_list == NULL) {
+        printf("[DEBUG] free_list is NULL. Running GC...\n");  // DEBUG
         sl_gc();
         if (free_list == NULL) {
-            fprintf(stderr, "Error: Out of memory! Heap size: %zu\n", heap_size);  // <<< Now declared
-            return NULL;
+            printf("[DEBUG] free_list still NULL after GC. Allocating new chunk...\n");  // DEBUG
+            // Still no memory after GC. Allocate a new chunk.
+            if (!allocate_new_chunk(DEFAULT_CHUNK_OBJECT_COUNT)) {
+                fprintf(stderr, "Error: Out of memory! Failed to allocate new heap chunk.\n");
+                // Even allocation failed, return the static error object
+                return SL_OUT_OF_MEMORY_ERROR;  // <<< Return static error
+            }
+            // allocate_new_chunk should have populated free_list
+            if (free_list == NULL) {
+                fprintf(stderr, "[DEBUG] Internal Error: New chunk allocation reported success but free_list is still NULL.\n");
+                return SL_OUT_OF_MEMORY_ERROR;  // <<< Return static error
+            }
+            printf("[DEBUG] New chunk allocated. Proceeding with allocation.\n");  // DEBUG
+        } else {
+            printf("[DEBUG] GC freed objects. free_list is now %p.\n", (void *)free_list);  // DEBUG
         }
     }
 
+    // Allocate from free list
     sl_object *new_obj = free_list;
     free_list = new_obj->next;
     new_obj->next = NULL;
     new_obj->marked = false;
     memset(&new_obj->data, 0, sizeof(new_obj->data));
-    free_count--;  // <<< Now declared
+    free_count--;
     return new_obj;
 }
 
@@ -295,6 +361,8 @@ sl_object *sl_make_number_si(int64_t num, int64_t den) {
     }
 
     sl_object *new_num = sl_allocate_object();
+    CHECK_ALLOC(new_num);  // <<< ADD CHECK
+
     new_num->type = SL_TYPE_NUMBER;
     new_num->data.number.is_bignum = false;  // Assume small initially
     new_num->data.number.value.small_num.num = num;
@@ -310,16 +378,19 @@ sl_object *sl_make_number_si(int64_t num, int64_t den) {
 
 sl_object *sl_make_number_z(const mpz_t num_z) {
     sl_object *new_num = sl_allocate_object();
+    CHECK_ALLOC(new_num);  // <<< ADD CHECK
+
     new_num->type = SL_TYPE_NUMBER;
     new_num->data.number.is_bignum = true;
-    mpq_init(new_num->data.number.value.big_num);
+    mpq_init(new_num->data.number.value.big_num);  // GMP alloc might fail, but less common to check explicitly here
     mpq_set_z(new_num->data.number.value.big_num, num_z);
-    // mpq_canonicalize(new_num->data.number.value.big_num); // Already canonical
     return new_num;
 }
 
 sl_object *sl_make_number_q(const mpq_t value_q) {
     sl_object *new_num = sl_allocate_object();
+    CHECK_ALLOC(new_num);  // <<< ADD CHECK
+
     new_num->type = SL_TYPE_NUMBER;
 
     // Check if the GMP rational fits into int64_t components
@@ -346,46 +417,60 @@ sl_object *sl_make_number_q(const mpq_t value_q) {
     return new_num;
 }
 
+// Helper function to put an object back on the free list
+static void return_object_to_free_list(sl_object *obj) {
+    if (!obj || obj == SL_OUT_OF_MEMORY_ERROR) return;  // Safety checks
+    // Assuming obj is valid and was just allocated but failed internally
+    memset(&obj->data, 0, sizeof(obj->data));  // Clear data
+    obj->type = SL_TYPE_FREE;
+    obj->marked = false;
+    obj->next = free_list;
+    free_list = obj;
+    free_count++;
+}
+
 sl_object *sl_make_string(const char *str) {
     sl_object *new_str = sl_allocate_object();
-    if (!new_str) return SL_OUT_OF_MEMORY_ERROR;
+    CHECK_ALLOC(new_str);  // <<< ADD CHECK
 
     new_str->type = SL_TYPE_STRING;
-    new_str->data.string_val = strdup(str);  // <<< CORRECTED: Use string_val
+    new_str->data.string_val = strdup(str);
     if (!new_str->data.string_val) {
-        return SL_OUT_OF_MEMORY_ERROR;
+        // strdup failed! Return the object to the free list.
+        return_object_to_free_list(new_str);  // <<< Cleanup
+        return SL_OUT_OF_MEMORY_ERROR;        // Signal error
     }
     return new_str;
 }
 
 sl_object *sl_make_symbol(const char *name) {
-    // TODO: Implement symbol interning later. For now, always allocate.
+    // TODO: Implement symbol interning later.
     sl_object *new_sym = sl_allocate_object();
-    if (!new_sym) return SL_OUT_OF_MEMORY_ERROR;
+    CHECK_ALLOC(new_sym);  // <<< ADD CHECK
 
     new_sym->type = SL_TYPE_SYMBOL;
-    new_sym->data.symbol_name = strdup(name);  // <<< CORRECTED: Use symbol_name
+    new_sym->data.symbol_name = strdup(name);
     if (!new_sym->data.symbol_name) {
-        // Failed to allocate memory for the string copy
-        // Put object back? For now, just return error.
+        return_object_to_free_list(new_sym);  // <<< Cleanup
         return SL_OUT_OF_MEMORY_ERROR;
     }
-    // Add to symbol table (simple list prepend for now) - Requires sl_make_pair
+
+    // Add to symbol table (requires allocating a pair)
     sl_object *pair = sl_make_pair(new_sym, sl_symbol_table);
-    if (pair == SL_OUT_OF_MEMORY_ERROR) {
-        // Failed to allocate pair for symbol table, major issue
-        free(new_sym->data.symbol_name);  // Free the symbol name we just allocated
-        // Put new_sym back on free list?
-        return SL_OUT_OF_MEMORY_ERROR;  // Propagate memory error
+    if (pair == SL_OUT_OF_MEMORY_ERROR) {  // <<< Check nested allocation
+        // Failed to make pair, cleanup the symbol object too
+        free(new_sym->data.symbol_name);      // Free the string
+        return_object_to_free_list(new_sym);  // Return the object
+        return SL_OUT_OF_MEMORY_ERROR;        // Propagate error
     }
-    sl_symbol_table = pair;
+    sl_symbol_table = pair;  // Update global only on full success
 
     return new_sym;
 }
 
 sl_object *sl_make_pair(sl_object *car_obj, sl_object *cdr_obj) {
     sl_object *new_pair = sl_allocate_object();
-    if (!new_pair) return SL_OUT_OF_MEMORY_ERROR;  // Check for NULL
+    CHECK_ALLOC(new_pair);  // <<< ADD CHECK
 
     new_pair->type = SL_TYPE_PAIR;
     new_pair->data.pair.car = car_obj;
@@ -402,7 +487,7 @@ sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env) {
     // Basic validation of body (should not be NULL) - can enhance later
 
     sl_object *func_obj = sl_allocate_object();
-    if (!func_obj) return SL_NIL;
+    CHECK_ALLOC(func_obj);  // <<< ADD CHECK
 
     func_obj->type = SL_TYPE_FUNCTION;
     func_obj->data.function.is_builtin = false;
@@ -415,6 +500,8 @@ sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env) {
 
 sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *args)) {
     sl_object *new_func = sl_allocate_object();
+    CHECK_ALLOC(new_func);  // <<< ADD CHECK
+
     new_func->type = SL_TYPE_FUNCTION;
     new_func->data.function.is_builtin = true;
     // Note: 'name' is assumed to be a static string literal, not allocated.
@@ -425,7 +512,7 @@ sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *a
 
 sl_object *sl_make_errorf(const char *format, ...) {
     sl_object *err_obj = sl_allocate_object();
-    if (!err_obj) return SL_OUT_OF_MEMORY_ERROR;
+    CHECK_ALLOC(err_obj);  // <<< ADD CHECK
 
     err_obj->type = SL_TYPE_ERROR;
 
@@ -439,7 +526,7 @@ sl_object *sl_make_errorf(const char *format, ...) {
 
     err_obj->data.error_str = strdup(temp_buffer);
     if (!err_obj->data.error_str) {
-        // TODO: Put err_obj back on free list?
+        return_object_to_free_list(err_obj);  // <<< Cleanup
         return SL_OUT_OF_MEMORY_ERROR;
     }
 
@@ -517,6 +604,13 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop) {
     }
 }
 
+// --- Helpers ---
+// Helper needed for set! (if not already defined in sl_core.c/h)
+sl_object *sl_cadr(sl_object *list) {
+    if (!sl_is_pair(list)) return SL_NIL;
+    return sl_car(sl_cdr(list));
+}
+
 // --- Garbage Collection (Mark and Sweep) ---
 
 // Mark phase: Recursively mark all reachable objects
@@ -558,73 +652,64 @@ static void sl_gc_mark(sl_object *root) {
     }
 }
 
-// Sweep phase: Collect all unmarked objects and add them to the free list
+// Sweep phase: Collect all unmarked objects across ALL chunks
 static void sl_gc_sweep() {
-    free_list = NULL;
+    // printf("[DEBUG] Starting GC Sweep...\n"); // DEBUG
+    free_list = NULL;  // Rebuild the free list from scratch
     free_count = 0;
 
-    for (size_t i = 0; i < heap_size; ++i) {
-        sl_object *obj = &heap_start[i];
+    heap_chunk *current_chunk = first_chunk;
+    while (current_chunk != NULL) {
+        // printf("[DEBUG] Sweeping chunk %p (%zu objects)\n", (void*)current_chunk, current_chunk->object_count); // DEBUG
+        for (size_t i = 0; i < current_chunk->object_count; ++i) {
+            sl_object *obj = &current_chunk->objects[i];
 
-        if (obj == SL_OUT_OF_MEMORY_ERROR) continue;
+            if (obj == SL_OUT_OF_MEMORY_ERROR) continue;  // Skip static error obj
 
-        if (obj->type == SL_TYPE_FREE) {
-            obj->next = free_list;
-            free_list = obj;
-            free_count++;
-            continue;
-        }
-
-        if (obj->marked) {
-            obj->marked = false;
-        } else {
-            // Unreachable: free associated resources
-            switch (obj->type) {  // <<< Handle all relevant types
-            case SL_TYPE_NUMBER:
-                if (obj->data.number.is_bignum) {
-                    mpq_clear(obj->data.number.value.big_num);
-                }
-                break;
-            case SL_TYPE_STRING:
-                free(obj->data.string_val);
-                obj->data.string_val = NULL;
-                break;
-            case SL_TYPE_SYMBOL:
-                // Only free if not interned (currently always free)
-                free(obj->data.symbol_name);
-                obj->data.symbol_name = NULL;
-                break;
-            case SL_TYPE_ERROR:
-                if (obj != SL_OUT_OF_MEMORY_ERROR && obj->data.error_str) {
-                    free(obj->data.error_str);
-                    obj->data.error_str = NULL;
-                }
-                break;
-            // Add cases for types that might hold resources but don't need
-            // specific freeing here (covered by marking/recursive GC)
-            // or types that hold no resources.
-            case SL_TYPE_PAIR:
-            case SL_TYPE_FUNCTION:  // Closure env/params/body are marked
-            case SL_TYPE_ENV:       // Bindings/outer are marked
-            case SL_TYPE_NIL:       // Constant (or handled outside heap)
-            case SL_TYPE_BOOLEAN:   // Constant (or handled outside heap)
-            case SL_TYPE_FREE:      // Should not be reached here
-                break;              // No action needed for these in sweep
-                // default: // Optional: catch unexpected types
-                //     fprintf(stderr, "Warning: Unknown object type %d during GC sweep.\n", obj->type);
-                //     break;
+            // Skip objects already on the free list (e.g., from previous sweeps if GC interrupted?)
+            // This check might be redundant if sweep always completes.
+            if (obj->type == SL_TYPE_FREE) {
+                // It's already free, ensure it gets onto the new list if somehow missed
+                // This logic might need refinement depending on exact free list state.
+                // For now, assume we rebuild fully. If it's FREE, it will be added below.
+                // continue; // Let the logic below handle it.
             }
 
-            // Clear the object's data and set type to FREE
-            memset(&obj->data, 0, sizeof(obj->data));
-            obj->type = SL_TYPE_FREE;
+            if (obj->marked) {
+                obj->marked = false;  // Keep marked object, unmark for next cycle
+            } else {
+                // Unreachable or already FREE: free associated resources and add to free list
+                if (obj->type != SL_TYPE_FREE) {  // Only free resources if it wasn't already free
+                    switch (obj->type) {
+                    case SL_TYPE_NUMBER:
+                        if (obj->data.number.is_bignum) mpq_clear(obj->data.number.value.big_num);
+                        break;
+                    case SL_TYPE_STRING:
+                        free(obj->data.string_val);
+                        break;
+                    case SL_TYPE_SYMBOL:
+                        free(obj->data.symbol_name);
+                        break;
+                    case SL_TYPE_ERROR:
+                        if (obj != SL_OUT_OF_MEMORY_ERROR) free(obj->data.error_str);
+                        break;
+                    default:
+                        break;  // Types without external resources
+                    }
+                    // Clear the object's data
+                    memset(&obj->data, 0, sizeof(obj->data));
+                    obj->type = SL_TYPE_FREE;
+                }
 
-            // Add to the rebuilt free list
-            obj->next = free_list;
-            free_list = obj;
-            free_count++;
+                // Add to the rebuilt free list (prepend)
+                obj->next = free_list;
+                free_list = obj;
+                free_count++;
+            }
         }
+        current_chunk = current_chunk->next_chunk;
     }
+    // printf("[DEBUG] GC Sweep finished. New free count: %zu\n", free_count); // DEBUG
 }
 
 // Main GC function
@@ -633,13 +718,13 @@ void sl_gc() {
 
     // 1. Mark all objects reachable from the root set
     for (size_t i = 0; i < root_count; ++i) {
-        sl_object **root_ptr = gc_roots[i];
-        // Check if
+        // Cast gc_roots[i] to sl_object** for initialization (though types match)
+        sl_object **root_ptr = (sl_object **)gc_roots[i];  // <<< CAST ADDED
+        // Check if the root pointer itself is valid AND if the object it points to is valid
         if (root_ptr && *root_ptr) {
             sl_gc_mark(*root_ptr);
         }
     }
-    // Note: sl_global_env and sl_symbol_table are now handled via the roots array
 
     // 2. Sweep unreachable objects
     sl_gc_sweep();

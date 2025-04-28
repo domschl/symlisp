@@ -169,7 +169,6 @@ void sl_mem_init(size_t first_chunk_size) {
     }
 
     // --- Allocate Constants ---
-    // These are allocated outside the main heap for simplicity
     // NIL
     SL_NIL = (sl_object *)malloc(sizeof(sl_object));
     if (!SL_NIL) {
@@ -203,12 +202,8 @@ void sl_mem_init(size_t first_chunk_size) {
     SL_FALSE->next = NULL;
     SL_FALSE->data.boolean = false;
 
-    // Initialize global environment and symbol table
-    sl_global_env = sl_env_create(SL_NIL);
-    if (sl_global_env == NULL || sl_global_env == SL_OUT_OF_MEMORY_ERROR) {
-        fprintf(stderr, "FATAL: Failed to create global environment.\n");
-        exit(EXIT_FAILURE);
-    }
+    // Initialize global symbol table (global env created in main)
+    // sl_global_env = sl_env_create(SL_NIL); // <<< REMOVE THIS LINE
     sl_symbol_table = SL_NIL;
 
     // Initialize GC roots array
@@ -220,9 +215,8 @@ void sl_mem_init(size_t first_chunk_size) {
         exit(EXIT_FAILURE);
     }
     root_count = 0;
-    // Add permanent roots
-    sl_gc_add_root(&sl_global_env);    // <<< Call is now valid
-    sl_gc_add_root(&sl_symbol_table);  // <<< Call is now valid
+    // Add permanent roots (global_env added in main after creation)
+    sl_gc_add_root(&sl_symbol_table);
 }
 
 void sl_mem_shutdown() {

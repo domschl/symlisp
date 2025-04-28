@@ -19,4 +19,8 @@ sl_object *sl_eval_string(const char *input, sl_object *env);  // <<< NEW
 // (Implementation might read stream to string first, then call sl_eval_string)
 sl_object *sl_eval_stream(FILE *stream, sl_object *env);
 
+// Loads all files ending in ".scm" from the specified directory path.
+// Returns SL_TRUE on success, or an error object on failure.
+sl_object *sl_load_directory(const char *dir_path, sl_object *env);  // <<< NEW
+
 #endif  // SL_EVAL_H

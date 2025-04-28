@@ -7,19 +7,21 @@
 // --- Environment Operations ---
 
 sl_object *sl_env_create(sl_object *outer_env_obj) {
-    // Ensure outer is either NIL or an ENV object
-    if (outer_env_obj != SL_NIL && !sl_is_env(outer_env_obj)) {
-        fprintf(stderr, "Error (env_create): Outer environment must be NIL or an ENV object.\n");
+    // Ensure outer is NULL (from C), SL_NIL (from Lisp), or a valid ENV object
+    if (outer_env_obj != NULL && outer_env_obj != SL_NIL && !sl_is_env(outer_env_obj)) {  // <<< CORRECTED CHECK
+        fprintf(stderr, "Error (env_create): Outer environment must be NULL, SL_NIL, or an ENV object.\n");
         return SL_NIL;  // Indicate error
     }
 
     sl_object *env_obj = sl_allocate_object();
     if (!env_obj) {
         // Allocation failure already printed by sl_allocate_object or sl_gc
-        return SL_NIL;  // Indicate failure
+        // Return SL_OUT_OF_MEMORY_ERROR instead of SL_NIL for consistency
+        return SL_OUT_OF_MEMORY_ERROR;
     }
     env_obj->type = SL_TYPE_ENV;
     env_obj->data.env.bindings = SL_NIL;  // Start with an empty list of bindings
+    // Store NULL or SL_NIL if passed, otherwise the valid outer env
     env_obj->data.env.outer = outer_env_obj;
     // env_obj->marked is set to false by sl_allocate_object
 

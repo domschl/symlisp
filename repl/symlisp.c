@@ -1,20 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <ctype.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <ctype.h>
+#include <sys/stat.h>
 
-// Include the SymLisp library headers
 #include "sl_core.h"
+#include "sl_env.h"
+#include "sl_builtins.h"
 #include "sl_parse.h"
-#include "sl_env.h"  // Include for sl_global_env access (though it's extern in sl_core.h)
 #include "sl_eval.h"
-#include "sl_builtins.h"  // Include builtins header
+
+// Default path for standard library relative to executable location (adjust as needed)
+// This is a placeholder; using CMake to define this is better.
+#define DEFAULT_STDLIB_PATH "../stdsymlisp"
 
 // Simple parenthesis balance checker (replace with more robust later if needed)
 int check_balance(const char *str) {
@@ -40,11 +40,6 @@ int check_balance(const char *str) {
 }
 
 void run_repl() {
-    // --- Initialize SymLisp Memory & Builtins ---
-    sl_mem_init(0);
-    sl_builtins_init(sl_global_env);  // Initialize builtins after memory/global env
-    // -------------------------------------------
-
     char *home_dir = getenv("HOME");
     char history_dir[1024] = "";
     char history_file[1024] = "";
@@ -204,6 +199,67 @@ void run_repl() {
 }
 
 int main(int argc, char *argv[]) {
+    // Initialize memory, GC, core objects (NIL, TRUE, FALSE, OOM)
+    sl_mem_init(0);  // Use default heap size for now
+
+    // Create the global environment
+    printf("Creating global environment...\n");
+    sl_global_env = sl_env_create(NULL);  // Top-level env has no parent
+    if (!sl_global_env || sl_global_env == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "Fatal: Failed to create global environment.\n");
+        sl_mem_shutdown();  // Use shutdown before exit
+        return 1;
+    }
+    printf("Global environment created.\n");
+    sl_gc_add_root(&sl_global_env);  // Keep global env rooted (NOW SAFE)
+
+    // Initialize built-in functions and add them to the global environment
+    sl_builtins_init(sl_global_env);  // (NOW SAFE)
+
+    // --- Load Standard Library ---
+    printf("Loading standard library from: %s\n", DEFAULT_STDLIB_PATH);
+    sl_object *load_lib_result = sl_load_directory(DEFAULT_STDLIB_PATH, sl_global_env);
+    if (load_lib_result != SL_TRUE) {
+        fprintf(stderr, "Error loading standard library:\n");
+        // Print the error object returned by sl_load_directory
+        char *err_str = sl_object_to_string(load_lib_result);
+        if (err_str) {
+            fprintf(stderr, "  %s\n", err_str);
+            free(err_str);
+        } else {
+            fprintf(stderr, "  Unknown error during library loading.\n");
+        }
+        sl_mem_shutdown();  // Use shutdown before exit
+        return 1;
+    }
+    printf("Standard library loaded.\n");
+    // ---------------------------
+
+    // Load history
+    char *home_dir = getenv("HOME");
+    char history_dir[1024] = "";
+    char history_file[1024] = "";
+
+    if (home_dir) {
+        // Create directory path
+        snprintf(history_dir, sizeof(history_dir), "%s/.config/symlisp", home_dir);
+        snprintf(history_file, sizeof(history_file), "%s/history", history_dir);
+
+        // Create directory if it doesn't exist
+        struct stat st = {0};
+        if (stat(history_dir, &st) == -1) {
+            mkdir(history_dir, 0700);
+        }
+
+        // Load history if the file exists
+        read_history(history_file);
+
+        // Limit history size
+        stifle_history(1000);
+    }
+
+    // Run the REPL (which now contains the shutdown call at its end)
     run_repl();
-    return 0;
+
+    return 0;  // Normal exit
 }

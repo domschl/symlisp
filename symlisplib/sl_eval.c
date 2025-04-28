@@ -1,7 +1,10 @@
-#include <stdio.h>   // For FILE* in sl_eval_stream
-#include <stdlib.h>  // For malloc/free
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <ctype.h>  // For isspace
+#include <ctype.h>
+#include <dirent.h>    // <<< For directory listing (POSIX)
+#include <errno.h>     // <<< For strerror
+#include <sys/stat.h>  // <<< For stat to check if it's a file
 
 #include "sl_eval.h"
 #include "sl_core.h"
@@ -639,4 +642,90 @@ sl_object *sl_eval_stream(FILE *stream, sl_object *env) {
     free(buffer);
 
     return result;
+}
+
+// Loads all files ending in ".scm" from the specified directory path.
+// Returns SL_TRUE on success (all files loaded without error),
+// or an error object if directory cannot be opened or a file fails to load.
+sl_object *sl_load_directory(const char *dir_path, sl_object *env) {
+    DIR *dir;
+    struct dirent *entry;
+    sl_object *last_result = SL_TRUE;  // Assume success initially
+
+    dir = opendir(dir_path);
+    if (!dir) {
+        return sl_make_errorf("load-directory: Cannot open directory '%s' (%s)", dir_path, strerror(errno));
+    }
+
+    // Root env and last_result
+    sl_gc_add_root(&env);
+    sl_gc_add_root(&last_result);
+
+    while ((entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        size_t name_len = strlen(name);
+        const char *ext = ".scm";
+        size_t ext_len = strlen(ext);
+
+        // Check if filename ends with ".scm"
+        if (name_len > ext_len && strcmp(name + name_len - ext_len, ext) == 0) {
+            // Construct full path
+            // Need space for dir_path + '/' + name + '\0'
+            size_t full_path_len = strlen(dir_path) + 1 + name_len + 1;
+            char *full_path = malloc(full_path_len);
+            if (!full_path) {
+                last_result = SL_OUT_OF_MEMORY_ERROR;
+                break;  // OOM error
+            }
+            // Ensure directory path doesn't end with '/' before appending
+            if (dir_path[strlen(dir_path) - 1] == '/') {
+                snprintf(full_path, full_path_len, "%s%s", dir_path, name);
+            } else {
+                snprintf(full_path, full_path_len, "%s/%s", dir_path, name);
+            }
+
+            // Check if it's actually a file (and not a directory ending in .scm)
+            struct stat path_stat;
+            if (stat(full_path, &path_stat) == 0 && S_ISREG(path_stat.st_mode)) {
+                FILE *file = fopen(full_path, "r");
+                if (!file) {
+                    fprintf(stderr, "Warning: Could not open library file '%s' (%s), skipping.\n", full_path, strerror(errno));
+                    // Optionally make this a hard error:
+                    // last_result = sl_make_errorf("load-directory: Cannot open file '%s' (%s)", full_path, strerror(errno));
+                    // free(full_path);
+                    // break;
+                } else {
+                    printf("Loading library file: %s\n", full_path);  // Debug message
+                    // Evaluate the file
+                    sl_object *eval_res = sl_eval_stream(file, env);
+                    fclose(file);
+
+                    // Check for evaluation errors
+                    if (eval_res == SL_OUT_OF_MEMORY_ERROR || sl_is_error(eval_res)) {
+                        // Report error from file loading
+                        char *err_str = sl_object_to_string(eval_res);
+                        fprintf(stderr, "Error loading library file '%s': %s\n", full_path, err_str ? err_str : "Unknown error");
+                        free(err_str);
+                        last_result = eval_res;  // Store the error
+                        free(full_path);
+                        break;  // Stop loading on error
+                    }
+                    // Discard successful result of individual file loading
+                }
+            } else {
+                // It's not a regular file or stat failed, skip it silently or add warning
+                // fprintf(stderr, "Warning: Skipping non-regular file '%s'.\n", full_path);
+            }
+            free(full_path);
+        }  // end if .scm
+    }  // end while readdir
+
+    closedir(dir);
+
+    // Unroot locals
+    sl_gc_remove_root(&last_result);
+    sl_gc_remove_root(&env);
+
+    // Return SL_TRUE if loop completed without break, otherwise return the error.
+    return last_result;
 }

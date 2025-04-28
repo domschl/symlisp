@@ -1,9 +1,12 @@
-#include "sl_builtins.h"
-#include "sl_core.h"
-#include "sl_env.h"
 #include <stdio.h>
-#include <string.h>  // For strcmp in symbol creation (temp)
-#include <gmp.h>     // Include GMP
+#include <string.h>
+#include <stdlib.h>
+#include <gmp.h>
+
+#include "sl_builtins.h"
+#include "sl_core.h"  // Needed for object structure, types, accessors, sl_object_to_string
+#include "sl_env.h"
+#include "sl_parse.h"  // Needed for future 'load'
 
 // Helper to check arity.
 // Returns SL_TRUE if arity matches and list is proper.
@@ -393,46 +396,91 @@ static sl_object *sl_builtin_le(sl_object *args) {
     return (cmp_result <= 0) ? SL_TRUE : SL_FALSE;
 }
 
+// (display obj)
+static sl_object *sl_builtin_display(sl_object *args) {
+    sl_object *arity_check = check_arity("display", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *obj_to_display = sl_car(args);  // Get the first argument
+
+    char *str_repr = NULL;  // Initialize to NULL
+
+    // Special handling for string objects to print contents without quotes
+    if (sl_is_string(obj_to_display)) {
+        // Use the accessor macro from sl_core.h
+        fputs(sl_string_value(obj_to_display), stdout);
+    } else {
+        // For non-strings, get the standard representation using the function
+        // declared in sl_core.h
+        str_repr = sl_object_to_string(obj_to_display);
+        if (!str_repr) {
+            // sl_object_to_string returns NULL on failure according to sl_core.h comment
+            return sl_make_errorf("display: Failed to convert object to string (allocation failed?)");
+        }
+        fputs(str_repr, stdout);
+        // Free the string allocated by sl_object_to_string
+        // Note: The comment in sl_core.h says caller must free().
+        free(str_repr);
+    }
+    fflush(stdout);  // Ensure output is flushed
+
+    // R7RS specifies display returns an unspecified value. Use SL_NIL.
+    return SL_NIL;
+}
+
+// (newline)
+static sl_object *sl_builtin_newline(sl_object *args) {
+    sl_object *arity_check = check_arity("newline", args, 0);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    putchar('\n');
+    fflush(stdout);  // Ensure it appears immediately
+
+    // R7RS specifies newline returns an unspecified value. Use SL_NIL.
+    return SL_NIL;
+}
+
 // --- Builtin Initialization ---
 
 // Helper to define a builtin
 static void define_builtin(sl_object *env, const char *name, sl_object *(*func_ptr)(sl_object *args)) {
-    // TODO: Use interned symbols once available
     sl_object *sym = sl_make_symbol(name);
-    sl_object *func = sl_make_builtin(name, func_ptr);
-    if (sym && func) {  // Check allocation success
-        sl_env_define(env, sym, func);
-    } else {
-        fprintf(stderr, "FATAL: Failed to allocate symbol or builtin for '%s'\n", name);
-        // Consider exiting or more robust error handling
+    sl_gc_add_root(&sym);
+    sl_object *builtin = sl_make_builtin(name, func_ptr);
+    sl_gc_add_root(&builtin);
+
+    if (sym == SL_OUT_OF_MEMORY_ERROR || builtin == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "FATAL ERROR: Out of memory defining builtin '%s'\n", name);
+        exit(EXIT_FAILURE);
     }
+
+    sl_env_define(env, sym, builtin);
+    sl_gc_remove_root(&builtin);
+    sl_gc_remove_root(&sym);
 }
 
 void sl_builtins_init(sl_object *global_env) {
-    if (!sl_is_env(global_env)) {
-        fprintf(stderr, "FATAL: sl_builtins_init received invalid global environment.\n");
-        return;
-    }
-
-    // Core list operations
+    // Core functions
     define_builtin(global_env, "car", sl_builtin_car);
     define_builtin(global_env, "cdr", sl_builtin_cdr);
     define_builtin(global_env, "cons", sl_builtin_cons);
 
-    // Arithmetic operations
+    // Arithmetic
     define_builtin(global_env, "+", sl_builtin_add);
     define_builtin(global_env, "-", sl_builtin_sub);
     define_builtin(global_env, "*", sl_builtin_mul);
     define_builtin(global_env, "/", sl_builtin_div);
 
-    // Comparison operations
+    // Comparison
     define_builtin(global_env, "=", sl_builtin_num_eq);
     define_builtin(global_env, ">", sl_builtin_gt);
     define_builtin(global_env, "<", sl_builtin_lt);
     define_builtin(global_env, ">=", sl_builtin_ge);
     define_builtin(global_env, "<=", sl_builtin_le);
 
-    // Add more builtins here later...
-    // define_builtin(global_env, "display", sl_builtin_display);
-    // define_builtin(global_env, "newline", sl_builtin_newline);
+    // Basic I/O
+    define_builtin(global_env, "display", sl_builtin_display);
+    define_builtin(global_env, "newline", sl_builtin_newline);
+
+    // Add other builtins here... (e.g., eq?, eqv?, equal?, list, etc.)
 }

@@ -12,7 +12,7 @@
 - [x] Implement set! special form.
 - [x] Add API functions for environment get/set/define by C string name.
 - [x] Remove reliance on fixed allocations for buffers
-- [ ] Implement `begin` special form (for multi-expression bodies in lambda/define).
+- [x] Implement `begin` special form (for multi-expression bodies in lambda/define).
 - [ ] Implement some I/O: display, newline, load and eval library files
 - [ ] Test framwork
 - [ ] CI with valgrind

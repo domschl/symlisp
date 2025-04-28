@@ -22,7 +22,7 @@
 - [x] Test framwork
 - [x] CI with valgrind
 - [x] cond
-- [ ] Boolean ops: or, and, not
+- [x] Boolean ops: or, and, not
 - [ ] List functions: length, append, reverse
 - [ ] Predicate tester functions
 - [ ] String functions

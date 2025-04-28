@@ -600,6 +600,178 @@ static sl_object *sl_builtin_list(sl_object *args) {
     return head;  // Return the newly constructed list
 }
 
+// (length list) -> Returns the number of elements in a proper list.
+static sl_object *sl_builtin_length(sl_object *args) {
+    sl_object *arity_check = check_arity("length", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *list = sl_car(args);
+    size_t count = 0;
+    sl_object *current = list;
+
+    // Need to protect 'list' in case GC runs during error creation below
+    sl_gc_add_root(&list);
+
+    while (sl_is_pair(current)) {
+        count++;
+        current = sl_cdr(current);
+    }
+
+    if (current != SL_NIL) {  // Check if it was a proper list
+        sl_gc_remove_root(&list);
+        return sl_make_errorf("Error (length): Argument must be a proper list.");
+    }
+
+    sl_gc_remove_root(&list);
+
+    // Convert size_t count to an sl_object number
+    // For simplicity, assume count fits in int64_t for now.
+    // A robust implementation might use mpz_set_ui if count is large.
+    if (count > INT64_MAX) {
+        return sl_make_errorf("Error (length): List length exceeds maximum representable integer.");
+    }
+
+    return sl_make_number_si((int64_t)count, 1);
+}
+
+// (reverse list) -> Returns a new list with elements in reverse order.
+static sl_object *sl_builtin_reverse(sl_object *args) {
+    sl_object *arity_check = check_arity("reverse", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *input_list = sl_car(args);
+    sl_object *reversed_list = SL_NIL;
+    sl_object *current = input_list;
+
+    // Protect input and result during iteration/allocation
+    sl_gc_add_root(&input_list);
+    sl_gc_add_root(&reversed_list);
+
+    while (sl_is_pair(current)) {
+        sl_object *element = sl_car(current);
+        // cons the element onto the front of the reversed list
+        reversed_list = sl_make_pair(element, reversed_list);
+        CHECK_ALLOC(reversed_list);  // Check allocation, return OOM error if needed
+
+        current = sl_cdr(current);
+    }
+
+    if (current != SL_NIL) {  // Check if input was a proper list
+        sl_gc_remove_root(&reversed_list);
+        sl_gc_remove_root(&input_list);
+        return sl_make_errorf("Error (reverse): Argument must be a proper list.");
+    }
+
+    sl_gc_remove_root(&reversed_list);
+    sl_gc_remove_root(&input_list);
+    return reversed_list;
+}
+
+// (append list ...) -> Concatenates lists. Last arg becomes tail.
+static sl_object *sl_builtin_append(sl_object *args) {
+    // No specific arity check, 0 args is valid (returns NIL)
+
+    if (args == SL_NIL) {
+        return SL_NIL;  // (append) -> '()
+    }
+
+    sl_object *result_head = SL_NIL;
+    sl_object **result_tail_ptr = &result_head;  // Pointer to where the next pair should be linked
+    sl_object *current_arg_node = args;
+
+    // Protect the list being built and the argument list traversal
+    sl_gc_add_root(&result_head);
+    sl_gc_add_root(&current_arg_node);
+
+    while (sl_is_pair(current_arg_node)) {
+        sl_object *current_list_arg = sl_car(current_arg_node);
+        sl_object *next_arg_node = sl_cdr(current_arg_node);
+
+        // If this is the LAST argument node, we handle it differently
+        if (next_arg_node == SL_NIL) {
+            // Append the last argument directly to the tail
+            *result_tail_ptr = current_list_arg;
+            break;  // Done processing arguments
+        }
+
+        // --- Process a list argument (not the last one) ---
+        sl_object *current_element_node = current_list_arg;
+        sl_gc_add_root(&current_element_node);  // Protect inner loop traversal
+
+        while (sl_is_pair(current_element_node)) {
+            sl_object *element = sl_car(current_element_node);
+            sl_object *new_pair = sl_make_pair(element, SL_NIL);  // cdr will be overwritten or is last
+            CHECK_ALLOC(new_pair);
+
+            *result_tail_ptr = new_pair;                 // Link the new pair into the result list
+            result_tail_ptr = &new_pair->data.pair.cdr;  // Advance the tail pointer
+
+            current_element_node = sl_cdr(current_element_node);
+        }
+
+        // Check if the current list argument was proper
+        if (current_element_node != SL_NIL) {
+            sl_gc_remove_root(&current_element_node);
+            sl_gc_remove_root(&current_arg_node);
+            sl_gc_remove_root(&result_head);
+            return sl_make_errorf("Error (append): Argument before last must be a proper list.");
+        }
+        sl_gc_remove_root(&current_element_node);
+        // --- End processing list argument ---
+
+        current_arg_node = next_arg_node;  // Move to the next argument in the main list
+    }
+
+    // Check if the main argument list itself was improper (shouldn't happen if called correctly)
+    if (current_arg_node != SL_NIL && !sl_is_pair(current_arg_node)) {
+        sl_gc_remove_root(&current_arg_node);
+        sl_gc_remove_root(&result_head);
+        return sl_make_errorf("Error (append): Internal error - improper argument list structure.");
+    }
+
+    sl_gc_remove_root(&current_arg_node);
+    sl_gc_remove_root(&result_head);
+    return result_head;
+}
+
+// (set-car! pair obj) -> Modifies pair, sets car to obj. Returns unspecified.
+static sl_object *sl_builtin_set_car(sl_object *args) {
+    sl_object *arity_check = check_arity("set-car!", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *pair = sl_car(args);
+    sl_object *new_val = sl_cadr(args);  // Helper for sl_car(sl_cdr(args))
+
+    if (!sl_is_pair(pair)) {
+        return sl_make_errorf("Error (set-car!): First argument must be a pair, got type %d.", pair ? pair->type : -1);
+    }
+
+    // Use the macro from sl_core.h to modify the pair
+    sl_set_car(pair, new_val);
+
+    // Return unspecified value (NIL is conventional)
+    return SL_NIL;
+}
+
+// (set-cdr! pair obj) -> Modifies pair, sets cdr to obj. Returns unspecified.
+static sl_object *sl_builtin_set_cdr(sl_object *args) {
+    sl_object *arity_check = check_arity("set-cdr!", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *pair = sl_car(args);
+    sl_object *new_val = sl_cadr(args);
+
+    if (!sl_is_pair(pair)) {
+        return sl_make_errorf("Error (set-cdr!): First argument must be a pair, got type %d.", pair ? pair->type : -1);
+    }
+
+    // Use the macro from sl_core.h to modify the pair
+    sl_set_cdr(pair, new_val);
+
+    // Return unspecified value (NIL is conventional)
+    return SL_NIL;
+}
+
 // (eq? obj1 obj2) -> Checks for pointer equality (identity).
 static sl_object *sl_builtin_eq(sl_object *args) {
     sl_object *arity_check = check_arity("eq?", args, 2);
@@ -755,7 +927,12 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "car", sl_builtin_car);
     define_builtin(global_env, "cdr", sl_builtin_cdr);
     define_builtin(global_env, "cons", sl_builtin_cons);
-    define_builtin(global_env, "list", sl_builtin_list);  // <<< ADDED
+    define_builtin(global_env, "list", sl_builtin_list);         // <<< ADDED
+    define_builtin(global_env, "length", sl_builtin_length);     // <<< ADDED
+    define_builtin(global_env, "reverse", sl_builtin_reverse);   // <<< ADDED
+    define_builtin(global_env, "append", sl_builtin_append);     // <<< ADDED
+    define_builtin(global_env, "set-car!", sl_builtin_set_car);  // <<< ADDED
+    define_builtin(global_env, "set-cdr!", sl_builtin_set_cdr);  // <<< ADDED
 
     // Arithmetic
     define_builtin(global_env, "+", sl_builtin_add);

@@ -18,9 +18,9 @@
 - [x] Implement library loading mechanism (e.g., `load-library` or auto-load from dir).
 - [x] Implement more builtins: list, eq?, equal?
 - [x] Implement more builtins: remainder, modulo // <<< ADDED
-- [ ] let and named let
-- [ ] Test framwork
-- [ ] CI with valgrind
+- [x] let and named let
+- [x] Test framwork
+- [x] CI with valgrind
 - [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set
 - [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
 - [ ] Refine parameter binding error handling (GC).

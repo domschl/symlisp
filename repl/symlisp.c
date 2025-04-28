@@ -71,7 +71,7 @@ void run_repl() {
     printf("SymLisp REPL (Ctrl+D to exit)\n");
 
     // Use dynamic allocation instead of fixed buffer
-    size_t buffer_size = 1024;  // Initial size
+    size_t buffer_size = 1024;
     char *buffer = malloc(buffer_size);
     if (!buffer) {
         perror("Memory allocation failed for input buffer");
@@ -86,6 +86,7 @@ void run_repl() {
         char *line = readline(prompt);
         if (!line) break;  // Ctrl+D
 
+        // Handle empty line
         if (strlen(line) == 0) {
             free(line);
             continue;
@@ -128,67 +129,65 @@ void run_repl() {
 
         // Append to the buffer
         strcat(buffer, line);
-        strcat(buffer, " ");  // Add space for readability
-
+        strcat(buffer, " ");
         free(line);
 
-        // Check balance using the simple checker
+        // Check balance
         int paren_balance = check_balance(buffer);
 
-        // If balanced, process the expression
+        // If balanced, process the expression(s)
         if (paren_balance == 0) {
             if (strlen(buffer) > 0) {
-                const char *parse_ptr = buffer;
-                const char *end_ptr = NULL;
-                sl_object *parse_result = sl_parse_string(parse_ptr, &end_ptr);
+                add_history(buffer);  // Add complete input block to history
 
-                if (parse_result != SL_NIL) {
-                    const char *check_end = end_ptr;
-                    while (isspace(*check_end))
-                        check_end++;
+                // --- Evaluate the entire buffer ---
+                sl_object *eval_result = sl_eval_string(buffer, sl_global_env);
+                // ---------------------------------
 
-                    if (*check_end == '\0') {
-                        // Successfully parsed the whole buffer
-                        add_history(buffer);  // Add valid input to history
-
-                        // --- Evaluate ---
-                        sl_object *eval_result = sl_eval(parse_result, sl_global_env);
-                        // ----------------
-
-                        // Print result
-                        if (eval_result) {
-                            char *result_str = sl_object_to_string(eval_result);  // New function
-                            if (result_str) {
-                                printf("=> %s\n", result_str);
-                                free(result_str);  // !!! IMPORTANT: Free the allocated string !!!
-                            } else {
-                                printf("=> Error: Could not convert result to string (Out of memory?).\n");
-                            }
+                // Print result (only if not NIL and not an error, or if it's an error)
+                // Note: sl_eval_string returns NIL for empty/whitespace input.
+                // It also returns the result of the *last* expression.
+                // Builtins like display, newline, define return NIL or unspecified.
+                // We only print if the final result is significant or an error.
+                if (eval_result && eval_result != SL_NIL) {
+                    char *result_str = sl_object_to_string(eval_result);
+                    if (result_str) {
+                        // Check if it's an error object to print to stderr
+                        if (sl_is_error(eval_result)) {
+                            fprintf(stderr, "Error: %s\n", result_str);
                         } else {
-                            printf("=> Error during evaluation or parsing.\n");  // Or handle specific errors
+                            printf("=> %s\n", result_str);
                         }
-
-                        // Trigger GC (optional, maybe less frequent)
-                        sl_gc();
-                        // --------
+                        free(result_str);
                     } else {
-                        fprintf(stderr, "Error: Could not parse entire input. Remaining: '%s'\n", end_ptr);
+                        // Error converting the result itself (likely OOM)
+                        if (eval_result == SL_OUT_OF_MEMORY_ERROR) {
+                            fprintf(stderr, "Error: Out of memory during evaluation or result conversion.\n");
+                        } else {
+                            fprintf(stderr, "Error: Could not convert final result to string.\n");
+                        }
                     }
-                } else {
-                    // Parsing failed (sl_parse_string prints errors internally for now)
-                    fprintf(stderr, "Error during parsing.\n");
+                } else if (eval_result == SL_NIL) {
+                    // Don't print anything if the final result is NIL (e.g. from display, define)
                 }
+
+                // Trigger GC after processing the buffer
+                sl_gc();
             }
+
+            // Clear buffer for next input cycle
             buffer[0] = '\0';
             strcpy(prompt, "symlisp> ");
+
         } else if (paren_balance < 0) {
             fprintf(stderr, "Error: Unexpected closing parenthesis.\n");
-            buffer[0] = '\0';
+            buffer[0] = '\0';  // Clear buffer on syntax error
             strcpy(prompt, "symlisp> ");
         } else {
+            // Unbalanced, wait for more input
             strcpy(prompt, "...... ");
         }
-    }
+    }  // End while(1) REPL loop
 
     // Clean up
     free(buffer);

@@ -1,18 +1,22 @@
 #ifndef SL_EVAL_H
 #define SL_EVAL_H
 
-#include "sl_core.h"  // For sl_object
-#include "sl_env.h"   // For environment operations (though env is sl_object*)
+#include "sl_core.h"
+#include "sl_env.h"  // Assuming sl_object* is used for env
+#include <stdio.h>   // For FILE*
 
-/**
- * @brief Evaluates a SymLisp expression within a given environment.
- *
- * @param expr The sl_object representing the expression to evaluate.
- * @param env_obj The environment object (SL_TYPE_ENV) in which to evaluate.
- * @return sl_object* The result of the evaluation, or an SL_TYPE_ERROR object
- *                  if an evaluation error occurs. Returns SL_NIL on allocation
- *                  failure during error object creation.
- */
-sl_object *sl_eval(sl_object *expr, sl_object *env_obj);
+// Evaluates a single S-expression in the given environment.
+sl_object *sl_eval(sl_object *obj, sl_object *env);
+
+// Parses and evaluates all S-expressions from the given null-terminated string
+// in the specified environment.
+// Returns the result of the *last* expression evaluated, or an error object
+// if any parsing or evaluation error occurs.
+// Returns SL_NIL if the string is empty or contains only whitespace/comments.
+sl_object *sl_eval_string(const char *input, sl_object *env);  // <<< NEW
+
+// Reads and evaluates all S-expressions from a stream in the given environment.
+// (Implementation might read stream to string first, then call sl_eval_string)
+sl_object *sl_eval_stream(FILE *stream, sl_object *env);
 
 #endif  // SL_EVAL_H

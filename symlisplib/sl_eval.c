@@ -1,10 +1,12 @@
-#include <stdlib.h>
+#include <stdio.h>   // For FILE* in sl_eval_stream
+#include <stdlib.h>  // For malloc/free
 #include <string.h>
-#include <stdio.h>
+#include <ctype.h>  // For isspace
 
-#include "sl_core.h"  // Now includes CHECK_ALLOC
-#include "sl_env.h"
 #include "sl_eval.h"
+#include "sl_core.h"
+#include "sl_env.h"
+#include "sl_parse.h"  // Need for sl_parse_string
 #include "sl_builtins.h"
 
 // --- Forward Declarations ---
@@ -526,5 +528,112 @@ cleanup_apply:
     sl_gc_remove_root(&result);
     sl_gc_remove_root(&args);
     sl_gc_remove_root(&fn);
+    return result;
+}
+
+// Parses and evaluates all S-expressions from the given null-terminated string
+sl_object *sl_eval_string(const char *input, sl_object *env) {
+    sl_object *last_result = SL_NIL;  // Default result if string is empty/only whitespace
+    sl_object *expr = NULL;
+    const char *parse_ptr = input;
+    const char *end_ptr = NULL;
+
+    // Root environment and potentially changing last_result/expr
+    sl_gc_add_root(&env);
+    sl_gc_add_root(&last_result);
+    sl_gc_add_root(&expr);  // Root expr slot once
+
+    while (true) {
+        // Skip leading whitespace
+        while (isspace(*parse_ptr)) {
+            parse_ptr++;
+        }
+
+        // Check if we reached the end of the string
+        if (*parse_ptr == '\0') {
+            break;  // Done processing the string
+        }
+
+        // --- Parse ---
+        expr = sl_parse_string(parse_ptr, &end_ptr);
+        // Note: expr is already rooted, sl_parse_string result overwrites the rooted slot
+
+        if (expr == SL_NIL) {
+            // Parsing failed (sl_parse_string should print details)
+            // Or end of input was reached unexpectedly within parse attempt
+            // Return a generic error, assuming sl_parse_string reported specifics
+            last_result = sl_make_errorf("Error parsing expression starting near: %.*s", 30, parse_ptr);
+            break;  // Stop processing on parse error
+        }
+        if (expr == SL_OUT_OF_MEMORY_ERROR) {
+            last_result = expr;  // Propagate OOM
+            break;
+        }
+
+        // --- Evaluate ---
+        // Unroot previous result before eval potentially overwrites it via last_result
+        sl_gc_remove_root(&last_result);
+        last_result = sl_eval(expr, env);
+        sl_gc_add_root(&last_result);  // Re-root the new result
+
+        // Check for evaluation errors
+        if (last_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(last_result)) {
+            // Evaluation error occurred, stop processing
+            break;
+        }
+
+        // Update parse_ptr to continue after the parsed expression
+        parse_ptr = end_ptr;
+
+        // Optional: Trigger GC periodically?
+        // sl_gc();
+    }
+
+    // Clean up roots
+    sl_gc_remove_root(&expr);
+    sl_gc_remove_root(&last_result);
+    sl_gc_remove_root(&env);
+
+    return last_result;  // Return the result of the last evaluation or an error
+}
+
+// Reads and evaluates all S-expressions from a stream in the given environment.
+// Simple implementation: Read whole stream to buffer, then call sl_eval_string.
+// WARNING: Inefficient for large files. Consider true stream parsing later.
+sl_object *sl_eval_stream(FILE *stream, sl_object *env) {
+    // Determine file size
+    fseek(stream, 0, SEEK_END);
+    long file_size = ftell(stream);
+    if (file_size < 0) {
+        return sl_make_errorf("Error getting stream size");
+    }
+    fseek(stream, 0, SEEK_SET);  // Rewind
+
+    // Allocate buffer (+1 for null terminator)
+    // Check for potential overflow if file_size is huge
+    if (file_size >= SIZE_MAX) {
+        return sl_make_errorf("Stream too large to read into memory");
+    }
+    size_t buffer_size = (size_t)file_size + 1;
+    char *buffer = malloc(buffer_size);
+    if (!buffer) {
+        return SL_OUT_OF_MEMORY_ERROR;  // Use the standard OOM error object
+    }
+
+    // Read the whole file
+    size_t bytes_read = fread(buffer, 1, file_size, stream);
+    if (bytes_read != (size_t)file_size) {
+        free(buffer);
+        // Check ferror(stream) vs feof(stream) if needed
+        return sl_make_errorf("Error reading from stream");
+    }
+    buffer[bytes_read] = '\0';  // Null-terminate
+
+    // Evaluate the buffer content
+    sl_object *result = sl_eval_string(buffer, env);
+
+    // Free the buffer
+    free(buffer);
+
     return result;
 }

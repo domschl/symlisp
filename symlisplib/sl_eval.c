@@ -219,17 +219,80 @@ top_of_eval:;
                 sl_gc_add_root(&args);  // Root args
                 // (lambda (params...) body...)
                 if (args == SL_NIL || sl_cdr(args) == SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed lambda");
+                    result = sl_make_errorf("Eval: Malformed lambda (missing params or body)");
                     sl_gc_remove_root(&args);
                     break;
                 }
                 sl_object *params = sl_car(args);
-                sl_object *body = sl_cdr(args);
+                sl_object *body_list = sl_cdr(args);  // Body is the rest of the list
 
-                result = sl_make_closure(params, sl_car(body), env);
-                CHECK_ALLOC(result);
+                // TODO: Validate params is a proper list of symbols (or NIL)
+                // TODO: Validate body_list is a proper list
+
+                // Create closure with the *list* of body expressions
+                result = sl_make_closure(params, body_list, env);
+                CHECK_ALLOC(result);  // Checks if result is SL_OUT_OF_MEMORY_ERROR
                 sl_gc_remove_root(&args);
                 break;  // Break from switch
+            }
+            // --- BEGIN --- <<< ADDED BLOCK
+            else if (strcmp(op_name, "begin") == 0) {
+                // (begin expr1 expr2 ...)
+                sl_gc_add_root(&args);  // Root the list of expressions
+                sl_object *current_expr_node = args;
+                result = SL_NIL;  // Default result for (begin) is unspecified, use NIL
+
+                if (current_expr_node == SL_NIL) {
+                    // (begin) evaluates to unspecified value (NIL here)
+                    sl_gc_remove_root(&args);
+                    break;
+                }
+
+                // Loop through expressions
+                while (sl_is_pair(current_expr_node)) {
+                    sl_object *expr_to_eval = sl_car(current_expr_node);
+                    sl_object *next_node = sl_cdr(current_expr_node);
+
+                    // Check if this is the last expression for potential TCO
+                    if (next_node == SL_NIL) {
+                        sl_gc_remove_root(&args);  // Unroot args before potential tail call
+                        obj = expr_to_eval;        // Set up for tail call
+                        goto top_of_eval;          // Jump to the top
+                    } else {
+                        // Not the last expression, evaluate normally
+                        // Unroot args before eval, but keep result rooted
+                        sl_gc_remove_root(&args);
+                        result = sl_eval(expr_to_eval, env);  // Eval - MIGHT GC
+                        sl_gc_add_root(&result);              // Re-root result after eval
+                        sl_gc_add_root(&args);                // Re-root args before next iteration
+
+                        if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
+                            // Error occurred, stop and propagate
+                            sl_gc_remove_root(&args);  // Unroot args before breaking
+                            break;                     // Break from the while loop, result holds the error
+                        }
+                        // Result of intermediate expressions is discarded,
+                        // but keep it rooted until the next eval or end.
+                        sl_gc_remove_root(&result);  // Unroot previous intermediate result
+                    }
+                    current_expr_node = next_node;
+                }  // end while
+
+                // If loop finished, check if it was because of an error or end of list
+                if (!(result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result))) {
+                    // Check for improper list termination if no error occurred
+                    if (current_expr_node != SL_NIL) {
+                        result = sl_make_errorf("Eval: Malformed begin (improper list)");
+                    }
+                    // If it was a proper list, 'result' holds the value of the last expression
+                    // (or NIL if the loop was entered but had no iterations - though handled by TCO).
+                    // The TCO path handles the final evaluation. If we get here due to
+                    // an improper list, result is updated to the error.
+                }
+                // else: result already holds the error from inside the loop
+
+                sl_gc_remove_root(&args);  // Final unroot of args
+                break;                     // Break from switch case
             }
             // --- END OF SPECIAL FORMS ---
             // If none of the above matched, it's not a special form we handle here.

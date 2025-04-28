@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <ctype.h>
@@ -19,7 +20,7 @@
 // Simple parenthesis balance checker (replace with more robust later if needed)
 int check_balance(const char *str) {
     int balance = 0;
-    bool in_string = false;
+    bool in_string = 0;  // false; VSCode doesn't get false!
     while (*str) {
         if (*str == '"') {
             in_string = !in_string;

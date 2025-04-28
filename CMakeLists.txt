@@ -43,3 +43,65 @@ add_subdirectory(repl)
 
 # Add other subdirectories like tests if needed
 # add_subdirectory(tests)
+
+# In your CMakeLists.txt (likely in the root or a 'tests' subdirectory)
+
+# Add the tester executable
+add_executable(symlisp_tester tests/symlisp_tester.c) # Adjust path if needed
+
+# Link against the SymLisp library
+target_link_libraries(symlisp_tester PRIVATE symlisplib) # Assuming your library target is symlisplib
+
+# Optional: Add a test using CTest
+# add_test(NAME SimpleMathTest COMMAND symlisp_tester ${CMAKE_CURRENT_SOURCE_DIR}/tests/testcases/simple_math.scm)
+
+# --- Testing Support ---
+enable_testing()
+
+# Find leak checking tools
+find_program(VALGRIND_COMMAND valgrind)
+find_program(LEAKS_COMMAND leaks)
+
+# Define the directory containing test case files
+set(TESTCASE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests/testcases)
+
+# Find all Scheme test files
+file(GLOB TEST_FILES "${TESTCASE_DIR}/*.scm")
+
+# Loop through each test file and create CTest entries
+foreach(TEST_FILE ${TEST_FILES})
+    # Extract a base name for the test (e.g., "simple_math" from ".../simple_math.scm")
+    get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
+
+    # --- Standard Test Run ---
+    add_test(
+        NAME ${TEST_NAME}
+        COMMAND $<TARGET_FILE:symlisp_tester> ${TEST_FILE}
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR} # Or wherever symlisp_tester needs to run from
+    )
+    set_tests_properties(${TEST_NAME} PROPERTIES WILL_FAIL OFF) # Expect success (exit code 0)
+
+    # --- Leak Check Run (macOS) ---
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND LEAKS_COMMAND)
+        add_test(
+            NAME ${TEST_NAME}_Leaks
+            COMMAND ${LEAKS_COMMAND} --atExit -- $<TARGET_FILE:symlisp_tester> ${TEST_FILE}
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        # leaks --atExit returns non-zero if leaks are found OR if the program returns non-zero
+        set_tests_properties(${TEST_NAME}_Leaks PROPERTIES WILL_FAIL OFF) # Expect success (exit code 0)
+    endif()
+
+    # --- Leak Check Run (Linux with Valgrind) ---
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND VALGRIND_COMMAND)
+        add_test(
+            NAME ${TEST_NAME}_Valgrind
+            COMMAND ${VALGRIND_COMMAND} --leak-check=full --error-exitcode=1 -- $<TARGET_FILE:symlisp_tester> ${TEST_FILE}
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        # valgrind --error-exitcode=1 returns 1 if leaks found, otherwise returns program's exit code.
+        # CTest fails on non-zero exit code.
+        set_tests_properties(${TEST_NAME}_Valgrind PROPERTIES WILL_FAIL OFF) # Expect success (exit code 0)
+    endif()
+
+endforeach()

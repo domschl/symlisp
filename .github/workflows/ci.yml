@@ -1,0 +1,35 @@
+name: SymLisp CI
+
+on:
+  push:
+    branches: [ main ] # Or your default branch
+  pull_request:
+    branches: [ main ] # Or your default branch
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          libgmp-dev \
+          valgrind \
+          libreadline-dev # Added readline for the REPL build
+
+    - name: Configure CMake
+      run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug # Configure in 'build' directory
+
+    - name: Build project
+      run: cmake --build build --config Debug # Build the configured project
+
+    - name: Run tests with CTest
+      working-directory: ./build # Change to build directory before running ctest
+      run: ctest --output-on-failure # Run tests, show output only on failure

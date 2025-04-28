@@ -67,25 +67,24 @@ typedef struct {
 // --- Core Object Structure ---
 typedef struct sl_object {
     sl_object_type type;
-    bool marked;             // For garbage collection
-    struct sl_object *next;  // Used for free list linking
+    bool marked;
+    struct sl_object *next;
 
     union {
         bool boolean;
         sl_number number;
-        char *string;
-        char *symbol;  // Pointer to the interned symbol name string
+        char *string_val;   // <<< CORRECTED
+        char *symbol_name;  // <<< CORRECTED
         struct {
             struct sl_object *car;
             struct sl_object *cdr;
         } pair;
         sl_function function;
-        // New struct for environment data within the object
         struct {
-            struct sl_object *bindings;  // List of pairs: ((symbol . value) ...)
-            struct sl_object *outer;     // Pointer to the enclosing environment object (or SL_NIL)
+            struct sl_object *bindings;
+            struct sl_object *outer;
         } env;
-        char *error_message;  // Store error message string
+        char *error_str;  // <<< CORRECTED
     } data;
 } sl_object;
 
@@ -94,10 +93,10 @@ extern sl_object *sl_global_env;    // Now an sl_object*
 extern sl_object *sl_symbol_table;  // Interned symbol table (e.g., a list or hash table)
 
 // --- Constants ---
-
-extern sl_object *SL_NIL;    // The unique empty list object
-extern sl_object *SL_TRUE;   // The unique boolean true object
-extern sl_object *SL_FALSE;  // The unique boolean false object
+extern sl_object *SL_NIL;
+extern sl_object *SL_TRUE;
+extern sl_object *SL_FALSE;
+extern sl_object *SL_OUT_OF_MEMORY_ERROR;  // <<< ADDED
 
 // --- Memory Management Functions ---
 
@@ -124,7 +123,16 @@ sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *a
  */
 sl_object *sl_make_errorf(const char *fmt, ...);
 
-// Trigger garbage collection
+// --- String Conversion ---
+/**
+ * @brief Converts an sl_object to its string representation.
+ * Dynamically allocates memory. Caller must free().
+ * @param obj The object to convert.
+ * @return char* Allocated string or NULL on failure.
+ */
+char *sl_object_to_string(sl_object *obj);  // <<< ADDED
+
+// --- Trigger garbage collection ---
 // NOTE: GC sweep phase must call mpq_clear() on unreachable SL_TYPE_NUMBER objects
 //       where is_bignum is true before adding them to the free list.
 void sl_gc();
@@ -173,9 +181,9 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop);
 bool fits_int64(const mpz_t val);
 
 // String, Symbol, Boolean accessors
-#define sl_string_value(obj) ((obj)->data.string)
-#define sl_symbol_name(obj) ((obj)->data.symbol)
-#define sl_boolean_value(obj) ((obj)->data.boolean)  // Direct bool value
+#define sl_string_value(obj) ((obj)->data.string_val)  // <<< CORRECTED
+#define sl_symbol_name(obj) ((obj)->data.symbol_name)  // <<< CORRECTED
+#define sl_boolean_value(obj) ((obj)->data.boolean)    // Direct bool value
 
 // Function accessors
 #define sl_closure_params(obj) ((obj)->data.function.def.closure.params)
@@ -202,6 +210,6 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop);
 bool fits_int64(const mpz_t val);
 
 // --- Error Handling Accessors ---
-#define sl_error_message(obj) ((obj)->data.error_message)
+#define sl_error_message(obj) ((obj)->data.error_str)  // <<< CORRECTED
 
 #endif  // SL_CORE_H

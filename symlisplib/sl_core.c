@@ -1,24 +1,51 @@
 #include "sl_core.h"
-#include "sl_env.h"
+#include "sl_env.h"  // Include necessary headers
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>  // For va_list
 #include <limits.h>
 #include <gmp.h>
-#include <stdarg.h>  // For variadic functions (va_list, etc.)
+#include <inttypes.h>  // For PRId64
 
-// --- Global Variables ---
-sl_object *sl_global_env = NULL;    // Now an sl_object* pointing to an SL_TYPE_ENV object
-sl_object *sl_symbol_table = NULL;  // Interned symbol table (needs proper init/management)
-sl_object *SL_NIL = NULL;           // The unique empty list object
-sl_object *SL_TRUE = NULL;          // The unique boolean true object
-sl_object *SL_FALSE = NULL;         // The unique boolean false object
+// Define buffer size for error messages formatted by sl_make_errorf
+#define ERROR_BUFFER_SIZE 256  // Or another suitable size
 
-// --- Memory Management Internals ---
+// --- Global Memory Management Variables ---
 static sl_object *heap_start = NULL;  // Pointer to the start of the allocated heap
-static sl_object *free_list = NULL;   // Pointer to the first free object
-static size_t heap_size = 0;          // Total number of objects in the heap
-static size_t free_count = 0;         // Number of free objects
+static size_t heap_size = 0;          // Total number of objects the heap can hold
+static sl_object *free_list = NULL;   // Head of the linked list of free objects
+static size_t free_count = 0;         // Number of objects currently in the free list
+
+// --- GC Root Set ---
+// Simple dynamic array for roots
+static sl_object **gc_roots = NULL;
+static size_t root_count = 0;
+static size_t root_capacity = 0;
+
+// --- Global Constants (Definitions) ---
+sl_object *SL_NIL = NULL;
+sl_object *SL_TRUE = NULL;
+sl_object *SL_FALSE = NULL;
+
+// --- Global Environment & Symbol Table (Definitions) ---
+sl_object *sl_global_env = NULL;
+sl_object *sl_symbol_table = NULL;  // Simple list for now
+
+// Static Out-of-Memory Error Object
+// Note: This object itself is not garbage collected, it lives statically.
+// Its string contents are also static.
+static sl_object sl_out_of_memory_error_obj = {
+    .type = SL_TYPE_ERROR,
+    .marked = 0,  // Should not be marked/swept
+    .data.error_str = "Out of memory"};
+sl_object *SL_OUT_OF_MEMORY_ERROR = &sl_out_of_memory_error_obj;
+
+// --- Forward Declarations ---
+static void sl_gc_mark(sl_object *root);  // Forward declare static functions if needed
+static void sl_gc_sweep();
+void sl_gc_add_root(sl_object **root_ptr);     // <<< ADDED Forward declaration
+void sl_gc_remove_root(sl_object **root_ptr);  // <<< ADDED Forward declaration
 
 // Helper function to check if a value fits in int64_t
 // Note: GMP's mpz_fits_slong_p uses 'long', which might not be 64-bit.
@@ -65,35 +92,31 @@ bool fits_int64(const mpz_t val) {
 // --- Memory Management Functions ---
 
 void sl_mem_init(size_t initial_heap_size) {
-    if (heap_start != NULL) {
-        return;  // Already initialized
+    if (heap_start != NULL) {  // <<< Now declared
+        return;                // Already initialized
     }
 
-    heap_size = initial_heap_size;
-    if (heap_size == 0) heap_size = 4096;  // Default heap size (increased a bit)
+    heap_size = initial_heap_size;          // <<< Now declared
+    if (heap_size == 0) heap_size = 65536;  // Default heap size (64K objects)
 
-    heap_start = (sl_object *)malloc(heap_size * sizeof(sl_object));
+    heap_start = (sl_object *)malloc(heap_size * sizeof(sl_object));  // <<< Now declared
     if (heap_start == NULL) {
         perror("Failed to allocate heap");
         exit(EXIT_FAILURE);
     }
 
     // Initialize all objects and link them into the free list
-    free_list = heap_start;
-    for (size_t i = 0; i < heap_size; ++i) {
-        heap_start[i].type = SL_TYPE_FREE;
+    free_list = heap_start;                   // <<< Now declared
+    for (size_t i = 0; i < heap_size; ++i) {  // <<< Now declared
+        heap_start[i].type = SL_TYPE_FREE;    // <<< Now declared
         heap_start[i].marked = false;
         heap_start[i].next = (i + 1 < heap_size) ? &heap_start[i + 1] : NULL;
-        // Ensure union is zeroed out initially
         memset(&heap_start[i].data, 0, sizeof(heap_start[i].data));
     }
-    free_count = heap_size;
+    free_count = heap_size;  // <<< Now declared
 
     // --- Allocate Constants ---
-    // These are allocated outside the main heap for simplicity,
-    // they won't be garbage collected by the current scheme.
-    // A more integrated approach might put them in a separate static area.
-
+    // These are allocated outside the main heap for simplicity
     // NIL
     SL_NIL = (sl_object *)malloc(sizeof(sl_object));
     if (!SL_NIL) {
@@ -128,62 +151,76 @@ void sl_mem_init(size_t initial_heap_size) {
     SL_FALSE->data.boolean = false;
 
     // Initialize global environment and symbol table
-    sl_global_env = sl_env_create(SL_NIL);  // Create the global env object (outer is NIL)
-    if (sl_global_env == SL_NIL) {
+    sl_global_env = sl_env_create(SL_NIL);
+    if (sl_global_env == NULL || sl_global_env == SL_OUT_OF_MEMORY_ERROR) {
         fprintf(stderr, "FATAL: Failed to create global environment.\n");
-        // Maybe free constants and heap before exiting?
         exit(EXIT_FAILURE);
     }
-    sl_symbol_table = SL_NIL;  // Placeholder
+    sl_symbol_table = SL_NIL;
+
+    // Initialize GC roots array
+    root_capacity = 16;  // Initial capacity
+    gc_roots = malloc(root_capacity * sizeof(sl_object *));
+    if (!gc_roots) {
+        perror("Failed to allocate GC roots array");
+        // Cleanup?
+        exit(EXIT_FAILURE);
+    }
+    root_count = 0;
+    // Add permanent roots
+    sl_gc_add_root(&sl_global_env);    // <<< Call is now valid
+    sl_gc_add_root(&sl_symbol_table);  // <<< Call is now valid
 }
 
 void sl_mem_shutdown() {
-    // --- Clean up Symbol Table Strings (Placeholder Logic) ---
-    // Since the placeholder sl_make_symbol uses strdup and adds all symbols
-    // to the table, we must free the strings here before freeing the heap.
-    sl_object *current = sl_symbol_table;
-    while (sl_is_pair(current)) {
-        sl_object *pair = current;
-        sl_object *symbol_obj = sl_car(pair);
-        // Check if the car is actually a symbol (it should be)
-        if (symbol_obj && symbol_obj->type == SL_TYPE_SYMBOL && symbol_obj->data.symbol) {
-            // Free the string allocated by strdup in the placeholder sl_make_symbol
-            free(symbol_obj->data.symbol);
-            // Set to NULL to prevent potential double-free if somehow processed again
-            symbol_obj->data.symbol = NULL;
-        }
-        current = sl_cdr(pair);
-        // Note: We don't free the pair objects themselves here; they are part of the main heap
-        // and will be freed along with it.
-    }
-    sl_symbol_table = SL_NIL;  // Clear the root pointer after processing
-
-    // --- Clear GMP numbers and free strings in the rest of the heap ---
-    // (Strings other than symbol names, if any were left)
-    if (heap_start) {
-        for (size_t i = 0; i < heap_size; ++i) {
-            sl_object *obj = &heap_start[i];
-            if (obj->type != SL_TYPE_FREE) {
-                if (obj->type == SL_TYPE_NUMBER && obj->data.number.is_bignum) {
+    // Free any resources associated with objects (like strings, bignums)
+    for (size_t i = 0; i < heap_size; ++i) {  // <<< Now declared
+        sl_object *obj = &heap_start[i];      // <<< Now declared
+        if (obj->type != SL_TYPE_FREE) {
+            switch (obj->type) {
+            case SL_TYPE_NUMBER:
+                if (obj->data.number.is_bignum) {
                     mpq_clear(obj->data.number.value.big_num);
-                } else if (obj->type == SL_TYPE_STRING && obj->data.string) {
-                    free(obj->data.string);
-                    obj->data.string = NULL;
                 }
-                // No need to handle SL_TYPE_SYMBOL here (done above).
-                // No need to handle SL_TYPE_ENV here (contents are GC'd objects).
+                break;
+            case SL_TYPE_STRING:
+                // Use correct member name
+                free(obj->data.string_val);  // <<< CORRECTED
+                obj->data.string_val = NULL;
+                break;
+            case SL_TYPE_SYMBOL:
+                // Use correct member name
+                free(obj->data.symbol_name);  // <<< CORRECTED
+                obj->data.symbol_name = NULL;
+                break;
+            case SL_TYPE_ERROR:
+                // Don't free the static error object's string
+                if (obj != SL_OUT_OF_MEMORY_ERROR && obj->data.error_str) {
+                    free(obj->data.error_str);
+                    obj->data.error_str = NULL;
+                }
+                break;
+            // Add cases for other types needing cleanup if necessary
+            default:
+                break;
             }
         }
     }
 
-    // --- Free the heap itself ---
-    free(heap_start);
+    // Free the heap itself
+    free(heap_start);  // <<< Now declared
     heap_start = NULL;
-    free_list = NULL;
     heap_size = 0;
+    free_list = NULL;  // <<< Now declared
     free_count = 0;
 
-    // --- Free Constants ---
+    // Free GC roots array
+    free(gc_roots);  // <<< Now declared
+    gc_roots = NULL;
+    root_count = 0;
+    root_capacity = 0;
+
+    // Free the constants allocated outside the heap
     free(SL_NIL);
     SL_NIL = NULL;
     free(SL_TRUE);
@@ -191,33 +228,55 @@ void sl_mem_shutdown() {
     free(SL_FALSE);
     SL_FALSE = NULL;
 
-    // --- Clean up Globals ---
-    sl_global_env = NULL;  // Clear the global env pointer
+    // TODO: Cleanup GMP statics like min_int64_z if used in fits_int64
+}
 
-    // --- GMP Cleanup ---
-    // mp_set_memory_functions(NULL, NULL, NULL); // Restore default allocators if changed
+// Add/Remove GC Roots (Implementation)
+void sl_gc_add_root(sl_object **root_ptr) {  // <<< Definition matches declaration
+    if (root_count >= root_capacity) {
+        // Resize roots array
+        size_t new_capacity = root_capacity == 0 ? 16 : root_capacity * 2;
+        sl_object **new_roots = realloc(gc_roots, new_capacity * sizeof(sl_object *));
+        if (!new_roots) {
+            fprintf(stderr, "Error: Failed to resize GC roots array\n");
+            // Cannot add root, potential memory leak if object becomes unreachable otherwise
+            return;
+        }
+        gc_roots = new_roots;
+        root_capacity = new_capacity;
+    }
+    // Assignment is correct: storing sl_object** into array of sl_object**
+    gc_roots[root_count++] = root_ptr;
+}
+
+void sl_gc_remove_root(sl_object **root_ptr) {  // <<< Definition matches declaration
+    for (size_t i = 0; i < root_count; ++i) {
+        // Comparison is correct: comparing sl_object** with sl_object**
+        if (gc_roots[i] == root_ptr) {
+            gc_roots[i] = gc_roots[root_count - 1];
+            root_count--;
+            return;
+        }
+    }
+    // fprintf(stderr, "Warning: Attempted to remove non-existent GC root.\n");
 }
 
 // Simple allocation from the free list
 sl_object *sl_allocate_object() {
-    if (free_list == NULL) {
-        sl_gc();  // Attempt to collect garbage
+    if (free_list == NULL) {  // <<< Now declared
+        sl_gc();
         if (free_list == NULL) {
-            // Still no memory, maybe expand heap or signal error
-            fprintf(stderr, "Error: Out of memory! Heap size: %zu\n", heap_size);
-            // In a real implementation, you might try to expand the heap here.
-            // For now, we exit. Consider using realloc for heap_start.
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Error: Out of memory! Heap size: %zu\n", heap_size);  // <<< Now declared
+            return NULL;
         }
     }
 
     sl_object *new_obj = free_list;
-    free_list = new_obj->next;  // Remove from free list
-    new_obj->next = NULL;       // Clear the next pointer
-    new_obj->marked = false;    // Newly allocated objects are not marked initially
-    // Ensure data area is clean before use
+    free_list = new_obj->next;
+    new_obj->next = NULL;
+    new_obj->marked = false;
     memset(&new_obj->data, 0, sizeof(new_obj->data));
-    free_count--;
+    free_count--;  // <<< Now declared
     return new_obj;
 }
 
@@ -289,57 +348,48 @@ sl_object *sl_make_number_q(const mpq_t value_q) {
 
 sl_object *sl_make_string(const char *str) {
     sl_object *new_str = sl_allocate_object();
+    if (!new_str) return SL_OUT_OF_MEMORY_ERROR;
+
     new_str->type = SL_TYPE_STRING;
-    new_str->data.string = strdup(str);  // Use strdup for allocation and copy
-    if (new_str->data.string == NULL) {
-        perror("Failed to allocate memory for string");
-        // Handle error: maybe free new_str and return NIL?
-        // For now, let allocation failure propagate (likely caught by malloc checks)
-        // Put the object back on the free list?
-        new_str->type = SL_TYPE_FREE;
-        new_str->next = free_list;
-        free_list = new_str;
-        free_count++;
-        return SL_NIL;  // Indicate failure
+    new_str->data.string_val = strdup(str);  // <<< CORRECTED: Use string_val
+    if (!new_str->data.string_val) {
+        return SL_OUT_OF_MEMORY_ERROR;
     }
     return new_str;
 }
 
 sl_object *sl_make_symbol(const char *name) {
-    // TODO: Implement symbol interning using sl_symbol_table
-    // 1. Search sl_symbol_table for an existing symbol with 'name'.
-    // 2. If found, return the existing sl_object*.
-    // 3. If not found:
-    //    a. Allocate a new sl_object.
-    //    b. Set type to SL_TYPE_SYMBOL.
-    //    c. Allocate and copy 'name' using strdup into data.symbol. Check for alloc failure.
-    //    d. Add the new symbol object to sl_symbol_table (e.g., cons onto the list).
-    //    e. Return the new object.
-
-    // Placeholder implementation (no interning):
+    // TODO: Implement symbol interning later. For now, always allocate.
     sl_object *new_sym = sl_allocate_object();
+    if (!new_sym) return SL_OUT_OF_MEMORY_ERROR;
+
     new_sym->type = SL_TYPE_SYMBOL;
-    new_sym->data.symbol = strdup(name);  // Allocate and copy
-    if (new_sym->data.symbol == NULL) {
-        perror("Failed to allocate memory for symbol name");
-        // Put object back on free list
-        new_sym->type = SL_TYPE_FREE;
-        new_sym->next = free_list;
-        free_list = new_sym;
-        free_count++;
-        return SL_NIL;  // Indicate failure
+    new_sym->data.symbol_name = strdup(name);  // <<< CORRECTED: Use symbol_name
+    if (!new_sym->data.symbol_name) {
+        // Failed to allocate memory for the string copy
+        // Put object back? For now, just return error.
+        return SL_OUT_OF_MEMORY_ERROR;
     }
-    // Add to symbol table (simple list prepend for now)
-    sl_symbol_table = sl_make_pair(new_sym, sl_symbol_table);
+    // Add to symbol table (simple list prepend for now) - Requires sl_make_pair
+    sl_object *pair = sl_make_pair(new_sym, sl_symbol_table);
+    if (pair == SL_OUT_OF_MEMORY_ERROR) {
+        // Failed to allocate pair for symbol table, major issue
+        free(new_sym->data.symbol_name);  // Free the symbol name we just allocated
+        // Put new_sym back on free list?
+        return SL_OUT_OF_MEMORY_ERROR;  // Propagate memory error
+    }
+    sl_symbol_table = pair;
 
     return new_sym;
 }
 
-sl_object *sl_make_pair(sl_object *car, sl_object *cdr) {
+sl_object *sl_make_pair(sl_object *car_obj, sl_object *cdr_obj) {
     sl_object *new_pair = sl_allocate_object();
+    if (!new_pair) return SL_OUT_OF_MEMORY_ERROR;  // Check for NULL
+
     new_pair->type = SL_TYPE_PAIR;
-    new_pair->data.pair.car = car;
-    new_pair->data.pair.cdr = cdr;
+    new_pair->data.pair.car = car_obj;
+    new_pair->data.pair.cdr = cdr_obj;
     return new_pair;
 }
 
@@ -373,49 +423,26 @@ sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *a
     return new_func;
 }
 
-sl_object *sl_make_errorf(const char *fmt, ...) {
+sl_object *sl_make_errorf(const char *format, ...) {
     sl_object *err_obj = sl_allocate_object();
-    if (!err_obj) return SL_NIL;  // Allocation failed
+    if (!err_obj) return SL_OUT_OF_MEMORY_ERROR;
 
     err_obj->type = SL_TYPE_ERROR;
 
-    va_list args1, args2;
-    va_start(args1, fmt);
-    va_copy(args2, args1);  // Need a copy because vsnprintf might be called twice
+    // Use a temporary buffer for formatting
+    char temp_buffer[ERROR_BUFFER_SIZE];  // <<< Uses defined constant
+    va_list args;
+    va_start(args, format);
+    vsnprintf(temp_buffer, sizeof(temp_buffer), format, args);
+    va_end(args);
+    temp_buffer[sizeof(temp_buffer) - 1] = '\0';
 
-    // Determine required size
-    int size = vsnprintf(NULL, 0, fmt, args1);
-    va_end(args1);
-
-    if (size < 0) {
-        perror("vsnprintf size calculation failed");
-        // Put object back on free list?
-        err_obj->type = SL_TYPE_FREE;
-        err_obj->next = free_list;
-        free_list = err_obj;
-        free_count++;
-        va_end(args2);
-        return SL_NIL;  // Indicate failure
+    err_obj->data.error_str = strdup(temp_buffer);
+    if (!err_obj->data.error_str) {
+        // TODO: Put err_obj back on free list?
+        return SL_OUT_OF_MEMORY_ERROR;
     }
 
-    // Allocate buffer (+1 for null terminator)
-    char *buffer = (char *)malloc(size + 1);
-    if (!buffer) {
-        perror("malloc failed for error message");
-        // Put object back on free list?
-        err_obj->type = SL_TYPE_FREE;
-        err_obj->next = free_list;
-        free_list = err_obj;
-        free_count++;
-        va_end(args2);
-        return SL_NIL;  // Indicate failure
-    }
-
-    // Format the string into the buffer
-    vsnprintf(buffer, size + 1, fmt, args2);
-    va_end(args2);
-
-    err_obj->data.error_message = buffer;  // Store the allocated string
     return err_obj;
 }
 
@@ -533,55 +560,59 @@ static void sl_gc_mark(sl_object *root) {
 
 // Sweep phase: Collect all unmarked objects and add them to the free list
 static void sl_gc_sweep() {
-    free_list = NULL;  // Rebuild the free list from scratch
+    free_list = NULL;
     free_count = 0;
 
     for (size_t i = 0; i < heap_size; ++i) {
         sl_object *obj = &heap_start[i];
 
+        if (obj == SL_OUT_OF_MEMORY_ERROR) continue;
+
         if (obj->type == SL_TYPE_FREE) {
-            // Already free, add it to the rebuilt list
             obj->next = free_list;
             free_list = obj;
             free_count++;
-            continue;  // Skip to next object
+            continue;
         }
 
-        // Object was allocated, check if marked
         if (obj->marked) {
             obj->marked = false;
         } else {
             // Unreachable: free associated resources
-            switch (obj->type) {
+            switch (obj->type) {  // <<< Handle all relevant types
             case SL_TYPE_NUMBER:
                 if (obj->data.number.is_bignum) {
                     mpq_clear(obj->data.number.value.big_num);
                 }
                 break;
             case SL_TYPE_STRING:
-                free(obj->data.string);  // Free the string data
-                obj->data.string = NULL;
+                free(obj->data.string_val);
+                obj->data.string_val = NULL;
                 break;
             case SL_TYPE_SYMBOL:
-                // Since the current sl_make_symbol uses strdup (no interning),
-                // we MUST free the string when the symbol object is collected.
-                free(obj->data.symbol);   // XXX Note: Once you implement proper symbol interning, you will need to change this again. With interning, the symbol table would own the strings, and they would only be freed during sl_mem_shutdown after clearing the table, not during the regular GC sweep.)
-                obj->data.symbol = NULL;  // Optional: clear pointer after freeing
+                // Only free if not interned (currently always free)
+                free(obj->data.symbol_name);
+                obj->data.symbol_name = NULL;
                 break;
-            case SL_TYPE_ERROR:  // Add case for ERROR
-                free(obj->data.error_message);
-                obj->data.error_message = NULL;
+            case SL_TYPE_ERROR:
+                if (obj != SL_OUT_OF_MEMORY_ERROR && obj->data.error_str) {
+                    free(obj->data.error_str);
+                    obj->data.error_str = NULL;
+                }
                 break;
+            // Add cases for types that might hold resources but don't need
+            // specific freeing here (covered by marking/recursive GC)
+            // or types that hold no resources.
             case SL_TYPE_PAIR:
-            case SL_TYPE_FUNCTION:  // No extra freeing needed for function object itself
-            case SL_TYPE_ENV:       // No extra freeing needed for env object itself
-            case SL_TYPE_BOOLEAN:
-            case SL_TYPE_NIL:
-                break;  // No extra freeing needed besides the object slot itself
-            default:
-                // Should not happen for valid allocated types
-                fprintf(stderr, "Warning: Sweeping unexpected type %d\n", obj->type);
-                break;
+            case SL_TYPE_FUNCTION:  // Closure env/params/body are marked
+            case SL_TYPE_ENV:       // Bindings/outer are marked
+            case SL_TYPE_NIL:       // Constant (or handled outside heap)
+            case SL_TYPE_BOOLEAN:   // Constant (or handled outside heap)
+            case SL_TYPE_FREE:      // Should not be reached here
+                break;              // No action needed for these in sweep
+                // default: // Optional: catch unexpected types
+                //     fprintf(stderr, "Warning: Unknown object type %d during GC sweep.\n", obj->type);
+                //     break;
             }
 
             // Clear the object's data and set type to FREE
@@ -594,7 +625,6 @@ static void sl_gc_sweep() {
             free_count++;
         }
     }
-    // printf("GC Sweep finished. Total free: %zu\n", free_count);
 }
 
 // Main GC function
@@ -602,13 +632,142 @@ void sl_gc() {
     // printf("Starting GC... Free count before: %zu\n", free_count);
 
     // 1. Mark all objects reachable from the root set
-    sl_gc_mark(sl_global_env);  // Mark the global environment object
-    sl_gc_mark(sl_symbol_table);
-
-    // TODO: Mark stack roots
+    for (size_t i = 0; i < root_count; ++i) {
+        sl_object **root_ptr = gc_roots[i];
+        // Check if
+        if (root_ptr && *root_ptr) {
+            sl_gc_mark(*root_ptr);
+        }
+    }
+    // Note: sl_global_env and sl_symbol_table are now handled via the roots array
 
     // 2. Sweep unreachable objects
     sl_gc_sweep();
 
     // printf("GC finished. Free count after: %zu\n", free_count);
+}
+
+// --- String Conversion ---
+
+// Dynamic sprintf-like function for creating strings
+char *dynamic_sprintf(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    // Determine required size
+    int size = vsnprintf(NULL, 0, format, args);
+    va_end(args);
+
+    if (size < 0) {
+        return NULL;  // Error in formatting
+    }
+
+    // Allocate buffer (+1 for null terminator)
+    char *buffer = (char *)malloc(size + 1);
+    if (!buffer) {
+        return NULL;  // Memory allocation failed
+    }
+
+    // Format the string into the buffer
+    va_start(args, format);
+    vsnprintf(buffer, size + 1, format, args);
+    va_end(args);
+
+    return buffer;
+}
+
+char *sl_object_to_string(sl_object *obj) {
+    if (!obj) {
+        return strdup("InternalError:NULL_Object");
+    }
+
+    switch (obj->type) {
+    case SL_TYPE_NIL:
+        return strdup("()");
+    case SL_TYPE_BOOLEAN:
+        return strdup(obj == SL_TRUE ? "#t" : "#f");
+    case SL_TYPE_NUMBER:
+        if (obj->data.number.is_bignum) {
+            // Use gmp_asprintf correctly
+            char *gmp_str = NULL;
+            // gmp_asprintf allocates memory using GMP's allocator
+            if (gmp_asprintf(&gmp_str, "%Qd", obj->data.number.value.big_num) < 0) {
+                return NULL;  // Allocation or formatting failed
+            }
+            // Copy to standard malloc'd memory for consistency
+            char *result = strdup(gmp_str);
+            // Free the GMP-allocated string
+            // Assuming GMP uses a compatible free function. If not, use GMP's free.
+            free(gmp_str);
+            return result;
+        } else {
+            // Small number (code as before)
+            if (obj->data.number.value.small_num.den == 1) {
+                return dynamic_sprintf("%lld", (long long)obj->data.number.value.small_num.num);
+            } else {
+                return dynamic_sprintf("%lld/%lld",
+                                       (long long)obj->data.number.value.small_num.num,
+                                       (long long)obj->data.number.value.small_num.den);
+            }
+        }
+    case SL_TYPE_SYMBOL:
+        return strdup(obj->data.symbol_name ? obj->data.symbol_name : "InvalidSymbol");
+    case SL_TYPE_STRING: {
+        const char *s = obj->data.string_val;
+        if (!s) return strdup("\"\"");
+
+        // Calculate required size first (consider escapes)
+        size_t len = strlen(s);
+        size_t needed = len + 2;  // Quotes
+        for (size_t i = 0; i < len; ++i) {
+            if (s[i] == '"' || s[i] == '\\') needed++;
+        }
+        char *buf = malloc(needed + 1);  // buf declared here
+        if (!buf) return NULL;
+        char *p = buf;
+        *p++ = '"';
+        for (size_t i = 0; i < len; ++i) {
+            if (s[i] == '"' || s[i] == '\\') {
+                *p++ = '\\';
+            }
+            *p++ = s[i];
+        }
+        *p++ = '"';
+        *p = '\0';
+        return buf;  // Correct: buf is valid here
+    }
+    case SL_TYPE_PAIR: {
+        char *car_str = sl_object_to_string(sl_car(obj));
+        char *cdr_str = sl_object_to_string(sl_cdr(obj));
+        if (!car_str || !cdr_str) {
+            free(car_str);
+            free(cdr_str);
+            return NULL;
+        }
+        char *result = dynamic_sprintf("(%s . %s)", car_str, cdr_str);  // result declared here
+        free(car_str);
+        free(cdr_str);
+        return result;  // Correct: result is valid here
+    }
+    case SL_TYPE_FUNCTION:
+        if (obj->data.function.is_builtin) {
+            // Builtin: return name
+            return dynamic_sprintf("#<builtin:%s>", obj->data.function.def.builtin.name ? obj->data.function.def.builtin.name : "unnamed");
+        } else {
+            // Closure: return generic representation
+            return strdup("#<closure>");
+        }
+        // <<< Implicit break/return was missing here >>>
+        // No break needed after return
+
+    case SL_TYPE_ENV:
+        return strdup("#<environment>");
+    case SL_TYPE_ERROR:
+        return dynamic_sprintf("Error: %s", obj->data.error_str ? obj->data.error_str : "Unknown Error");
+
+    default:
+        return dynamic_sprintf("#<unknown_type:%d>", obj->type);
+    }
+    // Should not be reachable if all cases return or break
+    // return strdup("#<InternalError:UnhandledTypeInToString>");
 }

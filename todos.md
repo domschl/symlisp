@@ -8,16 +8,22 @@
 - [x] Add math for +, -, *, /
 - [x] Implement lambda special form (creating closures) and apply logic for closures. (Basic TCO included)
 - [x] Implement define special form. Test defining and calling simple functions.
-- [ ] Implement if special form.
-- [ ] Implement set! special form.
-- [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set
-- [ ] variable arity support (lambda)
+- [x] Implement if special form.
+- [x] Implement set! special form.
+- [x] Add API functions for environment get/set/define by C string name.
+- [ ] Remove reliance on fixed allocations for buffers
+- [ ] Implement some I/O: display, newline, read/save env, load/save files
 - [ ] Implement `begin` special form (for multi-expression bodies in lambda/define).
-- [ ] Refine lambda/define syntax validation (variadics?).
+- [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set
+- [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
+- [ ] let and named let
 - [ ] Refine parameter binding error handling (GC).
 - [ ] Gradually add more builtins.
+- [ ] Macros: define-syntax, let-syntax
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
-
+- [ ] Check against r7rs
+- [ ] Standard library
+- [ ] Symbolics libs
 
 ## Details
 

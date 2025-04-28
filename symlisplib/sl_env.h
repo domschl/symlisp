@@ -1,49 +1,51 @@
 #ifndef SL_ENV_H
 #define SL_ENV_H
 
-#include "sl_core.h"  // For sl_object definition
+#include "sl_core.h"
+#include <stdbool.h>
 
 // --- Environment Operations ---
 
-/**
- * @brief Creates a new environment object enclosed by an outer environment object.
- * Allocates the environment object from the SymLisp heap.
- *
- * @param outer_env_obj The enclosing environment object (can be SL_NIL for the global scope).
- * @return sl_object* A pointer to the newly created environment object (SL_TYPE_ENV),
- *                  or SL_NIL on allocation failure.
- */
-sl_object *sl_env_create(sl_object *outer_env_obj);
+/** @brief Creates a new environment enclosed by an outer environment. */
+sl_object *sl_env_create(sl_object *outer_env);
 
-/**
- * @brief Defines a variable in the *current* environment frame.
- * If the symbol already exists in this frame, its value is updated.
- *
- * @param env_obj The environment object (must be SL_TYPE_ENV) where the definition occurs.
- * @param symbol The symbol to define (must be an SL_TYPE_SYMBOL object).
- * @param value The value to bind to the symbol.
- */
+/** @brief Defines a variable in the specified environment frame. Overwrites if exists in *this* frame. */
 void sl_env_define(sl_object *env_obj, sl_object *symbol, sl_object *value);
 
-/**
- * @brief Sets the value of an *existing* variable in the environment chain.
- * Searches the current environment object and then outwards. Errors if the symbol is not found.
- *
- * @param env_obj The starting environment object (must be SL_TYPE_ENV) for the search.
- * @param symbol The symbol whose value needs to be set (must be an SL_TYPE_SYMBOL object).
- * @param value The new value to assign.
- * @return bool True if the variable was found and set, false otherwise (error printed).
- */
+/** @brief Sets the value of an existing variable in the nearest environment where it's defined. */
 bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value);
 
-/**
- * @brief Looks up the value bound to a symbol in the environment chain.
- * Searches the current environment object and then outwards.
- *
- * @param env_obj The starting environment object (must be SL_TYPE_ENV) for the lookup.
- * @param symbol The symbol to look up (must be an SL_TYPE_SYMBOL object).
- * @return sl_object* The value bound to the symbol, or NULL if the symbol is not found.
- */
+/** @brief Looks up a variable's value, searching outwards from the given environment. */
 sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol);
+
+// --- Environment API for C Clients ---
+
+/**
+ * @brief Looks up a variable by name in an environment chain.
+ * @param env_obj The starting environment object.
+ * @param var_name The C string name of the variable.
+ * @return The sl_object* value if found, otherwise NULL.
+ *         Returns NULL also on internal allocation error for the temporary symbol.
+ */
+sl_object *sl_env_get_value(sl_object *env_obj, const char *var_name);
+
+/**
+ * @brief Sets the value of an existing variable by name in an environment chain.
+ * @param env_obj The starting environment object.
+ * @param var_name The C string name of the variable.
+ * @param value The sl_object* value to set.
+ * @return true if the variable was found and set, false otherwise (not found or internal error).
+ */
+bool sl_env_set_value(sl_object *env_obj, const char *var_name, sl_object *value);
+
+/**
+ * @brief Defines a variable by name in a specific environment frame.
+ * @param env_obj The environment object where the definition should occur.
+ * @param var_name The C string name of the variable.
+ * @param value The sl_object* value to define.
+ * @note This does not check outer environments; it defines directly in env_obj.
+ *       Potential internal allocation errors are not explicitly returned but might cause issues.
+ */
+void sl_env_define_value(sl_object *env_obj, const char *var_name, sl_object *value);
 
 #endif  // SL_ENV_H

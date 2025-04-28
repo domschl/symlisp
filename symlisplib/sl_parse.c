@@ -87,6 +87,113 @@ static bool sl_write_pair_stream_recursive(sl_object *pair, FILE *stream);
 
 // --- Public Parsing Functions ---
 
+// Helper to check if char is delimiter (adjust as needed for stream parsing)
+static int is_stream_delimiter(int c) {
+    return isspace(c) || c == '(' || c == ')' || c == '"' || c == ';' || c == EOF;
+}
+
+// Read an atom (symbol, number, #t, #f) from a stream
+// This replaces the previous fixed-buffer version.
+static sl_object *read_atom(FILE *stream) {
+    char *token_buffer = NULL;
+    size_t buffer_size = 0;
+    size_t buffer_capacity = 0;
+    const size_t initial_capacity = 32;
+    int c;
+
+    while (!is_stream_delimiter(c = fgetc(stream))) {
+        // Check if buffer needs resizing
+        if (buffer_size + 1 >= buffer_capacity) {  // +1 for the char to add
+            size_t new_capacity = (buffer_capacity == 0) ? initial_capacity : buffer_capacity * 2;
+            char *new_buffer = realloc(token_buffer, new_capacity);
+            if (!new_buffer) {
+                fprintf(stderr, "Parser Error: Out of memory reading atom.\n");
+                free(token_buffer);
+                // Need to handle the character 'c' that was read but not processed.
+                // Maybe ungetc(c, stream)? Or just signal error.
+                if (c != EOF) ungetc(c, stream);  // Try to put back delimiter
+                return SL_NIL;                    // Signal error
+            }
+            token_buffer = new_buffer;
+            buffer_capacity = new_capacity;
+        }
+        token_buffer[buffer_size++] = (char)c;
+    }
+
+    // Put back the delimiter character that stopped the loop
+    if (c != EOF) {
+        ungetc(c, stream);
+    }
+
+    if (buffer_size == 0) {  // Should not happen if called correctly
+        free(token_buffer);
+        return SL_NIL;  // Indicate error or EOF right at start
+    }
+
+    // Null-terminate the buffer
+    // Ensure capacity for null terminator
+    if (buffer_size + 1 > buffer_capacity) {
+        // Resize one last time if exactly full
+        size_t new_capacity = buffer_capacity + 1;  // Just need one more byte
+        char *new_buffer = realloc(token_buffer, new_capacity);
+        if (!new_buffer) {
+            fprintf(stderr, "Parser Error: Out of memory finalizing atom buffer.\n");
+            free(token_buffer);
+            return SL_NIL;
+        }
+        token_buffer = new_buffer;
+        buffer_capacity = new_capacity;
+    }
+    token_buffer[buffer_size] = '\0';
+
+    // --- Try parsing token_buffer as #t, #f, number, or symbol ---
+    sl_object *result = NULL;
+
+    if (strcmp(token_buffer, "#t") == 0) {
+        result = SL_TRUE;
+    } else if (strcmp(token_buffer, "#f") == 0) {
+        result = SL_FALSE;
+    } else {
+        // Try parsing as number
+        mpq_t num_q;
+        mpq_init(num_q);
+        bool is_num = (mpq_set_str(num_q, token_buffer, 10) == 0);
+
+        if (is_num) {
+            mpq_canonicalize(num_q);
+            mpz_t num_z, den_z;
+            mpz_inits(num_z, den_z, NULL);
+            mpq_get_num(num_z, num_q);
+            mpq_get_den(den_z, num_q);
+
+            if (mpz_cmp_si(den_z, 1) == 0 && fits_int64(num_z)) {
+                result = sl_make_number_si(mpz_get_si(num_z), 1);
+            } else if (fits_int64(num_z) && fits_int64(den_z)) {
+                result = sl_make_number_si(mpz_get_si(num_z), mpz_get_si(den_z));
+            } else {
+                result = sl_make_number_q(num_q);  // Copies num_q
+            }
+            mpz_clears(num_z, den_z, NULL);
+        }
+        mpq_clear(num_q);  // Clear temp GMP num
+
+        if (!is_num) {
+            // If not a number, assume it's a symbol
+            result = sl_make_symbol(token_buffer);
+        }
+    }
+
+    free(token_buffer);  // Free the dynamically allocated buffer
+
+    // Check if object creation failed due to memory
+    if (result == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "Parser Error: Out of memory creating object for atom.\n");
+        return SL_NIL;  // Signal error
+    }
+
+    return result;  // Return the parsed object (#t, #f, number, symbol) or SL_NIL on error
+}
+
 sl_object *sl_parse_string(const char *input, const char **end_ptr) {
     if (!input) {
         return SL_NIL;  // Or handle error appropriately
@@ -222,10 +329,12 @@ static bool sl_write_recursive(sl_object *obj, sl_string_buffer *sbuf) {
     case SL_TYPE_BOOLEAN:
         return sbuf_append_str(sbuf, obj->data.boolean ? "#t" : "#f");
     case SL_TYPE_SYMBOL:
-        return sbuf_append_str(sbuf, obj->data.symbol);
+        // Use the accessor macro sl_symbol_name(obj)
+        return sbuf_append_str(sbuf, sl_symbol_name(obj));  // Corrected
     case SL_TYPE_STRING: {
+        // Use the accessor macro sl_string_value(obj)
+        char *str = sl_string_value(obj);  // Corrected
         if (!sbuf_append_char(sbuf, '"')) return false;
-        char *str = obj->data.string;
         while (*str) {
             char c = *str++;
             const char *escape = NULL;
@@ -345,10 +454,12 @@ static bool sl_write_stream_recursive(sl_object *obj, FILE *stream) {
     case SL_TYPE_BOOLEAN:
         return fprintf(stream, obj->data.boolean ? "#t" : "#f") >= 0;
     case SL_TYPE_SYMBOL:
-        return fprintf(stream, "%s", obj->data.symbol) >= 0;
+        // Use the accessor macro sl_symbol_name(obj)
+        return fprintf(stream, "%s", sl_symbol_name(obj)) >= 0;  // Corrected
     case SL_TYPE_STRING: {
+        // Use the accessor macro sl_string_value(obj)
+        char *str = sl_string_value(obj);  // Corrected
         if (fputc('"', stream) == EOF) return false;
-        char *str = obj->data.string;
         while (*str) {
             char c = *str++;
             const char *escape = NULL;
@@ -468,11 +579,12 @@ void sl_debug_print_object(sl_object *obj, FILE *stream, int indent) {
         fprintf(stream, "[BOOLEAN] %s\n", obj->data.boolean ? "#t" : "#f");
         break;
     case SL_TYPE_SYMBOL:
-        fprintf(stream, "[SYMBOL] '%s'\n", obj->data.symbol ? obj->data.symbol : "(null!)");
+        // Use the accessor macro sl_symbol_name(obj)
+        fprintf(stream, "[SYMBOL] '%s'\n", sl_symbol_name(obj) ? sl_symbol_name(obj) : "(null!)");  // Corrected x2
         break;
     case SL_TYPE_STRING:
-        // Print string with quotes, maybe limit length for very long strings
-        fprintf(stream, "[STRING] \"%s\"\n", obj->data.string ? obj->data.string : "(null!)");
+        // Use the accessor macro sl_string_value(obj)
+        fprintf(stream, "[STRING] \"%s\"\n", sl_string_value(obj) ? sl_string_value(obj) : "(null!)");  // Corrected x2
         break;
     case SL_TYPE_NUMBER:
         if (obj->data.number.is_bignum) {
@@ -555,8 +667,9 @@ void sl_object_to_string_buf(sl_object *obj, char *buffer, size_t size) {
         snprintf(buffer, size, "#<number>");
         break;  // Simple placeholder
     case SL_TYPE_STRING:
-        snprintf(buffer, size, "\"%s\"", obj->data.string ? obj->data.string : "");
-        break;  // Basic
+        // Use the accessor macro sl_string_value(obj)
+        snprintf(buffer, size, "\"%s\"", sl_string_value(obj) ? sl_string_value(obj) : "");  // Corrected x2
+        break;                                                                               // Basic
     case SL_TYPE_PAIR:
         snprintf(buffer, size, "(...)");
         break;  // Simple placeholder
@@ -571,8 +684,9 @@ void sl_object_to_string_buf(sl_object *obj, char *buffer, size_t size) {
         snprintf(buffer, size, "#<environment>");
         break;
     case SL_TYPE_ERROR:
-        snprintf(buffer, size, "#<error:%s>", obj->data.error_message ? obj->data.error_message : "");
-        break;  // Basic
+        // Use the accessor macro sl_error_message(obj)
+        snprintf(buffer, size, "#<error:%s>", sl_error_message(obj) ? sl_error_message(obj) : "");  // Corrected x2
+        break;
     case SL_TYPE_FREE:
         strncpy(buffer, "#<FREE>", size - 1);
         break;

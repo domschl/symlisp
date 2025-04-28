@@ -155,17 +155,20 @@ void run_repl() {
                         sl_object *eval_result = sl_eval(parse_result, sl_global_env);
                         // ----------------
 
-                        // --- Print Result/Error ---
-                        if (sl_is_error(eval_result)) {
-                            fprintf(stderr, "Error: %s\n", sl_error_message(eval_result));
+                        // Print result
+                        if (eval_result) {
+                            char *result_str = sl_object_to_string(eval_result);  // New function
+                            if (result_str) {
+                                printf("=> %s\n", result_str);
+                                free(result_str);  // !!! IMPORTANT: Free the allocated string !!!
+                            } else {
+                                printf("=> Error: Could not convert result to string (Out of memory?).\n");
+                            }
                         } else {
-                            printf("=> ");  // Indicate standard result
-                            sl_write_to_stream(eval_result, stdout);
-                            printf("\n");
+                            printf("=> Error during evaluation or parsing.\n");  // Or handle specific errors
                         }
-                        // --------------------------
 
-                        // --- GC ---
+                        // Trigger GC (optional, maybe less frequent)
                         sl_gc();
                         // --------
                     } else {

@@ -89,7 +89,6 @@ sl_object *sl_eval(sl_object *expr, sl_object *env_obj) {
     sl_object *eval_result = SL_NIL;
 
 tail_call:
-
     if (!expr) {
         return sl_make_errorf("Internal Error: sl_eval received NULL expression.");
     }
@@ -288,7 +287,37 @@ tail_call:
 
         }  // end if
 
-        // TODO: set!
+        // (set! <variable> <expression>)
+        if (sl_is_symbol(op) && strcmp(sl_symbol_name(op), "set!") == 0) {
+            // Syntax check: (set! <symbol> <expr>)
+            if (!sl_is_pair(args) || !sl_is_pair(sl_cdr(args)) || sl_cdr(sl_cdr(args)) != SL_NIL) {
+                return sl_make_errorf("Syntax Error (set!): Expected (set! <variable> <expression>).");
+            }
+
+            sl_object *var = sl_car(args);
+            sl_object *value_expr = sl_car(sl_cdr(args));
+
+            if (!sl_is_symbol(var)) {
+                return sl_make_errorf("Syntax Error (set!): Variable name must be a symbol.");
+            }
+
+            // Evaluate the value expression (Non-tail call)
+            sl_object *new_value = sl_eval(value_expr, env_obj);
+            if (sl_is_error(new_value)) {
+                return new_value;  // Propagate error
+            }
+
+            // Attempt to set the variable in the environment chain
+            bool success = sl_env_set(env_obj, var, new_value);
+
+            if (!success) {
+                return sl_make_errorf("Error (set!): Variable '%s' is not defined.", sl_symbol_name(var));
+            }
+
+            // Return value is unspecified, return SL_NIL
+            return SL_NIL;
+        }  // end set!
+
         // TODO: begin
 
         // --- If not a special form, it's a procedure call ---

@@ -52,10 +52,16 @@ void sl_env_define(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     sl_set_env_bindings(env_obj, sl_make_pair(new_binding_pair, sl_env_bindings(env_obj)));
 }
 
-// Update sl_env_set to use strcmp
+// Sets the value of an existing variable in the nearest environment where it's defined.
+// Searches outwards from env_obj.
+// Returns true if the variable was found and set, false otherwise.
 bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     if (!sl_is_symbol(symbol)) {
-        fprintf(stderr, "Error (set!): Invalid symbol.\n");
+        fprintf(stderr, "Internal Error (sl_env_set): Expected a symbol.\n");
+        return false;  // Or handle error differently
+    }
+    if (!sl_is_env(env_obj)) {
+        fprintf(stderr, "Internal Error (sl_env_set): Expected an environment.\n");
         return false;
     }
 
@@ -64,24 +70,20 @@ bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value) {
         sl_object *current_binding = sl_env_bindings(current_env_obj);
         while (sl_is_pair(current_binding)) {
             sl_object *pair = sl_car(current_binding);
-            // Use strcmp for comparison
+            // Use strcmp for comparison until interning is implemented
             if (sl_is_pair(pair) && sl_is_symbol(sl_car(pair)) &&
                 strcmp(sl_symbol_name(sl_car(pair)), sl_symbol_name(symbol)) == 0) {
+                // Found the binding, update the value (cdr of the inner pair)
                 sl_set_cdr(pair, value);
-                return true;
+                return true;  // Successfully set
             }
             current_binding = sl_cdr(current_binding);
         }
+        // Not found in this environment, move to the outer one
         current_env_obj = sl_env_outer(current_env_obj);
     }
-    // If current_env_obj became SL_NIL, we reached the end without finding it.
-    if (current_env_obj != SL_NIL) {
-        fprintf(stderr, "Error (set!): Invalid environment structure encountered.\n");
-        return false;
-    }
 
-    // Symbol not found in any environment
-    fprintf(stderr, "Error (set!): Unbound variable '%s'.\n", sl_symbol_name(symbol));
+    // Variable not found in any enclosing environment
     return false;
 }
 
@@ -119,3 +121,60 @@ sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
 }
 
 // sl_gc_mark_env is removed as its logic is now in sl_gc_mark
+
+// --- Environment API for C Clients ---
+
+sl_object *sl_env_get_value(sl_object *env_obj, const char *var_name) {
+    if (!env_obj || !var_name) return NULL;
+
+    // Create a temporary symbol. This is inefficient without interning.
+    // The created symbol might leak if not GC'd properly before next use,
+    // but standard GC should handle it eventually if it becomes unreachable.
+    // Proper interning is the real solution.
+    sl_object *temp_symbol = sl_make_symbol(var_name);
+    if (!temp_symbol) {
+        fprintf(stderr, "API Error (sl_env_get_value): Failed to create temporary symbol for '%s'.\n", var_name);
+        return NULL;  // Allocation failure
+    }
+
+    sl_object *value = sl_env_lookup(env_obj, temp_symbol);
+
+    // Note: temp_symbol is now potentially garbage if not used elsewhere.
+    // GC will eventually collect it.
+
+    return value;  // Returns NULL if lookup failed
+}
+
+bool sl_env_set_value(sl_object *env_obj, const char *var_name, sl_object *value) {
+    if (!env_obj || !var_name) return false;
+
+    sl_object *temp_symbol = sl_make_symbol(var_name);
+    if (!temp_symbol) {
+        fprintf(stderr, "API Error (sl_env_set_value): Failed to create temporary symbol for '%s'.\n", var_name);
+        return false;  // Allocation failure
+    }
+
+    bool success = sl_env_set(env_obj, temp_symbol, value);
+
+    // temp_symbol potentially garbage
+
+    return success;  // Returns false if set failed (variable not found)
+}
+
+void sl_env_define_value(sl_object *env_obj, const char *var_name, sl_object *value) {
+    if (!env_obj || !var_name) {
+        fprintf(stderr, "API Error (sl_env_define_value): Invalid environment or variable name.\n");
+        return;
+    }
+
+    sl_object *temp_symbol = sl_make_symbol(var_name);
+    if (!temp_symbol) {
+        fprintf(stderr, "API Error (sl_env_define_value): Failed to create temporary symbol for '%s'.\n", var_name);
+        // Cannot proceed without symbol
+        return;
+    }
+
+    sl_env_define(env_obj, temp_symbol, value);
+
+    // temp_symbol potentially garbage, but now held by the environment bindings
+}

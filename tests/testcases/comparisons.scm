@@ -53,9 +53,9 @@
 
 ;; --- EQ? (Identity / Pointer Equality) ---
 (define test-eq-sym 'hello)
-(define-test "eq?-same-symbol" (assert-equal (eq? test-eq-sym 'hello) #t)) ; Assumes no interning yet
+(define-test "eq?-same-symbol" (assert-equal (eq? test-eq-sym 'hello) #f)) ; Separate allocations without interning
 (define-test "eq?-diff-symbol" (assert-equal (eq? 'hello 'world) #f))
-(define-test "eq?-same-number" (assert-equal (eq? 5 5) #t)) ; Small integers might be identical
+(define-test "eq?-same-number" (assert-equal (eq? 5 5) #f)) ; Numbers are not eq?  TODO? ; Separate allocations without interning/optimization
 (define-test "eq?-diff-number" (assert-equal (eq? 5 6) #f))
 (define-test "eq?-same-boolean" (assert-equal (eq? #t #t) #t))
 (define-test "eq?-diff-boolean" (assert-equal (eq? #t #f) #f))

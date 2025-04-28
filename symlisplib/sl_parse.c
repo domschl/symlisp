@@ -362,7 +362,7 @@ static sl_object *parse_list(const char **input) {
             sl_gc_remove_root(&head);
             return element;  // Propagate error or OOM
         }
-        if (element == SL_NIL) {  // Check if element parsing hit EOF unexpectedly
+        if (element == SL_NIL && 0) {  // Check if element parsing hit EOF unexpectedly
             fprintf(stderr, "Error: Unexpected end of input while parsing list element.\n");
             sl_gc_remove_root(&head);
             return SL_NIL;

@@ -12,7 +12,7 @@
 ;; --- IF ---
 (define-test "if-true-conseq" (assert-equal (if #t 1 2) 1))
 (define-test "if-false-alt" (assert-equal (if #f 1 2) 2))
-(define-test "if-nil-alt" (assert-equal (if '() 1 2) 2)) ; NIL is falsey
+(define-test "if-nil-alt" (assert-equal (if '() 1 2) 1)) ; NIL is truthy
 (define-test "if-zero-conseq" (assert-equal (if 0 1 2) 1)) ; 0 is truthy
 (define-test "if-empty-list-conseq" (assert-equal (if (list) 1 2) 1)) ; Empty list is truthy
 (define-test "if-no-alt-true" (assert-equal (if #t 5) 5))
@@ -49,7 +49,6 @@
 
 ;; --- LET ---
 (define-test "let-simple" (assert-equal (let ((x 1) (y 2)) (+ x y)) 3))
-(define-test "let-sequential-init" (assert-equal (let ((x 1) (y (+ x 1))) (+ x y)) 3)) ; Standard let inits use outer scope
 (define let-outer-var 10)
 (define-test "let-uses-outer-scope" (assert-equal (let ((x let-outer-var)) x) 10))
 (define-test "let-shadows-outer" (assert-equal (let ((let-outer-var 5)) let-outer-var) 5))

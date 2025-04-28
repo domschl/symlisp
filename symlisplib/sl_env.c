@@ -122,7 +122,7 @@ sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
             // if (sl_car(pair) == symbol) { // <<< OLD POINTER COMPARISON
             if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON
                 // Found the symbol, return its value
-                return sl_cdr(pair);
+                return pair;  // sl_cdr(pair);
             }
             current_binding = sl_cdr(current_binding);
         }

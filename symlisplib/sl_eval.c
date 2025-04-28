@@ -51,17 +51,19 @@ top_of_eval:;
         break;
 
     case SL_TYPE_SYMBOL: {
-        sl_object *lookup_val = sl_env_lookup(env, obj);  // Look up the symbol
+        // Look up the binding pair for the symbol
+        sl_object *binding_pair = sl_env_lookup(env, obj);
 
-        if (lookup_val == SL_NIL) {
-            // Symbol not found. Get name *before* potential allocation.
+        if (binding_pair == SL_NIL) {
+            // Symbol not found (lookup returned NIL)
             const char *sym_name = sl_symbol_name(obj);
-            // Now create the error object.
             result = sl_make_errorf("Eval: Unbound symbol '%s'", sym_name);
-            // Assign the new error object to the rooted 'result' slot.
+        } else if (!sl_is_pair(binding_pair)) {
+            // Should not happen if lookup is correct, but check defensively
+            result = sl_make_errorf("Eval: Internal error - lookup returned non-pair for found symbol '%s'", sl_symbol_name(obj));
         } else {
-            // Symbol found. Assign the value to the rooted 'result' slot.
-            result = lookup_val;
+            // Symbol found, the value is the cdr of the binding pair
+            result = sl_cdr(binding_pair);  // <<< CHANGED: Get value from cdr
         }
         break;  // Break from switch case SL_TYPE_SYMBOL
     }
@@ -115,9 +117,9 @@ top_of_eval:;
                 sl_gc_add_root(&test_result);
 
                 if (test_result == SL_OUT_OF_MEMORY_ERROR) {
-                    result = test_result;                                       // Propagate error
-                } else if (test_result != SL_FALSE && test_result != SL_NIL) {  // Truthy?
-                    obj = conseq_expr;                                          // Tail call conseq
+                    result = test_result;  // Propagate error
+                } else if (test_result != SL_FALSE) {
+                    obj = conseq_expr;  // Tail call conseq
                 } else {
                     obj = alt_expr;  // Tail call alt
                 }

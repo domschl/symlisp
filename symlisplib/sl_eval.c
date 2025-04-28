@@ -15,6 +15,7 @@
 // --- Forward Declarations ---
 sl_object *sl_eval_list(sl_object *list, sl_object *env);
 sl_object *sl_apply(sl_object *fn, sl_object *args);
+static sl_object *eval_sequence(sl_object *seq, sl_object *env);  // Helper for begin/body logic
 
 // Helper function to get symbol name safely
 static const char *safe_symbol_name(sl_object *obj) {
@@ -25,19 +26,15 @@ static const char *safe_symbol_name(sl_object *obj) {
 }
 
 sl_object *sl_eval(sl_object *obj_in, sl_object *env_in) {
-    sl_object *obj = obj_in;  // Use local vars that can be rooted
+    sl_object *obj = obj_in;
     sl_object *env = env_in;
-    sl_object *result = SL_NIL;  // Default result
+    sl_object *result = SL_NIL;
 
     // --- Root key local variables ---
-    // Any sl_object* here that might hold a value across a call
-    // to sl_eval, sl_apply, sl_make_xxx, etc. needs rooting.
     sl_gc_add_root(&obj);
     sl_gc_add_root(&env);
     sl_gc_add_root(&result);
-// Add more roots here for other important temporary sl_object* if needed
 
-// Use a label for cleanup to ensure roots are removed on all paths
 top_of_eval:;
     if (!obj) {  // Handle NULL input gracefully
         result = sl_make_errorf("Eval: NULL object");
@@ -299,6 +296,218 @@ top_of_eval:;
                 sl_gc_remove_root(&args);  // Final unroot of args
                 break;                     // Break from switch case
             }
+            // --- LET / NAMED LET ---
+            else if (strcmp(op_name, "let") == 0) {
+                // (let bindings body...) or (let name bindings body...)
+                sl_gc_add_root(&args);  // Root the rest of the let form
+
+                if (args == SL_NIL) {
+                    result = sl_make_errorf("Eval: Malformed let (missing bindings/body)");
+                    sl_gc_remove_root(&args);
+                    break;
+                }
+
+                sl_object *first_arg = sl_car(args);
+                sl_object *body_list = sl_cdr(args);
+                sl_object *name_sym = SL_NIL;  // For named let
+                sl_object *bindings = SL_NIL;
+
+                // Check for named let variant
+                if (sl_is_symbol(first_arg)) {
+                    name_sym = first_arg;
+                    sl_gc_add_root(&name_sym);  // Root name symbol
+                    if (body_list == SL_NIL || !sl_is_pair(body_list)) {
+                        result = sl_make_errorf("Eval: Malformed named let (missing bindings/body)");
+                        sl_gc_remove_root(&name_sym);
+                        sl_gc_remove_root(&args);
+                        break;
+                    }
+                    bindings = sl_car(body_list);
+                    body_list = sl_cdr(body_list);
+                } else {
+                    // Standard let
+                    bindings = first_arg;
+                }
+
+                // Validate bindings structure and body
+                if (!sl_is_list(bindings)) {  // sl_is_list checks for proper list or NIL
+                    result = sl_make_errorf("Eval: Malformed let bindings (not a list)");
+                    if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
+                    sl_gc_remove_root(&args);
+                    break;
+                }
+                if (body_list == SL_NIL) {
+                    result = sl_make_errorf("Eval: Malformed let (missing body)");
+                    if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
+                    sl_gc_remove_root(&args);
+                    break;
+                }
+
+                // Root bindings and body before evaluation loops
+                sl_gc_add_root(&bindings);
+                sl_gc_add_root(&body_list);
+
+                // --- Evaluate initializers in the *current* environment ---
+                sl_object *vars_list = SL_NIL;
+                sl_object *vals_list = SL_NIL;
+                sl_object **vars_tail_ptr = &vars_list;
+                sl_object **vals_tail_ptr = &vals_list;
+                sl_object *current_binding = bindings;
+                bool init_eval_ok = true;
+
+                sl_gc_add_root(&vars_list);  // Root lists being built
+                sl_gc_add_root(&vals_list);
+                sl_gc_add_root(&current_binding);
+
+                while (current_binding != SL_NIL) {
+                    if (!sl_is_pair(current_binding)) {  // Should be caught by sl_is_list, but double check
+                        result = sl_make_errorf("Eval: Malformed let bindings (improper list)");
+                        init_eval_ok = false;
+                        break;
+                    }
+                    sl_object *binding_pair = sl_car(current_binding);
+                    if (!sl_is_pair(binding_pair) || sl_cdr(binding_pair) == SL_NIL || !sl_is_pair(sl_cdr(binding_pair)) || sl_cdr(sl_cdr(binding_pair)) != SL_NIL) {
+                        result = sl_make_errorf("Eval: Malformed let binding pair");
+                        init_eval_ok = false;
+                        break;
+                    }
+                    sl_object *var_sym = sl_car(binding_pair);
+                    sl_object *init_expr = sl_cadr(binding_pair);
+
+                    if (!sl_is_symbol(var_sym)) {
+                        result = sl_make_errorf("Eval: Variable in let binding must be a symbol");
+                        init_eval_ok = false;
+                        break;
+                    }
+
+                    // Evaluate init_expr in the *outer* env
+                    sl_object *init_val = sl_eval(init_expr, env);  // MIGHT GC
+                    sl_gc_add_root(&init_val);                      // Root the evaluated value
+
+                    if (init_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(init_val)) {
+                        result = init_val;  // Propagate error
+                        sl_gc_remove_root(&init_val);
+                        init_eval_ok = false;
+                        break;
+                    }
+
+                    // Append var_sym to vars_list
+                    sl_object *var_pair = sl_make_pair(var_sym, SL_NIL);
+                    CHECK_ALLOC_GOTO(var_pair, oom_let, result);
+                    *vars_tail_ptr = var_pair;
+                    vars_tail_ptr = &var_pair->data.pair.cdr;
+
+                    // Append init_val to vals_list
+                    sl_object *val_pair = sl_make_pair(init_val, SL_NIL);
+                    CHECK_ALLOC_GOTO(val_pair, oom_let, result);
+                    *vals_tail_ptr = val_pair;
+                    vals_tail_ptr = &val_pair->data.pair.cdr;
+
+                    sl_gc_remove_root(&init_val);  // Value is now safe in vals_list
+                    current_binding = sl_cdr(current_binding);
+                }  // End while bindings
+
+                // Unroot temporary binding list traversal pointer
+                sl_gc_remove_root(&current_binding);
+
+                if (!init_eval_ok) {   // Error during init eval or binding list parsing
+                    goto cleanup_let;  // Result already holds the error
+                }
+
+                // --- Create new environment and bind variables ---
+                sl_object *let_env = sl_env_create(env);
+                CHECK_ALLOC_GOTO(let_env, oom_let, result);
+                sl_gc_add_root(&let_env);  // Root the new environment
+
+                // --- Handle named let: define the recursive function ---
+                if (name_sym != SL_NIL) {
+                    // Create lambda: (lambda (vars...) body...)
+                    sl_object *lambda = sl_make_closure(vars_list, body_list, let_env);
+                    CHECK_ALLOC_GOTO(lambda, oom_let_env, result);
+                    // Define the name *within* the let_env
+                    sl_env_define(let_env, name_sym, lambda);
+                    // Note: lambda is now potentially reachable via let_env
+                }
+
+                // --- Bind vars to evaluated vals in the new environment ---
+                sl_object *v = vars_list;
+                sl_object *val = vals_list;
+                while (v != SL_NIL) {  // Assumes vars_list and vals_list have same length
+                    sl_env_define(let_env, sl_car(v), sl_car(val));
+                    // Check for OOM from define?
+                    v = sl_cdr(v);
+                    val = sl_cdr(val);
+                }
+
+                // --- Evaluate body in the new environment ---
+                // Use helper function for sequence evaluation with TCO
+                // Unroot lists before potential tail call in eval_sequence
+                sl_gc_remove_root(&vals_list);
+                sl_gc_remove_root(&vars_list);
+                sl_gc_remove_root(&body_list);
+                sl_gc_remove_root(&bindings);
+                sl_gc_remove_root(&args);
+                if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
+
+                // Tail call: Set obj and env for the next iteration of the main loop
+                // Need to evaluate the sequence starting from body_list in let_env
+                // We can adapt the 'begin' logic or use a helper. Let's use a helper.
+
+                // If eval_sequence handles TCO by returning a special marker or modifying obj/env,
+                // we need to handle that. For simplicity, let's make eval_sequence do the TCO jump.
+                // It needs access to the main loop's obj and env pointers.
+                // Alternative: eval_sequence returns the *last expression* to evaluate.
+                // Let's try the TCO jump approach within eval_sequence.
+
+                // We need to pass the main loop's obj and env *pointers*
+                // This is getting complicated. Let's just evaluate the sequence here.
+
+                sl_object *current_body_node = body_list;
+                result = SL_NIL;  // Default result for empty body (shouldn't happen due to check)
+
+                while (sl_is_pair(current_body_node)) {
+                    sl_object *expr_to_eval = sl_car(current_body_node);
+                    sl_object *next_node = sl_cdr(current_body_node);
+
+                    if (next_node == SL_NIL) {  // Last expression in body?
+                        // Tail call optimization
+                        obj = expr_to_eval;           // Set obj for next iteration
+                        env = let_env;                // Set env for next iteration
+                        sl_gc_remove_root(&let_env);  // Unroot let_env before jump
+                        goto top_of_eval;             // Jump to top of main eval loop
+                    } else {
+                        // Not the last expression, evaluate normally
+                        result = sl_eval(expr_to_eval, let_env);  // MIGHT GC
+                        sl_gc_add_root(&result);                  // Root intermediate result
+
+                        if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
+                            sl_gc_remove_root(&let_env);  // Unroot let_env before break
+                            goto cleanup_let;             // Error occurred, result holds error
+                        }
+                        sl_gc_remove_root(&result);  // Unroot intermediate result
+                    }
+                    current_body_node = sl_cdr(current_body_node);
+                }
+                // Should not be reached if body is proper list and non-empty due to TCO jump
+                // If reached, it implies improper list or error occurred.
+                if (current_body_node != SL_NIL) {
+                    result = sl_make_errorf("Eval: Malformed let body (improper list)");
+                }
+                // If error occurred, result holds it.
+
+            oom_let_env:  // Label for OOM after let_env creation
+                sl_gc_remove_root(&let_env);
+            oom_let:      // Label for OOM before let_env creation
+            cleanup_let:  // General cleanup label for let
+                sl_gc_remove_root(&vals_list);
+                sl_gc_remove_root(&vars_list);
+                sl_gc_remove_root(&body_list);
+                sl_gc_remove_root(&bindings);
+                sl_gc_remove_root(&args);
+                if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
+                break;  // Break from switch case 'let'
+            }  // End LET / NAMED LET block
+
             // --- END OF SPECIAL FORMS ---
             // If none of the above matched, it's not a special form we handle here.
             // Fall through to the function call logic below.
@@ -360,6 +569,14 @@ cleanup:
     sl_gc_remove_root(&obj);
     return result;
 }
+
+// Helper to evaluate a sequence of expressions (like in begin or function body)
+// Returns the result of the *last* expression, or an error.
+// Handles TCO by jumping to top_of_eval in the caller (sl_eval).
+// NOTE: This helper is NOT used in the current 'let' implementation above,
+// the logic was integrated directly for TCO via goto top_of_eval.
+// Keeping the signature here for potential future refactoring.
+// static sl_object *eval_sequence(sl_object *seq, sl_object *env) { ... }
 
 // Helper to evaluate a list of arguments
 sl_object *sl_eval_list(sl_object *list, sl_object *env) {

@@ -100,12 +100,23 @@ extern sl_object *SL_FALSE;
 extern sl_object *SL_OUT_OF_MEMORY_ERROR;  // <<< ADDED
 
 // --- Helper macro for checking allocation result ---
-// Place this *after* SL_OUT_OF_MEMORY_ERROR is declared
 #define CHECK_ALLOC(obj_ptr)                                                         \
     if ((obj_ptr) == SL_OUT_OF_MEMORY_ERROR) { return SL_OUT_OF_MEMORY_ERROR; }      \
     if (!(obj_ptr)) { /* Should not happen if SL_OUT_OF_MEMORY_ERROR is used */      \
         fprintf(stderr, "Internal Error: Allocation returned NULL unexpectedly.\n"); \
         return SL_OUT_OF_MEMORY_ERROR;                                               \
+    }
+
+// --- ADD CHECK_ALLOC_GOTO Macro ---
+#define CHECK_ALLOC_GOTO(obj_ptr, label, result_var)                                 \
+    if ((obj_ptr) == SL_OUT_OF_MEMORY_ERROR) {                                       \
+        result_var = SL_OUT_OF_MEMORY_ERROR;                                         \
+        goto label;                                                                  \
+    }                                                                                \
+    if (!(obj_ptr)) { /* Should not happen if SL_OUT_OF_MEMORY_ERROR is used */      \
+        fprintf(stderr, "Internal Error: Allocation returned NULL unexpectedly.\n"); \
+        result_var = SL_OUT_OF_MEMORY_ERROR;                                         \
+        goto label;                                                                  \
     }
 
 // --- Memory Management ---
@@ -169,6 +180,7 @@ void sl_mem_shutdown();
 #define sl_is_builtin(obj) (sl_is_function(obj) && (obj)->data.function.is_builtin)
 #define sl_is_env(obj) ((obj) && (obj)->type == SL_TYPE_ENV)
 #define sl_is_error(obj) ((obj) && (obj)->type == SL_TYPE_ERROR)
+bool sl_is_list(sl_object *obj);  // <<< ADD DECLARATION
 
 // --- Accessor Macros/Functions ---
 // Pair accessors

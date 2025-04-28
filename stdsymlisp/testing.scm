@@ -38,7 +38,7 @@
     (define test-passed #f)
     
     ;; Update global counters based on result
-    (if (eq? (eval assertion) #t)
+    (if (eq? assertion #t)
         (begin
           (display "Test passed\n")
           ;; Increment the passed test counter

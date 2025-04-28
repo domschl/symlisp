@@ -606,6 +606,39 @@ sl_object *sl_cadr(sl_object *list) {
     return sl_car(sl_cdr(list));
 }
 
+// Checks if obj is a proper list (NIL or pairs ending in NIL)
+// Does NOT detect cycles.
+bool sl_is_list(sl_object *obj) {
+    sl_object *slow = obj;
+    sl_object *fast = obj;
+
+    while (true) {
+        if (fast == SL_NIL) {
+            return true;  // Reached end, proper list
+        }
+        if (!sl_is_pair(fast)) {
+            return false;  // Ended in non-pair, non-NIL atom
+        }
+        fast = sl_cdr(fast);  // Move fast one step
+
+        if (fast == SL_NIL) {
+            return true;  // Reached end, proper list
+        }
+        if (!sl_is_pair(fast)) {
+            return false;  // Ended in non-pair, non-NIL atom
+        }
+        fast = sl_cdr(fast);  // Move fast second step
+
+        // Move slow one step
+        slow = sl_cdr(slow);
+
+        // Check for cycle
+        if (fast == slow) {
+            return false;  // Cycle detected
+        }
+    }
+}
+
 // --- Garbage Collection (Mark and Sweep) ---
 
 // Mark phase: Recursively mark all reachable objects

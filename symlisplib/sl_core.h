@@ -202,7 +202,22 @@ void sl_number_get_num_z(sl_object *obj, mpz_t rop);
 // Gets the denominator as GMP integer (copies into rop).
 // 'rop' must be initialized by the caller (mpz_init).
 void sl_number_get_den_z(sl_object *obj, mpz_t rop);
+sl_object *sl_make_number_from_mpz(mpz_t val);
 bool fits_int64(const mpz_t val);
+
+// --- Number Predicates ---
+bool sl_number_is_integer(sl_object *obj);  // <<< ADDED
+bool sl_number_is_zero(sl_object *obj);     // <<< ADDED
+
+// --- Number Accessors ---
+// ... existing accessors ...
+// Gets the integer value as GMP integer (copies into rop).
+// Returns false and sets rop to 0 if obj is not an integer number.
+// 'rop' must be initialized by the caller (mpz_init).
+bool sl_number_get_z(sl_object *obj, mpz_t rop);  // <<< RENAMED from sl_number_get_num_z
+// Gets the denominator as GMP integer (copies into rop).
+// 'rop' must be initialized by the caller (mpz_init).
+void sl_number_get_den_z(sl_object *obj, mpz_t rop);
 
 // String, Symbol, Boolean accessors
 #define sl_string_value(obj) ((obj)->data.string_val)  // <<< CORRECTED
@@ -232,7 +247,7 @@ void sl_number_get_num_z(sl_object *obj, mpz_t rop);
 // 'rop' must be initialized by the caller (mpz_init).
 void sl_number_get_den_z(sl_object *obj, mpz_t rop);
 bool fits_int64(const mpz_t val);
-
+sl_object *make_number_from_mpq(mpq_t val);
 // --- Error Handling Accessors ---
 #define sl_error_message(obj) ((obj)->data.error_str)  // <<< CORRECTED
 

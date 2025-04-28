@@ -65,3 +65,51 @@
 (define-test "nested-arithmetic-1" (assert-equal (+ (* 2 3) (- 10 5)) 11))
 (define-test "nested-arithmetic-2" (assert-equal (/ (+ 1 2 3) (* 1 2)) 3))
 (define-test "nested-arithmetic-fractions" (assert-equal (+ 1/2 (* 1/3 (- 5/2 1/2))) 7/6))
+
+;; --- DENOMINATOR ---
+(define-test "denominator-integer" (assert-equal (denominator 5) 1))
+(define-test "denominator-fraction" (assert-equal (denominator 3/4) 4))
+(define-test "denominator-neg-fraction" (assert-equal (denominator -2/3) 3)) ; Denominator is positive
+(define-test "denominator-simplified" (assert-equal (denominator 6/3) 1)) ; Simplifies to 2/1
+(define-test "denominator-zero" (assert-equal (denominator 0) 1))
+
+;; --- NUMERATOR ---
+(define-test "numerator-integer" (assert-equal (numerator 5) 5))
+(define-test "numerator-fraction" (assert-equal (numerator 3/4) 3))
+(define-test "numerator-neg-fraction" (assert-equal (numerator -2/3) -2)) ; Numerator holds sign
+(define-test "numerator-simplified" (assert-equal (numerator 6/3) 2)) ; Simplifies to 2/1
+(define-test "numerator-zero" (assert-equal (numerator 0) 0))
+
+;; --- QUOTIENT --- (Integer division, truncates towards zero)
+(define-test "quotient-positive" (assert-equal (quotient 10 3) 3))
+(define-test "quotient-neg-dividend" (assert-equal (quotient -10 3) -3))
+(define-test "quotient-neg-divisor" (assert-equal (quotient 10 -3) -3))
+(define-test "quotient-neg-both" (assert-equal (quotient -10 -3) 3))
+(define-test "quotient-exact" (assert-equal (quotient 12 4) 3))
+(define-test "quotient-zero-dividend" (assert-equal (quotient 0 5) 0))
+
+;; --- GCD --- (Greatest Common Divisor)
+(define-test "gcd-two-pos" (assert-equal (gcd 48 18) 6))
+(define-test "gcd-multi-pos" (assert-equal (gcd 48 18 30) 6))
+(define-test "gcd-primes" (assert-equal (gcd 7 13) 1))
+(define-test "gcd-with-zero" (assert-equal (gcd 12 0) 12))
+(define-test "gcd-with-zero-multi" (assert-equal (gcd 12 0 8) 4))
+(define-test "gcd-negatives" (assert-equal (gcd -48 18) 6))
+(define-test "gcd-negatives-both" (assert-equal (gcd -48 -18) 6))
+(define-test "gcd-one-arg" (assert-equal (gcd 15) 15))
+(define-test "gcd-one-arg-neg" (assert-equal (gcd -15) 15)) ; Result is non-negative
+(define-test "gcd-no-args" (assert-equal (gcd) 0))
+(define-test "gcd-multiple" (assert-equal (gcd 12 24 6) 6))
+
+;; --- LCM --- (Least Common Multiple)
+(define-test "lcm-two-pos" (assert-equal (lcm 12 18) 36))
+(define-test "lcm-multi-pos" (assert-equal (lcm 2 3 4) 12))
+(define-test "lcm-primes" (assert-equal (lcm 7 13) 91))
+(define-test "lcm-with-zero" (assert-equal (lcm 12 0) 0))
+(define-test "lcm-with-zero-multi" (assert-equal (lcm 12 0 8) 0))
+(define-test "lcm-negatives" (assert-equal (lcm -12 18) 36))
+(define-test "lcm-negatives-both" (assert-equal (lcm -12 -18) 36))
+(define-test "lcm-one-arg" (assert-equal (lcm 15) 15))
+(define-test "lcm-one-arg-neg" (assert-equal (lcm -15) 15)) ; Result is non-negative
+(define-test "lcm-no-args" (assert-equal (lcm) 1))
+(define-test "lcm-multiple" (assert-equal (lcm 12 24 6) 24))

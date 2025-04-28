@@ -528,6 +528,91 @@ sl_object *sl_make_errorf(const char *format, ...) {
     return err_obj;
 }
 
+// Helper to create a number object from mpq_t, simplifying if possible
+sl_object *make_number_from_mpq(mpq_t val) {
+    mpq_canonicalize(val);  // Ensure result is canonical
+
+    mpz_t num_z, den_z;
+    mpz_inits(num_z, den_z, NULL);
+    mpq_get_num(num_z, val);
+    mpq_get_den(den_z, val);
+
+    sl_object *result = NULL;
+    // Check if denominator is 1 and numerator fits int64_t
+    if (mpz_cmp_si(den_z, 1) == 0 && fits_int64(num_z)) {
+        result = sl_make_number_si(mpz_get_si(num_z), 1);
+    }
+    // Check if both numerator and denominator fit int64_t
+    else if (fits_int64(num_z) && fits_int64(den_z)) {
+        result = sl_make_number_si(mpz_get_si(num_z), mpz_get_si(den_z));
+    } else {
+        // Doesn't fit small int, use the bignum
+        result = sl_make_number_q(val);  // This copies val
+    }
+
+    mpz_clears(num_z, den_z, NULL);
+    CHECK_ALLOC(result);  // Check allocation result before returning
+    return result;
+}
+
+// --- Number Predicates ---
+
+bool sl_number_is_integer(sl_object *obj) {
+    if (!sl_is_number(obj)) return false;
+    if (obj->data.number.is_bignum) {
+        // Check if denominator is 1
+        return mpz_cmp_ui(mpq_denref(obj->data.number.value.big_num), 1) == 0;
+    } else {
+        // Smallnum: check if denominator is 1
+        return obj->data.number.value.small_num.den == 1;
+    }
+}
+
+bool sl_number_is_zero(sl_object *obj) {
+    if (!sl_is_number(obj)) return false;
+    if (obj->data.number.is_bignum) {
+        return mpq_sgn(obj->data.number.value.big_num) == 0;
+    } else {
+        // Smallnum: check if numerator is 0 (denominator is always > 0)
+        return obj->data.number.value.small_num.num == 0;
+    }
+}
+
+// --- Number Accessors ---
+
+// Gets the integer value as GMP integer (copies into rop).
+// Returns false and sets rop to 0 if obj is not an integer number.
+// 'rop' must be initialized by the caller (mpz_init).
+bool sl_number_get_z(sl_object *obj, mpz_t rop) {  // <<< RENAMED from sl_number_get_num_z
+    if (!sl_number_is_integer(obj)) {
+        mpz_set_si(rop, 0);  // Set to 0 on failure
+        return false;
+    }
+    if (obj->data.number.is_bignum) {
+        // Denominator is 1, just get numerator
+        mpz_set(rop, mpq_numref(obj->data.number.value.big_num));
+    } else {
+        // Smallnum, denominator is 1
+        mpz_set_si(rop, obj->data.number.value.small_num.num);
+    }
+    return true;
+}
+
+// Gets the denominator as GMP integer (copies into rop).
+// 'rop' must be initialized by the caller (mpz_init).
+void sl_number_get_den_z(sl_object *obj, mpz_t rop) {
+    if (!sl_is_number(obj)) {
+        mpz_set_ui(rop, 1);  // Set to 1 if not a number? Or signal error?
+        return;
+    }
+    if (obj->data.number.is_bignum) {
+        mpz_set(rop, mpq_denref(obj->data.number.value.big_num));
+    } else {
+        mpz_set_si(rop, obj->data.number.value.small_num.den);
+    }
+}
+
+// ... rest of the file ...
 // --- Number Accessors ---
 
 bool sl_number_get_si(sl_object *obj, int64_t *num_out, int64_t *den_out) {
@@ -583,19 +668,6 @@ void sl_number_get_num_z(sl_object *obj, mpz_t rop) {
         mpq_get_num(rop, obj->data.number.value.big_num);
     } else {
         mpz_set_si(rop, obj->data.number.value.small_num.num);
-    }
-}
-
-void sl_number_get_den_z(sl_object *obj, mpz_t rop) {
-    // Assumes rop is initialized by caller (mpz_init)
-    if (!sl_is_number(obj)) {
-        mpz_set_ui(rop, 1);  // Set to 1 if not a number? Or signal error?
-        return;
-    }
-    if (obj->data.number.is_bignum) {
-        mpq_get_den(rop, obj->data.number.value.big_num);
-    } else {
-        mpz_set_si(rop, obj->data.number.value.small_num.den);
     }
 }
 
@@ -747,7 +819,8 @@ void sl_gc() {
     // 1. Mark all objects reachable from the root set
     for (size_t i = 0; i < root_count; ++i) {
         // Cast gc_roots[i] to sl_object** for initialization (though types match)
-        sl_object **root_ptr = (sl_object **)gc_roots[i];  // <<< CAST ADDED
+        // sl_object **root_ptr = (sl_object **)gc_roots[i];  // <<< CAST ADDED
+        sl_object **root_ptr = gc_roots[i];
         // Check if the root pointer itself is valid AND if the object it points to is valid
         if (root_ptr && *root_ptr) {
             sl_gc_mark(*root_ptr);
@@ -883,4 +956,61 @@ char *sl_object_to_string(sl_object *obj) {
     }
     // Should not be reachable if all cases return or break
     // return strdup("#<InternalError:UnhandledTypeInToString>");
+}
+
+// Helper to create a number object from mpz_t, simplifying if possible
+sl_object *sl_make_number_from_mpz(mpz_t val) {
+    // Check if it fits in int64_t
+    if (fits_int64(val)) {
+        // Use mpz_get_si (long) - assumes long fits int64_t based on fits_int64 logic
+        return sl_make_number_si(mpz_get_si(val), 1);
+    } else {
+        // Doesn't fit small int, use bignum integer.
+        // We can represent this as a rational with denominator 1 using mpq_t.
+        sl_object *new_num = sl_allocate_object();
+        CHECK_ALLOC(new_num);
+
+        new_num->type = SL_TYPE_NUMBER;
+        new_num->data.number.is_bignum = true;
+        mpq_init(new_num->data.number.value.big_num);
+        mpq_set_z(new_num->data.number.value.big_num, val);  // Set rational from integer
+        // mpq_canonicalize is not strictly needed here as den is 1, but doesn't hurt.
+        // mpq_canonicalize(new_num->data.number.value.big_num);
+        return new_num;
+    }
+}
+
+// (+) or (+ x y ...)
+sl_object *sl_add(sl_object *args) {
+    // Implementation of addition
+    // args is a list of numbers
+    mpq_t result;
+    mpq_init(result);
+    bool first = true;
+
+    while (args != SL_NIL) {
+        sl_object *current = sl_car(args);
+        if (!sl_is_number(current)) {
+            // Handle error: non-number in addition
+            mpq_clear(result);
+            return SL_PARSE_ERROR;
+        }
+
+        mpq_t current_value;
+        sl_number_get_q(current, current_value);
+
+        if (first) {
+            mpq_set(result, current_value);
+            first = false;
+        } else {
+            mpq_add(result, result, current_value);
+        }
+
+        args = sl_cdr(args);
+    }
+
+    // Convert result to sl_object
+    sl_object *result_obj = make_number_from_mpq(result);
+    mpq_clear(result);
+    return result_obj;
 }

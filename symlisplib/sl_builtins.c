@@ -66,32 +66,6 @@ static bool get_number_as_mpq(sl_object *obj, mpq_t out, const char *func_name) 
     return true;
 }
 
-// Helper to create a number object from mpq_t, simplifying if possible
-static sl_object *make_number_from_mpq(mpq_t val) {
-    mpq_canonicalize(val);  // Ensure result is canonical
-
-    mpz_t num_z, den_z;
-    mpz_inits(num_z, den_z, NULL);
-    mpq_get_num(num_z, val);
-    mpq_get_den(den_z, val);
-
-    sl_object *result = NULL;
-    // Check if denominator is 1 and numerator fits int64_t
-    if (mpz_cmp_si(den_z, 1) == 0 && fits_int64(num_z)) {
-        result = sl_make_number_si(mpz_get_si(num_z), 1);
-    }
-    // Check if both numerator and denominator fit int64_t
-    else if (fits_int64(num_z) && fits_int64(den_z)) {
-        result = sl_make_number_si(mpz_get_si(num_z), mpz_get_si(den_z));
-    } else {
-        // Doesn't fit small int, use the bignum
-        result = sl_make_number_q(val);  // This copies val
-    }
-
-    mpz_clears(num_z, den_z, NULL);
-    return result;
-}
-
 // --- Builtin Implementations ---
 
 static sl_object *sl_builtin_car(sl_object *args) {
@@ -377,7 +351,6 @@ static sl_object *sl_builtin_modulo(sl_object *args) {
     return result_obj;
 }
 
-// --- Let's correct the remainder function based on the R7RS spec ---
 // (remainder int1 int2) -> Truncate division remainder
 static sl_object *sl_builtin_remainder(sl_object *args) {  // Overwrite previous definition
     sl_object *arity_check = check_arity("remainder", args, 2);
@@ -407,6 +380,229 @@ static sl_object *sl_builtin_remainder(sl_object *args) {  // Overwrite previous
     sl_object *result_obj = make_number_from_mpz(result_z);
 
     mpz_clears(num1_z, num2_z, result_z, NULL);
+    return result_obj;
+}
+
+// (denominator num) -> Returns the denominator of a number (1 for integers).
+static sl_object *sl_builtin_denominator(sl_object *args) {
+    sl_object *arity_check = check_arity("denominator", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *num_obj = sl_car(args);
+    if (!sl_is_number(num_obj)) {
+        return sl_make_errorf("Error (denominator): Argument must be a number.");
+    }
+
+    sl_object *result = NULL;
+    mpq_t num_q;
+    mpz_t den_z;
+
+    sl_gc_add_root(&num_obj);  // Protect input during potential error allocation
+
+    if (!get_number_as_mpq(num_obj, num_q, "denominator")) {
+        // Error already created by get_number_as_mpq
+        result = sl_make_errorf("Error (denominator): Invalid number format.");  // Fallback
+    } else {
+        mpq_get_den(den_z, num_q);                // Extract denominator
+        result = sl_make_number_from_mpz(den_z);  // Create SymLisp number
+        CHECK_ALLOC(result);
+    }
+
+    sl_gc_remove_root(&num_obj);
+    mpq_clear(num_q);
+    mpz_clear(den_z);
+    return result;
+}
+
+// (numerator num) -> Returns the numerator of a number.
+static sl_object *sl_builtin_numerator(sl_object *args) {
+    sl_object *arity_check = check_arity("numerator", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *num_obj = sl_car(args);
+    if (!sl_is_number(num_obj)) {
+        return sl_make_errorf("Error (numerator): Argument must be a number.");
+    }
+
+    sl_object *result = NULL;
+    mpq_t num_q;
+    mpz_t num_z;
+
+    sl_gc_add_root(&num_obj);  // Protect input
+
+    if (!get_number_as_mpq(num_obj, num_q, "numerator")) {
+        result = sl_make_errorf("Error (numerator): Invalid number format.");  // Fallback
+    } else {
+        mpq_get_num(num_z, num_q);                // Extract numerator
+        result = sl_make_number_from_mpz(num_z);  // Create SymLisp number
+        CHECK_ALLOC(result);
+    }
+
+    sl_gc_remove_root(&num_obj);
+    mpq_clear(num_q);
+    mpz_clear(num_z);
+    return result;
+}
+
+// (quotient n1 n2) -> Integer division n1 / n2 (truncating towards zero).
+static sl_object *sl_builtin_quotient(sl_object *args) {
+    sl_object *arity_check = check_arity("quotient", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *n1_obj = sl_car(args);
+    sl_object *n2_obj = sl_cadr(args);
+
+    if (!sl_is_number(n1_obj) || !sl_is_number(n2_obj)) {
+        return sl_make_errorf("Error (quotient): Arguments must be numbers.");
+    }
+    if (!sl_number_is_integer(n1_obj)) {  // <<< UPDATED
+        return sl_make_errorf("Error (quotient): First argument must be an integer.");
+    }
+    if (!sl_number_is_integer(n2_obj)) {  // <<< UPDATED
+        return sl_make_errorf("Error (quotient): Second argument must be an integer.");
+    }
+    if (sl_number_is_zero(n2_obj)) {  // <<< UPDATED
+        return sl_make_errorf("Error (quotient): Division by zero.");
+    }
+
+    sl_object *result = NULL;
+    mpz_t n1_z, n2_z, quotient_z;
+    mpz_inits(n1_z, n2_z, quotient_z, NULL);
+    sl_gc_add_root(&n1_obj);  // Protect inputs
+    sl_gc_add_root(&n2_obj);
+
+    // Extract mpz values (we know they are integers)
+    sl_number_get_z(n1_obj, n1_z);
+    sl_number_get_z(n2_obj, n2_z);
+
+    // Perform truncated division (tdiv)
+    mpz_tdiv_q(quotient_z, n1_z, n2_z);
+
+    result = sl_make_number_from_mpz(quotient_z);
+    CHECK_ALLOC(result);
+
+    sl_gc_remove_root(&n2_obj);
+    sl_gc_remove_root(&n1_obj);
+    mpz_clears(n1_z, n2_z, quotient_z, NULL);
+    return result;
+}
+
+// (gcd n ...) -> Greatest Common Divisor of integers.
+static sl_object *sl_builtin_gcd(sl_object *args) {
+    // (gcd) -> 0
+    if (args == SL_NIL) {
+        return sl_make_number_si(0, 1);
+    }
+
+    sl_object *result_obj = NULL;
+    mpz_t current_gcd, next_num_z;
+    mpz_inits(current_gcd, next_num_z, NULL);
+
+    sl_object *current_node = args;
+    sl_gc_add_root(&current_node);  // Protect arg list traversal
+
+    // Initialize with the absolute value of the first argument
+    sl_object *first_arg = sl_car(current_node);
+    if (!sl_is_number(first_arg) || !sl_number_is_integer(first_arg)) {
+        mpz_clears(current_gcd, next_num_z, NULL);
+        sl_gc_remove_root(&current_node);
+        return sl_make_errorf("Error (gcd): Arguments must be integers.");
+    }
+    sl_number_get_z(first_arg, current_gcd);
+    mpz_abs(current_gcd, current_gcd);  // gcd(a, b) = gcd(abs(a), abs(b))
+
+    current_node = sl_cdr(current_node);  // Move to the second argument
+
+    // Iterate through the rest of the arguments
+    while (sl_is_pair(current_node)) {
+        sl_object *next_arg = sl_car(current_node);
+        if (!sl_is_number(next_arg) || !sl_number_is_integer(next_arg)) {
+            mpz_clears(current_gcd, next_num_z, NULL);
+            sl_gc_remove_root(&current_node);
+            return sl_make_errorf("Error (gcd): Arguments must be integers.");
+        }
+        sl_number_get_z(next_arg, next_num_z);
+        mpz_abs(next_num_z, next_num_z);  // Use absolute value
+
+        mpz_gcd(current_gcd, current_gcd, next_num_z);  // Update gcd
+
+        current_node = sl_cdr(current_node);
+    }
+
+    // Check for improper list
+    if (current_node != SL_NIL) {
+        mpz_clears(current_gcd, next_num_z, NULL);
+        sl_gc_remove_root(&current_node);
+        return sl_make_errorf("Error (gcd): Improper argument list.");
+    }
+
+    result_obj = sl_make_number_from_mpz(current_gcd);
+    CHECK_ALLOC(result_obj);
+
+    mpz_clears(current_gcd, next_num_z, NULL);
+    sl_gc_remove_root(&current_node);
+    return result_obj;
+}
+
+// (lcm n ...) -> Least Common Multiple of integers.
+static sl_object *sl_builtin_lcm(sl_object *args) {
+    // (lcm) -> 1
+    if (args == SL_NIL) {
+        return sl_make_number_si(1, 1);
+    }
+
+    sl_object *result_obj = NULL;
+    mpz_t current_lcm, next_num_z;
+    mpz_inits(current_lcm, next_num_z, NULL);
+
+    sl_object *current_node = args;
+    sl_gc_add_root(&current_node);  // Protect arg list traversal
+
+    // Initialize with the absolute value of the first argument
+    sl_object *first_arg = sl_car(current_node);
+    if (!sl_is_number(first_arg) || !sl_number_is_integer(first_arg)) {
+        mpz_clears(current_lcm, next_num_z, NULL);
+        sl_gc_remove_root(&current_node);
+        return sl_make_errorf("Error (lcm): Arguments must be integers.");
+    }
+    sl_number_get_z(first_arg, current_lcm);
+    mpz_abs(current_lcm, current_lcm);  // lcm(a, b) = lcm(abs(a), abs(b))
+
+    current_node = sl_cdr(current_node);  // Move to the second argument
+
+    // Iterate through the rest of the arguments
+    while (sl_is_pair(current_node)) {
+        sl_object *next_arg = sl_car(current_node);
+        if (!sl_is_number(next_arg) || !sl_number_is_integer(next_arg)) {
+            mpz_clears(current_lcm, next_num_z, NULL);
+            sl_gc_remove_root(&current_node);
+            return sl_make_errorf("Error (lcm): Arguments must be integers.");
+        }
+        sl_number_get_z(next_arg, next_num_z);
+        mpz_abs(next_num_z, next_num_z);  // Use absolute value
+
+        // Handle lcm(a, 0) = 0
+        if (mpz_sgn(current_lcm) == 0 || mpz_sgn(next_num_z) == 0) {
+            mpz_set_ui(current_lcm, 0);
+        } else {
+            mpz_lcm(current_lcm, current_lcm, next_num_z);  // Update lcm
+        }
+
+        current_node = sl_cdr(current_node);
+    }
+
+    // Check for improper list
+    if (current_node != SL_NIL) {
+        mpz_clears(current_lcm, next_num_z, NULL);
+        sl_gc_remove_root(&current_node);
+        return sl_make_errorf("Error (lcm): Improper argument list.");
+    }
+
+    result_obj = sl_make_number_from_mpz(current_lcm);
+    CHECK_ALLOC(result_obj);
+
+    mpz_clears(current_lcm, next_num_z, NULL);
+    sl_gc_remove_root(&current_node);
     return result_obj;
 }
 
@@ -939,8 +1135,13 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "-", sl_builtin_sub);
     define_builtin(global_env, "*", sl_builtin_mul);
     define_builtin(global_env, "/", sl_builtin_div);
-    define_builtin(global_env, "remainder", sl_builtin_remainder);  // <<< ADDED
-    define_builtin(global_env, "modulo", sl_builtin_modulo);        // <<< ADDED
+    define_builtin(global_env, "remainder", sl_builtin_remainder);      // <<< ADDED
+    define_builtin(global_env, "modulo", sl_builtin_modulo);            // <<< ADDED
+    define_builtin(global_env, "denominator", sl_builtin_denominator);  // <<< ADDED
+    define_builtin(global_env, "numerator", sl_builtin_numerator);      // <<< ADDED
+    define_builtin(global_env, "quotient", sl_builtin_quotient);        // <<< ADDED
+    define_builtin(global_env, "gcd", sl_builtin_gcd);                  // <<< ADDED
+    define_builtin(global_env, "lcm", sl_builtin_lcm);                  // <<< ADDED
 
     // Comparison
     define_builtin(global_env, "=", sl_builtin_num_eq);

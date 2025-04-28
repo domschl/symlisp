@@ -23,7 +23,8 @@
 - [x] CI with valgrind
 - [x] cond
 - [x] Boolean ops: or, and, not
-- [ ] List functions: length, append, reverse
+- [x] List functions: length, append, reverse
+- [ ] Math functions: abs, expt, square, integer-sqrt, denominator, numerator, quotient, gcd, lcm, max, min
 - [ ] Predicate tester functions
 - [ ] String functions
 - [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set

@@ -518,6 +518,127 @@ top_of_eval:;
                 if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
                 break;  // Break from switch case 'let'
             }  // End LET / NAMED LET block
+            // --- COND --- <<< ADDED BLOCK
+            else if (strcmp(op_name, "cond") == 0) {
+                // (cond (test1 body1...) (test2 body2...) ... (else else_body...))
+                sl_gc_add_root(&args);  // Root the list of clauses
+
+                sl_object *current_clause_node = args;
+                result = SL_NIL;  // Default result if no clause matches (unspecified)
+
+                while (current_clause_node != SL_NIL) {
+                    if (!sl_is_pair(current_clause_node)) {
+                        result = sl_make_errorf("Eval: Malformed cond (improper list of clauses)");
+                        goto cleanup_cond;
+                    }
+
+                    sl_object *clause = sl_car(current_clause_node);
+                    sl_object *next_clause_node = sl_cdr(current_clause_node);
+
+                    if (!sl_is_pair(clause)) {
+                        result = sl_make_errorf("Eval: Malformed cond clause (not a pair)");
+                        goto cleanup_cond;
+                    }
+
+                    sl_object *test_expr = sl_car(clause);
+                    sl_object *body_list = sl_cdr(clause);  // List of expressions in the body
+
+                    bool is_else_clause = false;
+                    if (sl_is_symbol(test_expr) && strcmp(sl_symbol_name(test_expr), "else") == 0) {
+                        is_else_clause = true;
+                        // 'else' must be the last clause
+                        if (next_clause_node != SL_NIL) {
+                            result = sl_make_errorf("Eval: 'else' clause must be the last clause in cond");
+                            goto cleanup_cond;
+                        }
+                    }
+
+                    sl_object *test_result = SL_TRUE;  // Assume true for 'else' clause
+                    if (!is_else_clause) {
+                        // Evaluate the test expression
+                        test_result = sl_eval(test_expr, env);  // MIGHT GC
+                        sl_gc_add_root(&test_result);           // Root the result
+
+                        if (test_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(test_result)) {
+                            result = test_result;  // Propagate error
+                            sl_gc_remove_root(&test_result);
+                            goto cleanup_cond;
+                        }
+                    }
+
+                    // Check if test is true (anything but #f)
+                    if (is_else_clause || test_result != SL_FALSE) {
+                        if (!is_else_clause) {
+                            sl_gc_remove_root(&test_result);  // Unroot test result if it was evaluated
+                        }
+
+                        // --- Evaluate the body sequence of the chosen clause ---
+                        sl_gc_add_root(&body_list);  // Root the body list
+
+                        if (body_list == SL_NIL) {
+                            // Clause like (test) - result is the test result itself
+                            // If it was the else clause, test_result is SL_TRUE, which is wrong.
+                            // The result should be the value of the test expression.
+                            // Re-evaluating test_expr if needed, or retrieve it.
+                            // For simplicity now, let's return the test_result (or SL_TRUE for else)
+                            // A clause like (else) is questionable, maybe error? R5RS says unspecified.
+                            // Let's return the test result if not else, NIL if else.
+                            result = is_else_clause ? SL_NIL : test_result;
+                            sl_gc_remove_root(&body_list);
+                            goto cleanup_cond;  // Found the clause, evaluation done.
+                        }
+
+                        sl_object *current_body_node = body_list;
+                        result = SL_NIL;  // Default if body somehow becomes empty during eval
+
+                        while (sl_is_pair(current_body_node)) {
+                            sl_object *expr_to_eval = sl_car(current_body_node);
+                            sl_object *next_body_node = sl_cdr(current_body_node);
+
+                            // Check for tail call position (last expression in the body)
+                            if (next_body_node == SL_NIL) {
+                                sl_gc_remove_root(&body_list);  // Unroot body list
+                                sl_gc_remove_root(&args);       // Unroot clause list
+                                obj = expr_to_eval;             // Set up for tail call
+                                goto top_of_eval;               // Jump!
+                            } else {
+                                // Not the last expression, evaluate normally
+                                result = sl_eval(expr_to_eval, env);  // MIGHT GC
+                                sl_gc_add_root(&result);              // Root intermediate result
+
+                                if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
+                                    sl_gc_remove_root(&body_list);  // Unroot before cleanup
+                                    goto cleanup_cond;              // Error occurred
+                                }
+                                sl_gc_remove_root(&result);  // Unroot intermediate result
+                            }
+                            current_body_node = next_body_node;
+                        }  // end while body expressions
+
+                        // Check for improper body list
+                        if (current_body_node != SL_NIL) {
+                            result = sl_make_errorf("Eval: Malformed cond clause body (improper list)");
+                        }
+                        // If loop finished normally (e.g. empty body list initially), result is NIL.
+                        // If error occurred, result holds the error.
+
+                        sl_gc_remove_root(&body_list);  // Unroot body list
+                        goto cleanup_cond;              // Clause handled, exit cond evaluation.
+
+                    }  // end if test true or else
+
+                    // Test was false, unroot test result and continue to next clause
+                    if (!is_else_clause) {
+                        sl_gc_remove_root(&test_result);
+                    }
+                    current_clause_node = next_clause_node;
+
+                }  // end while clauses
+
+            cleanup_cond:
+                sl_gc_remove_root(&args);  // Final unroot of clause list
+                break;                     // Break from switch case 'cond'
+            }  // End COND block
 
             // --- END OF SPECIAL FORMS ---
             // If none of the above matched, it's not a special form we handle here.

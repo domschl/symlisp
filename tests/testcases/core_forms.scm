@@ -70,3 +70,63 @@
 (define-test "named-let-access-outer"
   (let ((outer 10))
     (assert-equal (let inner ((x 1)) (+ x outer)) 11)))
+
+;; --- COND ---
+(define-test "cond-first-clause-true"
+  (assert-equal (cond (#t 1)
+                      (#f 2)
+                      (else 3))
+                1))
+
+(define-test "cond-second-clause-true"
+  (assert-equal (cond (#f 1)
+                      ((= 2 2) 2)
+                      (else 3))
+                2))
+
+(define-test "cond-else-clause"
+  (assert-equal (cond (#f 1)
+                      ((< 1 0) 2)
+                      (else 3))
+                3))
+
+(define-test "cond-no-else-match"
+  (assert-equal (cond ((= 1 2) 'a)
+                      ((= 3 4) 'b))
+                '())) ; Result unspecified if no clause matches, expecting NIL
+
+(define-test "cond-no-else-no-match"
+  (assert-equal (cond (#f 1)
+                      (#f 2))
+                '())) ; Result unspecified, expecting NIL
+
+(define-test "cond-test-is-value"
+  (assert-equal (cond ((list 1 2)) ; Test evaluates to '(1 2), which is truthy
+                      (else 'fallback))
+                '(1 2))) ; R5RS: If body is empty, result is the test value
+
+(define-test "cond-test-is-value-false"
+  (assert-equal (cond (#f) ; Test is #f
+                      (else 'fallback))
+                'fallback))
+
+(define-test "cond-multiple-body-exprs"
+  (let ((x 0))
+    (assert-equal (cond (#t (set! x 1) (+ x 10))
+                        (else 99))
+                  11))) ; Result is the last expression in the body
+
+(define-test "cond-truthiness-nil"
+  (assert-equal (cond ('() 1) ; NIL is truthy
+                      (else 2))
+                1))
+
+(define-test "cond-truthiness-zero"
+  (assert-equal (cond (0 1) ; 0 is truthy
+                      (else 2))
+                1))
+
+(define-test "cond-truthiness-list"
+  (assert-equal (cond ((list) 1) ; Empty list is truthy
+                      (else 2))
+                1))

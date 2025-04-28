@@ -404,6 +404,7 @@ static sl_object *sl_builtin_denominator(sl_object *args) {
         result = sl_make_errorf("Error (denominator): Invalid number format.");  // Fallback
         mpq_clear(num_q);
     } else {
+        mpz_init(den_z);
         mpq_get_den(den_z, num_q);                // Extract denominator
         result = sl_make_number_from_mpz(den_z);  // Create SymLisp number
         CHECK_ALLOC(result);
@@ -435,6 +436,7 @@ static sl_object *sl_builtin_numerator(sl_object *args) {
         result = sl_make_errorf("Error (numerator): Invalid number format.");  // Fallback
         mpq_clear(num_q);
     } else {
+        mpz_init(num_z);
         mpq_get_num(num_z, num_q);                // Extract numerator
         result = sl_make_number_from_mpz(num_z);  // Create SymLisp number
         CHECK_ALLOC(result);

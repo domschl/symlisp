@@ -13,7 +13,9 @@
 - [x] Add API functions for environment get/set/define by C string name.
 - [x] Remove reliance on fixed allocations for buffers
 - [x] Implement `begin` special form (for multi-expression bodies in lambda/define).
-- [ ] Implement some I/O: display, newline, load and eval library files
+- [x] Implement basic I/O: `display`, `newline`.
+- [x] Implement file I/O: `load` function.
+- [ ] Implement library loading mechanism (e.g., `load-library` or auto-load from dir).
 - [ ] Test framwork
 - [ ] CI with valgrind
 - [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set

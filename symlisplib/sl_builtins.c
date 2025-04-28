@@ -2,11 +2,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <gmp.h>
+#include <errno.h>  // For errno used with fopen
 
 #include "sl_builtins.h"
-#include "sl_core.h"  // Needed for object structure, types, accessors, sl_object_to_string
+#include "sl_core.h"
 #include "sl_env.h"
-#include "sl_parse.h"  // Needed for future 'load'
+#include "sl_parse.h"
+#include "sl_eval.h"  // <<< ADDED for sl_eval_stream
 
 // Helper to check arity.
 // Returns SL_TRUE if arity matches and list is proper.
@@ -440,6 +442,40 @@ static sl_object *sl_builtin_newline(sl_object *args) {
     return SL_NIL;
 }
 
+// (load filename-string)
+static sl_object *sl_builtin_load(sl_object *args) {
+    sl_object *arity_check = check_arity("load", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *filename_obj = sl_car(args);
+    if (!sl_is_string(filename_obj)) {
+        return sl_make_errorf("Error (load): Argument must be a string filename.");
+    }
+
+    const char *filename = sl_string_value(filename_obj);
+    FILE *file = fopen(filename, "r");
+
+    if (!file) {
+        // Could use strerror(errno) for a more specific error
+        return sl_make_errorf("Error (load): Could not open file '%s' (%s).", filename, strerror(errno));
+    }
+
+    // Use sl_eval_stream to evaluate the file content in the *current* global environment
+    // Note: sl_eval_stream handles reading and evaluating all expressions.
+    // It uses the environment passed to it. Since builtins are called via sl_apply,
+    // which gets the environment from the closure/builtin object, we should use
+    // the global environment here, assuming 'load' operates at the top level.
+    // If 'load' could be called from within a local scope and affect that scope,
+    // sl_apply would need to pass the correct 'env' down here.
+    // For now, assume it loads into the global environment.
+    sl_object *result = sl_eval_stream(file, sl_global_env);
+
+    fclose(file);
+
+    // sl_eval_stream returns the result of the last expression or an error.
+    return result;
+}
+
 // --- Builtin Initialization ---
 
 // Helper to define a builtin
@@ -481,6 +517,7 @@ void sl_builtins_init(sl_object *global_env) {
     // Basic I/O
     define_builtin(global_env, "display", sl_builtin_display);
     define_builtin(global_env, "newline", sl_builtin_newline);
+    define_builtin(global_env, "load", sl_builtin_load);  // <<< ADDED
 
-    // Add other builtins here... (e.g., eq?, eqv?, equal?, list, etc.)
+    // Add other builtins here...
 }

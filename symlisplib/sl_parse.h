@@ -79,4 +79,7 @@ void sl_debug_print_object(sl_object *obj, FILE *stream, int indent);
  */
 void sl_object_to_string_buf(sl_object *obj, char *buffer, size_t size);
 
+/** */
+void skip_whitespace_and_comments(const char **input);
+
 #endif  // SL_PARSE_H

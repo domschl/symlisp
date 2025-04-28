@@ -544,17 +544,20 @@ sl_object *sl_eval_string(const char *input, sl_object *env) {
     sl_gc_add_root(&expr);  // Root expr slot once
 
     while (true) {
-        // Skip leading whitespace
-        while (isspace(*parse_ptr)) {
-            parse_ptr++;
-        }
+        // --- Skip whitespace AND comments before parsing the next expression ---
+        // while (isspace(*parse_ptr)) { // <<< OLD CODE
+        //     parse_ptr++;
+        // }
+        skip_whitespace_and_comments(&parse_ptr);  // <<< CORRECTED: Use the function that handles comments
 
-        // Check if we reached the end of the string
+        // Check if we reached the end of the string after skipping
         if (*parse_ptr == '\0') {
             break;  // Done processing the string
         }
 
         // --- Parse ---
+        // Store the start position in case of error
+        const char *current_expr_start = parse_ptr;
         expr = sl_parse_string(parse_ptr, &end_ptr);
         // Note: expr is already rooted, sl_parse_string result overwrites the rooted slot
 
@@ -562,7 +565,7 @@ sl_object *sl_eval_string(const char *input, sl_object *env) {
             // Parsing failed (sl_parse_string should print details)
             // Or end of input was reached unexpectedly within parse attempt
             // Return a generic error, assuming sl_parse_string reported specifics
-            last_result = sl_make_errorf("Error parsing expression starting near: %.*s", 30, parse_ptr);
+            last_result = sl_make_errorf("Error parsing expression starting near: %.*s", 30, current_expr_start);
             break;  // Stop processing on parse error
         }
         if (expr == SL_OUT_OF_MEMORY_ERROR) {

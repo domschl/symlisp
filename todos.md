@@ -15,7 +15,7 @@
 - [x] Implement `begin` special form (for multi-expression bodies in lambda/define).
 - [x] Implement basic I/O: `display`, `newline`.
 - [x] Implement file I/O: `load` function.
-- [ ] Implement library loading mechanism (e.g., `load-library` or auto-load from dir).
+- [x] Implement library loading mechanism (e.g., `load-library` or auto-load from dir).
 - [ ] Test framwork
 - [ ] CI with valgrind
 - [ ] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name. Then you can revert the environment functions sl_env_define/lookup/set

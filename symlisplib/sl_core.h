@@ -124,9 +124,10 @@ extern sl_object *SL_OUT_OF_MEMORY_ERROR;  // <<< ADDED
 void sl_mem_init(size_t initial_heap_size);
 
 // Allocate specific object types
-sl_object *sl_make_number_si(int64_t num, int64_t den);  // Create from signed 64-bit integers
-sl_object *sl_make_number_z(const mpz_t num);            // Create integer from GMP mpz_t
-sl_object *sl_make_number_q(const mpq_t value);          // Create rational from GMP mpq_t
+sl_object *sl_make_number_si(int64_t num, int64_t den);              // Create from signed 64-bit integers
+sl_object *sl_make_number_z(const mpz_t num);                        // Create integer from GMP mpz_t
+sl_object *sl_make_number_zz(const mpz_t num_z, const mpz_t den_z);  // Create rational from GMP mpz_t
+sl_object *sl_make_number_q(const mpq_t value);                      // Create rational from GMP mpq_t
 sl_object *sl_make_string(const char *str);
 sl_object *sl_make_symbol(const char *name);  // Interns the symbol
 sl_object *sl_make_pair(sl_object *car, sl_object *cdr);

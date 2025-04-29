@@ -141,3 +141,39 @@
 (define-test "min-fractions" (assert-equal (min 1/2 3/4 1/4) 1/4))
 (define-test "min-mixed-types" (assert-equal (min 1 3/2 0 -1) -1))
 (define-test "min-equal-values" (assert-equal (min 5 5 5) 5))
+
+;; --- EXPT ---
+(define-test "expt-pos-int" (assert-equal (expt 2 10) 1024))
+(define-test "expt-base-1" (assert-equal (expt 1 100) 1))
+(define-test "expt-exp-1" (assert-equal (expt 123 1) 123))
+(define-test "expt-exp-0" (assert-equal (expt 123 0) 1))
+(define-test "expt-base-0-pos-exp" (assert-equal (expt 0 5) 0))
+(define-test "expt-base-0-exp-0" (assert-equal (expt 0 0) 1)) ; Scheme standard
+(define-test "expt-neg-base-even-exp" (assert-equal (expt -2 4) 16))
+(define-test "expt-neg-base-odd-exp" (assert-equal (expt -2 3) -8))
+(define-test "expt-fraction-base" (assert-equal (expt 1/2 3) 1/8))
+(define-test "expt-neg-exp" (assert-equal (expt 2 -3) 1/8))
+(define-test "expt-fraction-neg-exp" (assert-equal (expt 2/3 -2) 9/4))
+(define-test "expt-neg-base-neg-exp" (assert-equal (expt -3 -3) -1/27))
+; Error cases (optional, depending on how you want errors handled/tested)
+; (define-test "expt-error-0-neg-exp" (assert-error? (expt 0 -2)))
+; (define-test "expt-error-non-integer-exp" (assert-error? (expt 2 1/2)))
+
+;; --- SQUARE ---
+(define-test "square-pos-int" (assert-equal (square 5) 25))
+(define-test "square-neg-int" (assert-equal (square -4) 16))
+(define-test "square-zero" (assert-equal (square 0) 0))
+(define-test "square-pos-fraction" (assert-equal (square 2/3) 4/9))
+(define-test "square-neg-fraction" (assert-equal (square -3/2) 9/4))
+(define-test "square-simplify" (assert-equal (square 6/3) 4)) ; 6/3 simplifies to 2
+
+;; --- EXACT-INTEGER-SQRT ---
+(define-test "eisqrt-perfect-square" (assert-equal (exact-integer-sqrt 25) '(5 0)))
+(define-test "eisqrt-non-perfect" (assert-equal (exact-integer-sqrt 30) '(5 5))) ; 5*5 + 5 = 30
+(define-test "eisqrt-zero" (assert-equal (exact-integer-sqrt 0) '(0 0)))
+(define-test "eisqrt-one" (assert-equal (exact-integer-sqrt 1) '(1 0)))
+(define-test "eisqrt-large" (assert-equal (exact-integer-sqrt 123456789) '(11111 2468)))
+; Error case (optional)
+; (define-test "eisqrt-error-negative" (assert-error? (exact-integer-sqrt -10)))
+
+;;; --- END OF ARITHMETIC TESTS ---

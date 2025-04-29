@@ -11,7 +11,7 @@
 
 // Define buffer size for error messages formatted by sl_make_errorf
 #define ERROR_BUFFER_SIZE 256
-#define DEFAULT_CHUNK_OBJECT_COUNT 512  // Objects per chunk
+#define DEFAULT_CHUNK_OBJECT_COUNT 8192  // Objects per chunk
 
 // --- Memory Management Variables ---
 // Structure to manage heap chunks
@@ -412,6 +412,32 @@ sl_object *sl_make_number_z(const mpz_t num_z) {
     mpq_init(new_num->data.number.value.big_num);  // GMP alloc might fail, but less common to check explicitly here
     mpq_set_z(new_num->data.number.value.big_num, num_z);
     return new_num;
+}
+
+sl_object *sl_make_number_zz(const mpz_t num_z, const mpz_t den_z) {
+    // Check for denominator being zero
+    if (mpz_sgn(den_z) == 0) {
+        fprintf(stderr, "Error: Division by zero in number creation (zz).\n");
+        return SL_NIL;  // Or perhaps SL_OUT_OF_MEMORY_ERROR or a specific error object
+    }
+
+    mpq_t temp_q;
+    mpq_init(temp_q);
+
+    // Set the rational from the integers
+    mpz_set(mpq_numref(temp_q), num_z);
+    mpz_set(mpq_denref(temp_q), den_z);
+
+    // Canonicalize the rational (handles signs and common factors)
+    mpq_canonicalize(temp_q);
+
+    // Use the existing helper to create the sl_object, simplifying if possible
+    sl_object *result = make_number_from_mpq(temp_q);
+
+    mpq_clear(temp_q);  // Clear the temporary rational
+
+    CHECK_ALLOC(result);  // Check allocation result before returning
+    return result;
 }
 
 sl_object *sl_make_number_q(const mpq_t value_q) {

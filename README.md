@@ -32,9 +32,11 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] List functions: length, append, reverse
 - [x] Math: denominator, numerator, quotient, gcd, lcm, 
 - [x] Math functions: abs, max, min
-- [ ] expt, square, integer-sqrt, 
+- [x] expt, square, exact-integer-sqrt
+- [ ] float approximation
 - [ ] Predicate tester functions
 - [ ] String functions
+- [ ] Conversion between types
 - [x] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name.
 - [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
 - [ ] map

@@ -786,6 +786,195 @@ static sl_object *sl_builtin_min(sl_object *args) {
     return min_obj;               // Return the object itself, not a copy
 }
 
+// (expt base exponent) -> Calculates base^exponent. Handles integer exponents.
+static sl_object *sl_builtin_expt(sl_object *args) {
+    sl_object *arity_check = check_arity("expt", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *base_obj = sl_car(args);
+    sl_object *exp_obj = sl_cadr(args);
+
+    if (!sl_is_number(base_obj)) {
+        return sl_make_errorf("Error (expt): Base must be a number.");
+    }
+    if (!sl_is_number(exp_obj)) {
+        return sl_make_errorf("Error (expt): Exponent must be a number.");
+    }
+
+    // For now, only handle integer exponents
+    if (!sl_number_is_integer(exp_obj)) {
+        return sl_make_errorf("Error (expt): Exponent must be an integer (fractional exponents not implemented).");
+    }
+
+    sl_object *result_obj = NULL;
+    mpq_t base_q;
+    mpz_t exp_z, base_num_z, base_den_z, result_num_z, result_den_z;
+    unsigned long exp_ui;
+    bool exp_is_neg = false;
+
+    // Initialize GMP variables
+    mpz_init(exp_z);
+    mpz_init(base_num_z);
+    mpz_init(base_den_z);
+    mpz_init(result_num_z);
+    mpz_init(result_den_z);
+    // mpq_init(base_q);  // Init in get_number_as_mpq
+
+    sl_gc_add_root(&base_obj);  // Protect base_obj during potential allocations
+    sl_gc_add_root(&exp_obj);   // Protect exp_obj
+
+    // Get exponent as mpz_t
+    sl_number_get_z(exp_obj, exp_z);  // We know it's an integer
+
+    // Check exponent sign and magnitude for mpz_pow_ui
+    if (mpz_sgn(exp_z) < 0) {
+        exp_is_neg = true;
+        mpz_neg(exp_z, exp_z);  // Use absolute value for pow_ui
+    }
+
+    // mpz_pow_ui requires unsigned long exponent
+    if (!mpz_fits_ulong_p(exp_z)) {
+        result_obj = sl_make_errorf("Error (expt): Exponent magnitude too large.");
+        goto cleanup_expt;
+    }
+    exp_ui = mpz_get_ui(exp_z);
+    // mpz_clear(exp_z); // Keep exp_z for 0^0 check if needed
+
+    // Get base as mpq_t
+    if (!get_number_as_mpq(base_obj, base_q, "expt")) {
+        result_obj = sl_make_errorf("Error (expt): Invalid base number format.");  // Fallback
+        goto cleanup_expt;
+    }
+
+    // Handle base^0 = 1 (including 0^0)
+    if (exp_ui == 0 && !exp_is_neg) {
+        result_obj = sl_make_number_si(1, 1);
+        goto cleanup_expt;
+    }
+    // Handle 0^positive_exp = 0
+    if (mpq_sgn(base_q) == 0 && exp_ui > 0 && !exp_is_neg) {
+        result_obj = sl_make_number_si(0, 1);
+        goto cleanup_expt;
+    }
+    // Handle 0^negative_exp -> Division by zero
+    if (mpq_sgn(base_q) == 0 && exp_is_neg) {
+        result_obj = sl_make_errorf("Error (expt): 0 cannot be raised to a negative power.");
+        goto cleanup_expt;
+    }
+
+    // Get numerator and denominator of the base
+    mpq_get_num(base_num_z, base_q);
+    mpq_get_den(base_den_z, base_q);
+
+    // Calculate numerator^|exponent|
+    mpz_pow_ui(result_num_z, base_num_z, exp_ui);
+
+    // Calculate denominator^|exponent|
+    mpz_pow_ui(result_den_z, base_den_z, exp_ui);
+
+    // Construct the result rational number object
+    if (exp_is_neg) {
+        // If exponent was negative, result is den^|exp| / num^|exp|
+        result_obj = sl_make_number_zz(result_den_z, result_num_z);
+    } else {
+        // If exponent was positive, result is num^|exp| / den^|exp|
+        result_obj = sl_make_number_zz(result_num_z, result_den_z);
+    }
+    CHECK_ALLOC(result_obj);  // Check allocation of the final number object
+
+cleanup_expt:
+    // Clear all GMP variables
+    mpz_clear(exp_z);
+    mpz_clear(base_num_z);
+    mpz_clear(base_den_z);
+    mpz_clear(result_num_z);
+    mpz_clear(result_den_z);
+    mpq_clear(base_q);
+
+    // Unroot objects
+    sl_gc_remove_root(&exp_obj);
+    sl_gc_remove_root(&base_obj);
+    return result_obj;
+}
+
+// (square num) -> Calculates num*num
+static sl_object *sl_builtin_square(sl_object *args) {
+    sl_object *arity_check = check_arity("square", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *num_obj = sl_car(args);
+    if (!sl_is_number(num_obj)) {
+        return sl_make_errorf("Error (square): Argument must be a number.");
+    }
+
+    sl_object *result_obj = NULL;
+    mpq_t num_q, result_q;
+    sl_gc_add_root(&num_obj);  // Protect input
+
+    if (!get_number_as_mpq(num_obj, num_q, "square")) {
+        result_obj = sl_make_errorf("Error (square): Invalid number format.");  // Fallback
+    } else {
+        mpq_init(result_q);
+        mpq_mul(result_q, num_q, num_q);  // result = num * num
+        result_obj = make_number_from_mpq(result_q);
+        CHECK_ALLOC(result_obj);
+        mpq_clear(result_q);
+        mpq_clear(num_q);
+    }
+
+    sl_gc_remove_root(&num_obj);
+    return result_obj;
+}
+
+// (exact-integer-sqrt n) -> Returns (list s r) where s*s + r = n
+static sl_object *sl_builtin_exact_integer_sqrt(sl_object *args) {
+    sl_object *arity_check = check_arity("exact-integer-sqrt", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *n_obj = sl_car(args);
+    if (!sl_is_number(n_obj) || !sl_number_is_integer(n_obj)) {
+        return sl_make_errorf("Error (exact-integer-sqrt): Argument must be an integer.");
+    }
+
+    sl_object *result_obj = NULL;
+    mpz_t n_z, s_z, r_z;
+    mpz_inits(n_z, s_z, r_z, NULL);
+    sl_gc_add_root(&n_obj);  // Protect input
+
+    sl_number_get_z(n_obj, n_z);
+
+    if (mpz_sgn(n_z) < 0) {
+        result_obj = sl_make_errorf("Error (exact-integer-sqrt): Argument must be non-negative.");
+    } else {
+        mpz_sqrtrem(s_z, r_z, n_z);  // Calculate s and r
+
+        sl_object *s_obj = sl_make_number_from_mpz(s_z);
+        CHECK_ALLOC(s_obj);
+        sl_gc_add_root(&s_obj);  // Protect s_obj
+
+        sl_object *r_obj = sl_make_number_from_mpz(r_z);
+        CHECK_ALLOC(r_obj);
+        sl_gc_add_root(&r_obj);  // Protect r_obj
+
+        // Build the result list (s r)
+        sl_object *r_list = sl_make_pair(r_obj, SL_NIL);
+        CHECK_ALLOC(r_list);
+        sl_gc_add_root(&r_list);  // Protect r_list
+
+        result_obj = sl_make_pair(s_obj, r_list);
+        CHECK_ALLOC(result_obj);
+
+        // Cleanup roots
+        sl_gc_remove_root(&r_list);
+        sl_gc_remove_root(&r_obj);
+        sl_gc_remove_root(&s_obj);
+    }
+
+    mpz_clears(n_z, s_z, r_z, NULL);
+    sl_gc_remove_root(&n_obj);
+    return result_obj;
+}
+
 // --- Comparison Builtins ---
 
 // (= num1 num2) - Numeric equality
@@ -1336,16 +1525,19 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "-", sl_builtin_sub);
     define_builtin(global_env, "*", sl_builtin_mul);
     define_builtin(global_env, "/", sl_builtin_div);
-    define_builtin(global_env, "remainder", sl_builtin_remainder);      // <<< ADDED
-    define_builtin(global_env, "modulo", sl_builtin_modulo);            // <<< ADDED
-    define_builtin(global_env, "denominator", sl_builtin_denominator);  // <<< ADDED
-    define_builtin(global_env, "numerator", sl_builtin_numerator);      // <<< ADDED
-    define_builtin(global_env, "quotient", sl_builtin_quotient);        // <<< ADDED
-    define_builtin(global_env, "gcd", sl_builtin_gcd);                  // <<< ADDED
-    define_builtin(global_env, "lcm", sl_builtin_lcm);                  // <<< ADDED
-    define_builtin(global_env, "abs", sl_builtin_abs);                  // <<< ADDED
-    define_builtin(global_env, "max", sl_builtin_max);                  // <<< ADDED
-    define_builtin(global_env, "min", sl_builtin_min);                  // <<< ADDED
+    define_builtin(global_env, "remainder", sl_builtin_remainder);                    // <<< ADDED
+    define_builtin(global_env, "modulo", sl_builtin_modulo);                          // <<< ADDED
+    define_builtin(global_env, "denominator", sl_builtin_denominator);                // <<< ADDED
+    define_builtin(global_env, "numerator", sl_builtin_numerator);                    // <<< ADDED
+    define_builtin(global_env, "quotient", sl_builtin_quotient);                      // <<< ADDED
+    define_builtin(global_env, "gcd", sl_builtin_gcd);                                // <<< ADDED
+    define_builtin(global_env, "lcm", sl_builtin_lcm);                                // <<< ADDED
+    define_builtin(global_env, "abs", sl_builtin_abs);                                // <<< ADDED
+    define_builtin(global_env, "max", sl_builtin_max);                                // <<< ADDED
+    define_builtin(global_env, "min", sl_builtin_min);                                // <<< ADDED
+    define_builtin(global_env, "expt", sl_builtin_expt);                              // <<< ADDED
+    define_builtin(global_env, "square", sl_builtin_square);                          // <<< ADDED
+    define_builtin(global_env, "exact-integer-sqrt", sl_builtin_exact_integer_sqrt);  // <<< ADDED
 
     // Comparison
     define_builtin(global_env, "=", sl_builtin_num_eq);

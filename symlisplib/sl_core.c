@@ -488,6 +488,7 @@ sl_object *sl_make_string(const char *str) {
 
     new_str->type = SL_TYPE_STRING;
     new_str->data.string_val = strdup(str);
+
     if (!new_str->data.string_val) {
         // strdup failed! Return the object to the free list.
         return_object_to_free_list(new_str);  // <<< Cleanup

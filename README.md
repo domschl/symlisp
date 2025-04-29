@@ -34,13 +34,14 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Math functions: abs, max, min
 - [x] expt, square, exact-integer-sqrt
 - [x] float approximation
-- [ ] Predicate tester functions
+- [x] Predicate tester functions
 - [ ] String functions
 - [ ] Conversion between types
 - [x] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name.
 - [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
+- [ ] Nested defines
 - [ ] map
-- [ ] Gradually add more builtins.
+- [ ] more loop stuff?
 - [ ] Macros: define-syntax, let-syntax
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
 - [ ] Check against r7rs

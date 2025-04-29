@@ -9,11 +9,12 @@
 #include "sl_env.h"
 #include "sl_parse.h"
 #include "sl_eval.h"  // <<< ADDED for sl_eval_stream
+#include "sl_predicates.h"
 
 // Helper to check arity.
 // Returns SL_TRUE if arity matches and list is proper.
 // Returns an SL_TYPE_ERROR object otherwise.
-static sl_object *check_arity(const char *func_name, sl_object *args, size_t expected) {
+sl_object *check_arity(const char *func_name, sl_object *args, size_t expected) {
     size_t count = 0;
     sl_object *current = args;
     while (sl_is_pair(current)) {
@@ -1630,7 +1631,7 @@ static sl_object *sl_builtin_load(sl_object *args) {
 // --- Builtin Initialization ---
 
 // Helper to define a builtin function in an environment
-static void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_ptr) {
+void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_ptr) {
     // --- FIX: Root env temporarily ---
     sl_gc_add_root(&env);  // Protect env during allocations below
 
@@ -1714,5 +1715,5 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "newline", sl_builtin_newline);
     define_builtin(global_env, "load", sl_builtin_load);
 
-    // Add other builtins here...
+    sl_predicates_init(global_env);
 }

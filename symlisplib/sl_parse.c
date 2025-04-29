@@ -501,7 +501,10 @@ end_loop:  // Label for goto
 
     if (success) {
         // Create the string object. sl_make_string copies the buffer.
-        sl_object *str_obj = sl_make_string(sbuf.buffer);
+        // Create the string object. sl_make_string copies the buffer.
+        // If sbuf.buffer is NULL (empty string parsed), pass "" literal instead.
+        const char *string_to_make = (sbuf.buffer != NULL) ? sbuf.buffer : "";  // <<< FIX
+        sl_object *str_obj = sl_make_string(string_to_make);
         sbuf_free(&sbuf);  // Free the temporary buffer
         return str_obj;    // Returns SL_NIL on allocation failure within sl_make_string
     } else {

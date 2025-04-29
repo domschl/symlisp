@@ -11,5 +11,7 @@
  * @param global_env The global environment object (SL_TYPE_ENV).
  */
 void sl_builtins_init(sl_object *global_env);
+sl_object *check_arity(const char *func_name, sl_object *args, size_t expected);
+void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_ptr);
 
 #endif  // SL_BUILTINS_H

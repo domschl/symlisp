@@ -8,6 +8,7 @@ add_library(symlisplib STATIC
     sl_env.c
     sl_eval.c
     sl_builtins.c
+    sl_predicates.c
 )
 
 # Make the header files in the current directory available

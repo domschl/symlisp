@@ -423,13 +423,304 @@ static sl_object *sl_builtin_list_to_string(sl_object *args) {
     return result;
 }
 
+// --- SRFI-13 Inspired Functions ---
+
+// (string-join list-of-strings delimiter) -> string
+static sl_object *sl_builtin_string_join(sl_object *args) {
+    sl_object *arity_check = check_arity("string-join", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *list_obj = sl_car(args);
+    sl_object *delim_obj = sl_cadr(args);
+
+    if (!sl_is_list(list_obj)) return sl_make_errorf("string-join: Expected a proper list as first argument, got %s", sl_type_name(list_obj ? list_obj->type : -1));
+    if (!sl_is_string(delim_obj)) return sl_make_errorf("string-join: Expected a string delimiter as second argument, got %s", sl_type_name(delim_obj ? delim_obj->type : -1));
+
+    const char *delimiter = delim_obj->data.string_val;
+    if (!delimiter) delimiter = "";  // Handle null string_val
+    size_t delim_len = strlen(delimiter);
+
+    // Use realloc approach
+    char *buffer = NULL;
+    size_t capacity = 0;
+    size_t length = 0;
+    sl_object *current = list_obj;
+    bool first_item = true;
+
+    sl_gc_add_root(&current);  // Protect list iterator
+
+    while (sl_is_pair(current)) {
+        sl_object *str_obj = sl_car(current);
+        if (!sl_is_string(str_obj)) {
+            free(buffer);
+            sl_gc_remove_root(&current);
+            return sl_make_errorf("string-join: List element is not a string: %s", sl_type_name(str_obj ? str_obj->type : -1));
+        }
+
+        const char *str_val = str_obj->data.string_val;
+        if (!str_val) str_val = "";  // Handle null string_val
+        size_t str_len = strlen(str_val);
+        size_t needed = length + str_len + (first_item ? 0 : delim_len) + 1;  // +1 for null
+
+        // Ensure buffer has enough space
+        if (needed > capacity) {
+            size_t new_capacity = capacity == 0 ? 16 : capacity * 2;
+            if (new_capacity < needed) new_capacity = needed;
+            char *new_buffer = realloc(buffer, new_capacity);
+            if (!new_buffer) {
+                free(buffer);
+                sl_gc_remove_root(&current);
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+            buffer = new_buffer;
+            capacity = new_capacity;
+        }
+
+        // Append delimiter (if not first item)
+        if (!first_item && delim_len > 0) {
+            memcpy(buffer + length, delimiter, delim_len);
+            length += delim_len;
+        }
+
+        // Append string
+        memcpy(buffer + length, str_val, str_len);
+        length += str_len;
+
+        first_item = false;
+        current = sl_cdr(current);
+    }
+
+    // Check if list was proper
+    if (!sl_is_nil(current)) {
+        free(buffer);
+        sl_gc_remove_root(&current);
+        return sl_make_errorf("string-join: Expected a proper list, but encountered non-nil cdr");
+    }
+
+    sl_gc_remove_root(&current);
+
+    // Finalize buffer
+    if (!buffer) {  // Handle empty list case
+        buffer = malloc(1);
+        if (!buffer) return SL_OUT_OF_MEMORY_ERROR;
+        capacity = 1;
+    } else if (length + 1 > capacity) {
+        char *new_buffer = realloc(buffer, length + 1);
+        if (!new_buffer) {
+            free(buffer);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        buffer = new_buffer;
+    }
+    buffer[length] = '\0';
+
+    // Create string object
+    sl_object *result = sl_make_string(buffer);
+    free(buffer);
+
+    return result;
+}
+
+// Helper for string-split and string-tokenize: Creates a substring object
+// Assumes start and end point to valid memory within a larger C string.
+// Creates a *copy* for the new Scheme string.
+static sl_object *make_substring_obj(const char *start, size_t length) {
+    char *sub_buffer = malloc(length + 1);
+    if (!sub_buffer) return SL_OUT_OF_MEMORY_ERROR;
+    memcpy(sub_buffer, start, length);
+    sub_buffer[length] = '\0';
+    sl_object *sub_obj = sl_make_string(sub_buffer);
+    free(sub_buffer);  // sl_make_string copied it
+    return sub_obj;
+}
+
+// (string-split str delimiter-char) -> list-of-strings
+// Simple version: splits by a single character. Treats consecutive delimiters
+// as separating empty strings.
+static sl_object *sl_builtin_string_split(sl_object *args) {
+    sl_object *arity_check = check_arity("string-split", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    sl_object *delim_char_obj = sl_cadr(args);
+
+    if (!sl_is_string(str_obj)) return sl_make_errorf("string-split: Expected string as first argument, got %s", sl_type_name(str_obj ? str_obj->type : -1));
+    if (!sl_is_char(delim_char_obj)) return sl_make_errorf("string-split: Expected char delimiter as second argument, got %s", sl_type_name(delim_char_obj ? delim_char_obj->type : -1));
+
+    const char *input_str = str_obj->data.string_val;
+    if (!input_str) input_str = "";
+    uint32_t delim_cp = delim_char_obj->data.code_point;
+
+    sl_object *head = SL_NIL;
+    sl_object **tail_ptr = &head;
+    const char *ptr = input_str;
+    const char *segment_start = input_str;
+
+    sl_gc_add_root(&head);  // Protect the list being built
+
+    while (*ptr != '\0') {
+        const char *char_start = ptr;
+        uint32_t current_cp = decode_utf8(&ptr);  // Advances ptr
+
+        if (current_cp == delim_cp) {
+            // Found delimiter, create substring from segment_start to char_start
+            size_t segment_len = (size_t)(char_start - segment_start);
+            sl_object *sub_obj = make_substring_obj(segment_start, segment_len);
+            if (sub_obj == SL_OUT_OF_MEMORY_ERROR) {
+                sl_gc_remove_root(&head);
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+            sl_gc_add_root(&sub_obj);  // Protect substring
+
+            sl_object *new_pair = sl_make_pair(sub_obj, SL_NIL);
+            sl_gc_remove_root(&sub_obj);  // Unroot substring
+
+            if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
+                sl_gc_remove_root(&head);
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+
+            *tail_ptr = new_pair;
+            tail_ptr = &new_pair->data.pair.cdr;
+
+            segment_start = ptr;  // Start next segment after the delimiter
+        }
+        // Handle decode errors or end of string edge cases if necessary
+        if (current_cp == 0 && *ptr == '\0' && ptr == char_start) break;  // Normal end
+        if (current_cp == UTF8_REPLACEMENT_CHAR && *ptr == '\0') break;   // End after replacement
+    }
+
+    // Add the final segment (from last delimiter to end of string)
+    size_t segment_len = (size_t)(ptr - segment_start);
+    sl_object *sub_obj = make_substring_obj(segment_start, segment_len);
+    if (sub_obj == SL_OUT_OF_MEMORY_ERROR) {
+        sl_gc_remove_root(&head);
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+    sl_gc_add_root(&sub_obj);
+
+    sl_object *new_pair = sl_make_pair(sub_obj, SL_NIL);
+    sl_gc_remove_root(&sub_obj);
+
+    if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
+        sl_gc_remove_root(&head);
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+
+    *tail_ptr = new_pair;  // Append the last segment
+
+    sl_gc_remove_root(&head);
+    return head;
+}
+
+// Helper: Check if a codepoint exists in a delimiter string
+static bool is_in_delimiter_set(uint32_t cp, const char *delim_set_str) {
+    const char *ptr = delim_set_str;
+    while (*ptr != '\0') {
+        const char *start_ptr = ptr;
+        uint32_t delim_cp = decode_utf8(&ptr);
+        if (delim_cp == cp) return true;
+        if (delim_cp == 0 && *ptr == '\0' && ptr == start_ptr) break;  // End of set
+    }
+    return false;
+}
+
+// (string-tokenize str delimiter-set-string) -> list-of-strings
+// Simple version: splits by any character in the set. Treats consecutive
+// delimiters as a single split point (no empty strings between them).
+static sl_object *sl_builtin_string_tokenize(sl_object *args) {
+    sl_object *arity_check = check_arity("string-tokenize", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    sl_object *delim_set_obj = sl_cadr(args);
+
+    if (!sl_is_string(str_obj)) return sl_make_errorf("string-tokenize: Expected string as first argument, got %s", sl_type_name(str_obj ? str_obj->type : -1));
+    if (!sl_is_string(delim_set_obj)) return sl_make_errorf("string-tokenize: Expected delimiter set string as second argument, got %s", sl_type_name(delim_set_obj ? delim_set_obj->type : -1));
+
+    const char *input_str = str_obj->data.string_val;
+    if (!input_str) input_str = "";
+    const char *delim_set = delim_set_obj->data.string_val;
+    if (!delim_set) delim_set = "";
+
+    sl_object *head = SL_NIL;
+    sl_object **tail_ptr = &head;
+    const char *ptr = input_str;
+    const char *segment_start = NULL;  // Start of current token (initially null)
+
+    sl_gc_add_root(&head);  // Protect the list being built
+
+    while (*ptr != '\0') {
+        const char *char_start = ptr;
+        uint32_t current_cp = decode_utf8(&ptr);  // Advances ptr
+        bool is_delimiter = is_in_delimiter_set(current_cp, delim_set);
+
+        if (!is_delimiter && segment_start == NULL) {
+            // Start of a new token
+            segment_start = char_start;
+        } else if (is_delimiter && segment_start != NULL) {
+            // End of the current token
+            size_t segment_len = (size_t)(char_start - segment_start);
+            sl_object *sub_obj = make_substring_obj(segment_start, segment_len);
+            if (sub_obj == SL_OUT_OF_MEMORY_ERROR) {
+                sl_gc_remove_root(&head);
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+            sl_gc_add_root(&sub_obj);
+
+            sl_object *new_pair = sl_make_pair(sub_obj, SL_NIL);
+            sl_gc_remove_root(&sub_obj);
+
+            if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
+                sl_gc_remove_root(&head);
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+
+            *tail_ptr = new_pair;
+            tail_ptr = &new_pair->data.pair.cdr;
+
+            segment_start = NULL;  // Reset for next token
+        }
+        // Handle decode errors or end of string edge cases if necessary
+        if (current_cp == 0 && *ptr == '\0' && ptr == char_start) break;  // Normal end
+        if (current_cp == UTF8_REPLACEMENT_CHAR && *ptr == '\0') break;   // End after replacement
+    }
+
+    // Add the final token if we were in the middle of one
+    if (segment_start != NULL) {
+        size_t segment_len = (size_t)(ptr - segment_start);
+        sl_object *sub_obj = make_substring_obj(segment_start, segment_len);
+        if (sub_obj == SL_OUT_OF_MEMORY_ERROR) {
+            sl_gc_remove_root(&head);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        sl_gc_add_root(&sub_obj);
+
+        sl_object *new_pair = sl_make_pair(sub_obj, SL_NIL);
+        sl_gc_remove_root(&sub_obj);
+
+        if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
+            sl_gc_remove_root(&head);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+
+        *tail_ptr = new_pair;
+    }
+
+    sl_gc_remove_root(&head);
+    return head;
+}
+
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string-length", sl_builtin_string_length);
     define_builtin(global_env, "string-ref", sl_builtin_string_ref);
-    define_builtin(global_env, "string-append", sl_builtin_string_append);  // <<< ADDED
-    define_builtin(global_env, "substring", sl_builtin_substring);          // <<< ADDED
-    define_builtin(global_env, "string->list", sl_builtin_string_to_list);  // <<< ADDED
-    define_builtin(global_env, "list->string", sl_builtin_list_to_string);  // <<< ADDED
+    define_builtin(global_env, "string-append", sl_builtin_string_append);      // <<< ADDED
+    define_builtin(global_env, "substring", sl_builtin_substring);              // <<< ADDED
+    define_builtin(global_env, "string->list", sl_builtin_string_to_list);      // <<< ADDED
+    define_builtin(global_env, "list->string", sl_builtin_list_to_string);      // <<< ADDED
+    define_builtin(global_env, "string-join", sl_builtin_string_join);          // <<< ADDED
+    define_builtin(global_env, "string-split", sl_builtin_string_split);        // <<< ADDED
+    define_builtin(global_env, "string-tokenize", sl_builtin_string_tokenize);  // <<< ADDED
 }

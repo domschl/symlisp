@@ -168,5 +168,97 @@
 (define-test "list->string-mixed"
   (assert-equal (list->string '(#\a #\¬ #\€ #\😊 #\!)) "a¬€😊!"))
 
+;; --- string-join ---
+
+(define-test "string-join-empty-list"
+  (assert-equal (string-join '() ",") ""))
+
+(define-test "string-join-single-item"
+  (assert-equal (string-join '("hello") ",") "hello"))
+
+(define-test "string-join-ascii"
+  (assert-equal (string-join '("a" "b" "c") "-") "a-b-c"))
+
+(define-test "string-join-empty-delimiter"
+  (assert-equal (string-join '("a" "b" "c") "") "abc"))
+
+(define-test "string-join-multi-char-delimiter"
+  (assert-equal (string-join '("a" "b" "c") ", ") "a, b, c"))
+
+(define-test "string-join-with-empty-strings"
+  (assert-equal (string-join '("a" "" "c" "" "e") "-") "a--c--e"))
+
+(define-test "string-join-utf8"
+  (assert-equal (string-join '("你好" "世界") " ") "你好 世界"))
+
+(define-test "string-join-utf8-delimiter"
+  (assert-equal (string-join '("a" "b") "€") "a€b"))
+
+;; --- string-split ---
+
+(define-test "string-split-empty"
+  (assert-equal (string-split "" #\ ) '("")) ) ; Splitting "" gives ("")
+
+(define-test "string-split-no-delimiter"
+  (assert-equal (string-split "abc" #\-) '("abc")))
+
+(define-test "string-split-ascii"
+  (assert-equal (string-split "a-b-c" #\-) '("a" "b" "c")))
+
+(define-test "string-split-leading-delimiter"
+  (assert-equal (string-split "-a-b-c" #\-) '("" "a" "b" "c")))
+
+(define-test "string-split-trailing-delimiter"
+  (assert-equal (string-split "a-b-c-" #\-) '("a" "b" "c" "")))
+
+(define-test "string-split-consecutive-delimiters"
+  (assert-equal (string-split "a--b-c" #\-) '("a" "" "b" "c")))
+
+(define-test "string-split-all-delimiters"
+  (assert-equal (string-split "---" #\-) '("" "" "" "")))
+
+(define-test "string-split-utf8-delimiter"
+  (assert-equal (string-split "你好 世界" #\ ) '("你好" "世界")))
+
+(define-test "string-split-utf8-content"
+  (assert-equal (string-split "你好-世界" #\-) '("你好" "世界")))
+
+(define-test "string-split-utf8-delimiter-char"
+  (assert-equal (string-split "a€b€c" #\€) '("a" "b" "c")))
+
+;; --- string-tokenize ---
+
+(define-test "string-tokenize-empty"
+  (assert-equal (string-tokenize "" " ") '())) ; Tokenizing "" gives ()
+
+(define-test "string-tokenize-no-delimiter"
+  (assert-equal (string-tokenize "abc" "-") '("abc")))
+
+(define-test "string-tokenize-ascii-single-delim"
+  (assert-equal (string-tokenize "a-b-c" "-") '("a" "b" "c")))
+
+(define-test "string-tokenize-ascii-set-delim"
+  (assert-equal (string-tokenize "a-b,c d" "-, ") '("a" "b" "c" "d")))
+
+(define-test "string-tokenize-leading-delimiters"
+  (assert-equal (string-tokenize "  a b" " ") '("a" "b")))
+
+(define-test "string-tokenize-trailing-delimiters"
+  (assert-equal (string-tokenize "a b  " " ") '("a" "b")))
+
+(define-test "string-tokenize-consecutive-delimiters"
+  (assert-equal (string-tokenize "a - ,,b" " -,") '("a" "b")))
+
+(define-test "string-tokenize-all-delimiters"
+  (assert-equal (string-tokenize "-, ,-" " -,") '()))
+
+(define-test "string-tokenize-utf8-delimiter-set"
+  (assert-equal (string-tokenize "你好 世界！再见" " ！") '("你好" "世界" "再见")))
+
+(define-test "string-tokenize-utf8-content"
+  (assert-equal (string-tokenize "你好-世界,再见" "-,") '("你好" "世界" "再见")))
+
+(define-test "string-tokenize-mixed-delimiters"
+  (assert-equal (string-tokenize "a€b c,d" " €,") '("a" "b" "c" "d")))
 
 ;;; --- END OF STRING TESTS ---

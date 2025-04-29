@@ -22,34 +22,10 @@
             (display "\n")
             #f)))))
 
-;; Asserts that evaluating 'expr' results in an error object
-(define (assert-error expr-quoted)
-  ;; --- DEBUG ---
-  (display "[DEBUG assert-error] === Evaluating for error: ")
-  (display expr-quoted)
-  (newline)
-  ;; --- END DEBUG ---
-  (let ((result (eval expr-quoted (interaction-environment)))) ; Or use appropriate env
-    ;; --- DEBUG ---
-    (display "[DEBUG assert-error] === Eval result: ")
-    (display result)
-    (newline)
-    ;; --- END DEBUG ---
-
-    (if (error? result) ; <<< Use the new error? predicate
-        (begin
-          ;; (display ".") ; Optional: Indicate success
-          #t)
-        (begin
-          (newline)
-          (display "ASSERT-ERROR FAILED: Expected an error for expression: ")
-          (display expr-quoted) ; Use write for unambiguous representation
-          (newline)
-          (display "  Instead got: ")
-          (display result)
-          (newline)
-          (set! *tests-failed* (+ *tests-failed* 1))
-          #f))))
+(define assert-true
+  (lambda (value) (assert-equal value #t)))
+(define assert-false
+  (lambda (value) (assert-equal value #f)))
 
 ;; define-test: Define and run a named test case with ONE assertion
 (define define-test
@@ -57,33 +33,33 @@
     ;; Increment the test counter
     (set! tests-run-count (+ tests-run-count 1))
     
-    (display "Running test: ")
-    (display name)
-    (display "\n")
-    (display "   Assertion: ")
-    (display assertion)
-    (display "\n")
+    ;(display "Running test: ")
+    ;(display name)
+    ;(display "\n")
+    ;(display "   Assertion: ")
+    ;(display assertion)
+    ;(display "\n")
     (define result "FAILED")
     (define test-passed #f)
     
     ;; Update global counters based on result
     (if (eq? assertion #t)
         (begin
-          (display "Test passed\n")
+          ;(display "Test passed\n")
           ;; Increment the passed test counter
           (set! tests-passed-count (+ tests-passed-count 1))
           (set! result "PASSED")
           (set! test-passed #t))
         (begin
-          (display "Test failed\n")
+          (display "Test ") (display name) (display " failed\n")
           (set! tests-failed-count (+ tests-failed-count 1))
           (set! tests-all-passed #f)))
     
-    (display "Test '")
-    (display name)
-    (display "' ")
-    (display result)
-    (display "\n")
+    ;(display "Test '")
+    ;(display name)
+    ;(display "' ")
+    ;(display result)
+    ;(display "\n")
     
     ;; Return the test result
     test-passed))

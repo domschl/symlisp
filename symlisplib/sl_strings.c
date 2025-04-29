@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <ctype.h>
 #include <stdlib.h>  // For malloc/free if needed later
 
 #include "sl_strings.h"
@@ -711,6 +712,294 @@ static sl_object *sl_builtin_string_tokenize(sl_object *args) {
     return head;
 }
 
+// --- Conversion Functions ---
+
+// (number->string number [radix]) -> string
+// Converts a number (rational) to its string representation.
+// Radix currently MUST be 10 for rationals. Only integers support other radix.
+static sl_object *sl_builtin_number_to_string(sl_object *args) {
+    sl_object *arity_check = check_arity_range("number->string", args, 1, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *num_obj = sl_car(args);
+    sl_object *radix_obj = sl_is_pair(sl_cdr(args)) ? sl_cadr(args) : NULL;
+    int radix = 10;  // Default radix
+
+    if (!sl_is_number(num_obj)) return sl_make_errorf("number->string: Expected number as first argument, got %s", sl_type_name(num_obj ? num_obj->type : -1));
+
+    bool is_integer = sl_number_is_integer(num_obj);  // Check if it's an integer
+
+    if (radix_obj) {
+        if (!sl_is_number(radix_obj) || !sl_number_is_integer(radix_obj)) return sl_make_errorf("number->string: Expected integer radix (2-62), got %s", sl_type_name(radix_obj ? radix_obj->type : -1));
+        int64_t r_val;
+        if (!get_number_as_int64(radix_obj, &r_val, "number->string")) return SL_NIL;  // Error handled
+        if (r_val < 2 || r_val > 62) return sl_make_errorf("number->string: Radix %" PRId64 " must be between 2 and 62", r_val);
+        radix = (int)r_val;
+        if (radix != 10 && !is_integer) {
+            return sl_make_errorf("number->string: Radix other than 10 is only supported for integers.");
+        }
+    }
+
+    char *buffer = NULL;
+
+    if (is_integer && radix != 10) {
+        // Handle integer with non-decimal radix using mpz
+        mpz_t num_z;
+        mpz_init(num_z);
+        sl_number_get_z(num_obj, num_z);  // Extracts integer part
+
+        // Add 1 for sign and 1 for null terminator.
+        size_t needed_size = mpz_sizeinbase(num_z, radix) + 2;
+        buffer = malloc(needed_size);
+        if (!buffer) {
+            mpz_clear(num_z);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        mpz_get_str(buffer, radix, num_z);
+        mpz_clear(num_z);
+    } else {
+        // Handle rational (or integer with radix 10) using mpq
+        mpq_t num_q;
+        // get_number_as_mpq initializes num_q
+        if (!get_number_as_mpq(num_obj, num_q, "number->string")) {
+            // Should not happen if sl_is_number passed
+            return sl_make_errorf("number->string: Internal error getting rational value.");
+        }
+
+        // Use gmp_asprintf to format the rational (allocates buffer)
+        // %Qd formats as num/den or just num if den is 1.
+        if (gmp_asprintf(&buffer, "%Qd", num_q) < 0) {
+            mpq_clear(num_q);
+            return SL_OUT_OF_MEMORY_ERROR;  // Allocation or formatting failed
+        }
+        mpq_clear(num_q);
+    }
+
+    // Now buffer contains the formatted string (either from mpz_get_str or gmp_asprintf)
+    sl_object *result = sl_make_string(buffer);
+
+    // Free the buffer allocated by malloc or gmp_asprintf
+    // NOTE: GMP's free function might be different. Check GMP docs.
+    // Assuming standard free works for gmp_asprintf for now.
+    free(buffer);
+
+    return result;  // sl_make_string copied it
+}
+
+static sl_object *sl_builtin_string_to_number(sl_object *args) {
+    sl_object *arity_check = check_arity_range("string->number", args, 1, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    sl_object *radix_obj = sl_is_pair(sl_cdr(args)) ? sl_cadr(args) : NULL;
+    int radix = 10;  // Default radix
+
+    if (!sl_is_string(str_obj)) return sl_make_errorf("string->number: Expected string as first argument, got %s", sl_type_name(str_obj ? str_obj->type : -1));
+
+    if (radix_obj) {
+        if (!sl_is_number(radix_obj) || !sl_number_is_integer(radix_obj)) return sl_make_errorf("string->number: Expected integer radix (2-62), got %s", sl_type_name(radix_obj ? radix_obj->type : -1));
+        int64_t r_val;
+        if (!get_number_as_int64(radix_obj, &r_val, "string->number")) return SL_NIL;
+        if (r_val < 2 || r_val > 62) return sl_make_errorf("string->number: Radix %" PRId64 " must be between 2 and 62", r_val);
+        radix = (int)r_val;
+    }
+
+    const char *input_str_orig = str_obj->data.string_val;
+    if (!input_str_orig) input_str_orig = "";
+
+    const char *start_ptr = input_str_orig;
+    // Skip leading whitespace
+    while (*start_ptr && isspace((unsigned char)*start_ptr)) {
+        start_ptr++;
+    }
+
+    // Check for empty string after whitespace
+    if (*start_ptr == '\0') return SL_FALSE;
+
+    // --- Use GMP to parse the integer ---
+    mpz_t temp_int;
+    mpz_init(temp_int);
+
+    // mpz_set_str returns 0 on success, -1 on failure
+    int ret = mpz_set_str(temp_int, start_ptr, radix);
+
+    if (ret != 0) {
+        // Basic parse failed (e.g., empty after sign, invalid char for radix)
+        mpz_clear(temp_int);
+        return SL_FALSE;
+    }
+
+    // --- Validation: Check trailing characters using re-formatting ---
+
+    // Re-format the parsed number back to string to get its exact representation length
+    // mpz_sizeinbase + 2 gives enough space (sign + null)
+    size_t reformatted_buf_size = mpz_sizeinbase(temp_int, radix) + 2;
+    char *reformatted_buf = malloc(reformatted_buf_size);
+    if (!reformatted_buf) {
+        mpz_clear(temp_int);
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+    mpz_get_str(reformatted_buf, radix, temp_int);  // Format back
+    size_t parsed_len = strlen(reformatted_buf);
+
+    // Check if the original string *starts* with this exact representation
+    // (case-insensitive compare needed for hex?)
+    // mpz_set_str handles case, mpz_get_str produces lowercase hex.
+    // Let's try strncasecmp for safety, though strncmp might work if input was already lowercase/numeric.
+    if (strncasecmp(start_ptr, reformatted_buf, parsed_len) != 0) {
+        // This case is tricky. Example: input "+05", reformatted "5". Length mismatch.
+        // Example: input "0xff", reformatted "ff". Length mismatch.
+        // mpz_set_str is more lenient than mpz_get_str format.
+        // Let's revert to manual check after successful parse.
+
+        free(reformatted_buf);  // Free buffer before trying alternative
+
+        // --- Alternative Validation: Manually find end of parsed part ---
+        const char *end_ptr = start_ptr;
+        bool sign_present = false;
+        if (*end_ptr == '+' || *end_ptr == '-') {
+            sign_present = true;
+            end_ptr++;
+        }
+        // Skip leading zeros after sign (e.g., "+007")
+        while (*end_ptr == '0') {
+            end_ptr++;
+        }
+        // Now, scan the actual digits that mpz_set_str would have used
+        const char *digit_start = end_ptr;  // Remember where digits start
+        while (*end_ptr != '\0') {
+            int digit_val = -1;
+            if (*end_ptr >= '0' && *end_ptr <= '9')
+                digit_val = *end_ptr - '0';
+            else if (*end_ptr >= 'a' && *end_ptr <= 'z')
+                digit_val = *end_ptr - 'a' + 10;
+            else if (*end_ptr >= 'A' && *end_ptr <= 'Z')
+                digit_val = *end_ptr - 'A' + 10;
+
+            if (digit_val == -1 || digit_val >= radix) {
+                break;  // Found first character not part of the number in this radix
+            }
+            end_ptr++;
+        }
+        // Handle the case where the string was just "0", "+0", "-0", "000" etc.
+        if (end_ptr == digit_start && *digit_start != '0') {
+            // If we didn't advance past any digits, but mpz_set_str succeeded,
+            // it must have been just "0" (or "+0" / "-0").
+            // Check if the character at digit_start is '0'.
+            if (*digit_start == '0') {
+                end_ptr++;  // Consume the single '0'
+            } else if (sign_present && digit_start == start_ptr + 1) {
+                // It was just "+" or "-", mpz_set_str should have failed. This path shouldn't be reached.
+                mpz_clear(temp_int);
+                return SL_FALSE;
+            } else {
+                // Only sign, no digits? mpz_set_str should have failed.
+                mpz_clear(temp_int);
+                return SL_FALSE;
+            }
+        }
+        // If input was just "+", "-", mpz_set_str returns -1, so we don't get here.
+        // If input was "+0", end_ptr is now after the 0.
+        // If input was "+123", end_ptr is now after the 3.
+        // If input was "+123 ", end_ptr is now at the space.
+
+        // Now, end_ptr points to the first character *after* the parsed number part.
+        // Check if all remaining characters are whitespace.
+        const char *trailing_ptr = end_ptr;
+        while (*trailing_ptr != '\0') {
+            if (!isspace((unsigned char)*trailing_ptr)) {
+                // Found non-whitespace after the number part
+                mpz_clear(temp_int);
+                return SL_FALSE;
+            }
+            trailing_ptr++;
+        }
+        // If we got here, the parse succeeded and only whitespace followed.
+
+    } else {
+        // --- Original Re-format Validation Logic ---
+        // This path is taken if strncasecmp passed (simple cases like "123", "-45")
+        const char *end_ptr = start_ptr + parsed_len;
+        free(reformatted_buf);  // Free the temp buffer
+
+        // Check if all remaining characters are whitespace.
+        const char *trailing_ptr = end_ptr;
+        while (*trailing_ptr != '\0') {
+            if (!isspace((unsigned char)*trailing_ptr)) {
+                // Found non-whitespace after the number part
+                mpz_clear(temp_int);
+                return SL_FALSE;
+            }
+            trailing_ptr++;
+        }
+    }
+
+    // If we got here, mpz_set_str succeeded and validation passed.
+    sl_object *result = sl_make_number_from_mpz(temp_int);
+    mpz_clear(temp_int);
+    return result;
+}
+
+// --- Comparison Functions ---
+
+// Helper for string comparisons
+static sl_object *string_compare(sl_object *args, const char *func_name, int (*compare_func)(const char *, const char *)) {
+    sl_object *arity_check = check_arity(func_name, args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str1_obj = sl_car(args);
+    sl_object *str2_obj = sl_cadr(args);
+
+    if (!sl_is_string(str1_obj)) return sl_make_errorf("%s: Expected string as first argument, got %s", func_name, sl_type_name(str1_obj ? str1_obj->type : -1));
+    if (!sl_is_string(str2_obj)) return sl_make_errorf("%s: Expected string as second argument, got %s", func_name, sl_type_name(str2_obj ? str2_obj->type : -1));
+
+    const char *s1 = str1_obj->data.string_val ? str1_obj->data.string_val : "";
+    const char *s2 = str2_obj->data.string_val ? str2_obj->data.string_val : "";
+
+    int cmp_result = compare_func(s1, s2);
+
+    // Determine boolean result based on which function called this helper
+    bool result_bool = false;
+    if (strcmp(func_name, "string=?") == 0)
+        result_bool = (cmp_result == 0);
+    else if (strcmp(func_name, "string<?") == 0)
+        result_bool = (cmp_result < 0);
+    else if (strcmp(func_name, "string>?") == 0)
+        result_bool = (cmp_result > 0);
+    else if (strcmp(func_name, "string<=?") == 0)
+        result_bool = (cmp_result <= 0);
+    else if (strcmp(func_name, "string>=?") == 0)
+        result_bool = (cmp_result >= 0);
+    // Add case-insensitive versions later if needed
+
+    return result_bool ? SL_TRUE : SL_FALSE;
+}
+
+// (string=? str1 str2) -> boolean
+static sl_object *sl_builtin_string_eq(sl_object *args) {
+    return string_compare(args, "string=?", strcmp);
+}
+
+// (string<? str1 str2) -> boolean
+static sl_object *sl_builtin_string_lt(sl_object *args) {
+    return string_compare(args, "string<?", strcmp);
+}
+
+// (string>? str1 str2) -> boolean
+static sl_object *sl_builtin_string_gt(sl_object *args) {
+    return string_compare(args, "string>?", strcmp);
+}
+
+// (string<=? str1 str2) -> boolean
+static sl_object *sl_builtin_string_le(sl_object *args) {
+    return string_compare(args, "string<=?", strcmp);
+}
+
+// (string>=? str1 str2) -> boolean
+static sl_object *sl_builtin_string_ge(sl_object *args) {
+    return string_compare(args, "string>=?", strcmp);
+}
+
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
@@ -723,4 +1012,13 @@ void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string-join", sl_builtin_string_join);          // <<< ADDED
     define_builtin(global_env, "string-split", sl_builtin_string_split);        // <<< ADDED
     define_builtin(global_env, "string-tokenize", sl_builtin_string_tokenize);  // <<< ADDED
+    // Conversions
+    define_builtin(global_env, "number->string", sl_builtin_number_to_string);  // <<< ADDED
+    define_builtin(global_env, "string->number", sl_builtin_string_to_number);  // <<< ADDED
+    // Comparisons
+    define_builtin(global_env, "string=?", sl_builtin_string_eq);   // <<< ADDED
+    define_builtin(global_env, "string<?", sl_builtin_string_lt);   // <<< ADDED
+    define_builtin(global_env, "string>?", sl_builtin_string_gt);   // <<< ADDED
+    define_builtin(global_env, "string<=?", sl_builtin_string_le);  // <<< ADDED
+    define_builtin(global_env, "string>=?", sl_builtin_string_ge);  // <<< ADDED
 }

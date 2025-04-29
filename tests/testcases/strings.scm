@@ -261,4 +261,186 @@
 (define-test "string-tokenize-mixed-delimiters"
   (assert-equal (string-tokenize "a€b c,d" " €,") '("a" "b" "c" "d")))
 
+;; --- number->string ---
+
+(define-test "number->string-zero"
+  (assert-equal (number->string 0) "0"))
+
+(define-test "number->string-positive"
+  (assert-equal (number->string 12345) "12345"))
+
+(define-test "number->string-negative"
+  (assert-equal (number->string -987) "-987"))
+
+(define-test "number->string-large"
+  (assert-equal (number->string 12345678901234567890) "12345678901234567890"))
+
+(define-test "number->string-radix-2"
+  (assert-equal (number->string 10 2) "1010"))
+
+(define-test "number->string-radix-16"
+  (assert-equal (number->string 255 16) "ff"))
+
+(define-test "number->string-radix-16-neg"
+  (assert-equal (number->string -26 16) "-1a"))
+
+(define-test "number->string-radix-36"
+  (assert-equal (number->string 12345 36) "9ix"))
+
+;; Rational tests (radix must be 10)
+(define-test "number->string-rational-simple"
+  (assert-equal (number->string (/ 1 2)) "1/2"))
+
+(define-test "number->string-rational-negative"
+  (assert-equal (number->string (/ -3 4)) "-3/4"))
+
+(define-test "number->string-rational-improper"
+  (assert-equal (number->string (/ 7 3)) "7/3"))
+
+(define-test "number->string-rational-simplified-int"
+  (assert-equal (number->string (/ 10 2)) "5")) ; Should simplify to integer
+
+(define-test "number->string-rational-simplified-neg"
+  (assert-equal (number->string (/ 6 -3)) "-2")) ; Should simplify
+
+;; --- string->number ---
+
+(define-test "string->number-zero"
+  (assert-equal (string->number "0") 0))
+
+(define-test "string->number-positive"
+  (assert-equal (string->number "12345") 12345))
+
+(define-test "string->number-negative"
+  (assert-equal (string->number "-987") -987))
+
+(define-test "string->number-large"
+  (assert-equal (string->number "12345678901234567890") 12345678901234567890))
+
+(define-test "string->number-leading-plus"
+  (assert-equal (string->number "+123") 123))
+
+(define-test "string->number-leading-whitespace"
+  (assert-equal (string->number "  123") 123))
+
+(define-test "string->number-trailing-whitespace"
+  (assert-equal (string->number "123  ") #f)) ; Disallowed trailing non-digits
+
+(define-test "string->number-whitespace-sign"
+  (assert-equal (string->number " -123 ") #f)) ; Disallowed trailing non-digits
+
+(define-test "string->number-radix-2"
+  (assert-equal (string->number "1010" 2) 10))
+
+(define-test "string->number-radix-16"
+  (assert-equal (string->number "ff" 16) 255))
+
+(define-test "string->number-radix-16-caps"
+  (assert-equal (string->number "FF" 16) 255))
+
+(define-test "string->number-radix-16-neg"
+  (assert-equal (string->number "-1a" 16) -26))
+
+(define-test "string->number-radix-36"
+  (assert-equal (string->number "9ix" 36) 12345))
+
+(define-test "string->number-invalid-empty"
+  (assert-equal (string->number "") #f))
+
+(define-test "string->number-invalid-whitespace"
+  (assert-equal (string->number "   ") #f))
+
+(define-test "string->number-invalid-chars"
+  (assert-equal (string->number "12a3") #f)) ; 'a' invalid in radix 10
+
+(define-test "string->number-invalid-radix"
+  (assert-equal (string->number "129" 8) #f)) ; '9' invalid in radix 8
+
+(define-test "string->number-invalid-chars-radix16"
+  (assert-equal (string->number "12fg" 16) #f)) ; 'g' invalid in radix 16
+
+(define-test "string->number-just-sign"
+  (assert-equal (string->number "-") #f))
+
+(define-test "string->number-sign-whitespace"
+  (assert-equal (string->number "+ ") #f))
+
+;; Tests for non-integer formats (should return #f for now)
+(define-test "string->number-fraction-string"
+  (assert-equal (string->number "1/2") #f))
+
+(define-test "string->number-decimal-string"
+  (assert-equal (string->number "123.45") #f))
+
+(define-test "string->number-exponent-string"
+  (assert-equal (string->number "1e3") #f))
+
+;; --- String Comparisons ---
+
+(define-test "string=?-equal"
+  (assert-true (string=? "hello" "hello")))
+
+(define-test "string=?-unequal-len"
+  (assert-false (string=? "hello" "hell")))
+
+(define-test "string=?-unequal-case"
+  (assert-false (string=? "hello" "Hello"))) ; Case-sensitive
+
+(define-test "string=?-unequal-content"
+  (assert-false (string=? "hello" "hellp")))
+
+(define-test "string=?-empty"
+  (assert-true (string=? "" "")))
+
+(define-test "string=?-utf8-equal"
+  (assert-true (string=? "你好" "你好")))
+
+(define-test "string=?-utf8-unequal"
+  (assert-false (string=? "你好" "你好吗")))
+
+(define-test "string<?-less"
+  (assert-true (string<? "apple" "banana")))
+
+(define-test "string<?-equal"
+  (assert-false (string<? "hello" "hello")))
+
+(define-test "string<?-greater"
+  (assert-false (string<? "zebra" "yak")))
+
+(define-test "string<?-case"
+  (assert-true (string<? "Apple" "apple"))) ; Uppercase usually comes first
+
+(define-test "string<?-prefix"
+  (assert-true (string<? "app" "apple")))
+
+(define-test "string<?-utf8"
+  (assert-false (string<? "你好" "世界"))) ; Changed to assert-false (byte order)
+
+(define-test "string>?-greater"
+  (assert-true (string>? "zebra" "yak")))
+
+(define-test "string>?-equal"
+  (assert-false (string>? "hello" "hello")))
+
+(define-test "string>?-less"
+  (assert-false (string>? "apple" "banana")))
+
+(define-test "string<=?-less"
+  (assert-true (string<=? "apple" "banana")))
+
+(define-test "string<=?-equal"
+  (assert-true (string<=? "hello" "hello")))
+
+(define-test "string<=?-greater"
+  (assert-false (string<=? "zebra" "yak")))
+
+(define-test "string>=?-greater"
+  (assert-true (string>=? "zebra" "yak")))
+
+(define-test "string>=?-equal"
+  (assert-true (string>=? "hello" "hello")))
+
+(define-test "string>=?-less"
+  (assert-false (string>=? "apple" "banana")))
+
 ;;; --- END OF STRING TESTS ---

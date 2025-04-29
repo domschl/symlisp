@@ -111,7 +111,7 @@ bool get_number_as_int64(sl_object *obj, int64_t *out, const char *func_name) {
 
 // Helper to get a number object's value as mpq_t
 // Initializes 'out' - caller must clear 'out'
-static bool get_number_as_mpq(sl_object *obj, mpq_t out, const char *func_name) {
+bool get_number_as_mpq(sl_object *obj, mpq_t out, const char *func_name) {
     if (!sl_is_number(obj)) {
         // Error object creation needs refinement
         sl_make_errorf("Error (%s): Expected a number, got type %d.", func_name, obj ? obj->type : -1);

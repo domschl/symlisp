@@ -33,7 +33,7 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Math: denominator, numerator, quotient, gcd, lcm, 
 - [x] Math functions: abs, max, min
 - [x] expt, square, exact-integer-sqrt
-- [ ] float approximation
+- [x] float approximation
 - [ ] Predicate tester functions
 - [ ] String functions
 - [ ] Conversion between types

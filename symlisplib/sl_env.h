@@ -48,4 +48,6 @@ bool sl_env_set_value(sl_object *env_obj, const char *var_name, sl_object *value
  */
 void sl_env_define_value(sl_object *env_obj, const char *var_name, sl_object *value);
 
+void sl_env_dump(sl_object *env_obj, const char *label);
+
 #endif  // SL_ENV_H

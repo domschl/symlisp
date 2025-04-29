@@ -77,6 +77,59 @@ void sl_env_define(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     sl_set_env_bindings(env_obj, new_bindings_head);
 }
 
+// DEBUG: Function to dump the bindings of an environment
+void sl_env_dump(sl_object *env_obj, const char *label) {
+    if (!env_obj || !sl_is_env(env_obj)) {
+        printf("[DEBUG ENV DUMP - %s] Invalid environment object provided.\n", label);
+        return;
+    }
+    printf("[DEBUG ENV DUMP - %s] Env: %p, Outer: %p, Bindings List: %p\n",
+           label, (void *)env_obj, (void *)env_obj->data.env.outer, (void *)env_obj->data.env.bindings);
+
+    sl_object *current_binding_node = env_obj->data.env.bindings;
+    int count = 0;
+    while (sl_is_pair(current_binding_node)) {
+        sl_object *pair = sl_car(current_binding_node);
+        if (sl_is_pair(pair)) {
+            sl_object *sym = sl_car(pair);
+            sl_object *val = sl_cdr(pair);  // Value object
+            const char *sym_name = sl_is_symbol(sym) ? sym->data.symbol_name : "INVALID_SYM";
+            printf("    [%d] Node: %p, Pair: %p, Sym: %s (%p), Val: %p (Type %d), NextNode: %p\n",
+                   count,
+                   (void *)current_binding_node,
+                   (void *)pair,
+                   sym_name,
+                   (void *)sym,
+                   (void *)val,
+                   val ? val->type : -1,  // Print value type
+                   (void *)sl_cdr(current_binding_node));
+
+            // Check specifically for set!
+            if (sl_is_symbol(sym) && strcmp(sym_name, "set!") == 0) {
+                printf("        >>> Found 'set!' binding <<<\n");
+            }
+
+        } else {
+            printf("    [%d] Node: %p, Malformed binding (car is not a pair): %p\n",
+                   count, (void *)current_binding_node, (void *)pair);
+            break;  // Stop if malformed
+        }
+        current_binding_node = sl_cdr(current_binding_node);
+        count++;
+        if (count > 1000) {  // Safety break for potential cycles
+            printf("    Stopping dump after 1000 bindings (potential cycle?).\n");
+            break;
+        }
+    }
+    if (current_binding_node != SL_NIL) {
+        printf("    Bindings list terminated improperly with: %p (Type %d)\n",
+               (void *)current_binding_node, current_binding_node ? current_binding_node->type : -1);
+    } else {
+        printf("    Bindings list terminated properly with NIL.\n");
+    }
+    printf("[DEBUG ENV DUMP - %s] End Dump.\n", label);
+}
+
 // Sets the value of an existing variable in the nearest environment where it's defined.
 bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     if (!sl_is_symbol(symbol)) {

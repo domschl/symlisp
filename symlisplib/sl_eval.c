@@ -170,7 +170,7 @@ top_of_eval:;
 
                     // Unroot op_obj and args before eval
                     sl_gc_remove_root(&op_obj);
-                    sl_gc_remove_root(&args);
+                    // sl_gc_remove_root(&args);
 
                     sl_object *value = sl_eval(value_expr, env);
                     sl_gc_add_root(&value);

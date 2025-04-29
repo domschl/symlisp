@@ -98,6 +98,32 @@ bool fits_int64(const mpz_t val) {
 #endif
 }
 
+// DEBUG: Function to find and print details of a specific symbol in the heap
+void debug_find_symbol(const char *target_name, const char *label) {
+    heap_chunk *chunk = first_chunk;
+    bool found = false;
+    while (chunk) {
+        for (size_t i = 0; i < chunk->object_count; ++i) {
+            sl_object *obj = &chunk->objects[i];
+            // Check if it's a symbol, has a name, and the name matches
+            if (obj->type == SL_TYPE_SYMBOL && obj->data.symbol_name != NULL) {
+                // Use strncmp for safety in case name isn't null-terminated?
+                // For now, assume strdup worked correctly initially.
+                if (strcmp(obj->data.symbol_name, target_name) == 0) {
+                    printf("[DEBUG SYMBOL CHECK - %s] Found '%s' Object: %p, Name Ptr: %p, Name Value: \"%s\"\n",
+                           label, target_name, (void *)obj, (void *)obj->data.symbol_name, obj->data.symbol_name);
+                    found = true;
+                    // Don't return early, check all chunks in case of duplicates (shouldn't happen without interning)
+                }
+            }
+        }
+        chunk = chunk->next_chunk;
+    }
+    if (!found) {
+        printf("[DEBUG SYMBOL CHECK - %s] '%s' symbol object NOT found in heap.\n", label, target_name);
+    }
+}
+
 // --- Memory Management Functions ---
 
 // Allocate and initialize a new heap chunk
@@ -248,10 +274,10 @@ void sl_mem_shutdown() {
             }
         }
         // Free the object array for this chunk
-        printf("[DEBUG] Freeing objects for chunk %p\n", (void *)current_chunk);
+        // printf("[DEBUG] Freeing objects for chunk %p\n", (void *)current_chunk);
         free(current_chunk->objects);
         // Free the chunk management node itself
-        printf("[DEBUG] Freeing chunk node %p\n", (void *)current_chunk);
+        // printf("[DEBUG] Freeing chunk node %p\n", (void *)current_chunk);
         free(current_chunk);
         current_chunk = next;
     }
@@ -310,8 +336,14 @@ void sl_gc_remove_root(sl_object **root_ptr) {
 // Simple allocation from the free list
 sl_object *sl_allocate_object() {
     if (free_list == NULL) {
+        /*
         printf("[DEBUG] free_list is NULL. Running GC...\n");  // DEBUG
+        sl_env_dump(sl_global_env, "Before GC");               // <<< DUMP 1
+        debug_find_symbol("set!", "Before GC");                // <<< ADD
         sl_gc();
+        sl_env_dump(sl_global_env, "After GC");  // <<< DUMP 2
+        debug_find_symbol("set!", "After GC");   // <<< ADD
+        */
         if (free_list == NULL) {
             printf("[DEBUG] free_list still NULL after GC. Allocating new chunk...\n");  // DEBUG
             // Still no memory after GC. Allocate a new chunk.
@@ -437,7 +469,7 @@ sl_object *sl_make_string(const char *str) {
     }
     return new_str;
 }
-
+/*
 sl_object *sl_make_symbol(const char *name) {
     // TODO: Implement symbol interning later.
     sl_object *new_sym = sl_allocate_object();
@@ -461,6 +493,62 @@ sl_object *sl_make_symbol(const char *name) {
     sl_symbol_table = pair;  // Update global only on full success
 
     return new_sym;
+} */
+
+sl_object *sl_make_symbol(const char *name) {
+    // --- Symbol Interning Logic ---
+    sl_object *current_node = sl_symbol_table;
+    sl_gc_add_root(&current_node);  // Root traversal pointer
+
+    while (current_node != SL_NIL) {
+        if (!sl_is_pair(current_node)) {
+            // Should not happen if table is managed correctly
+            fprintf(stderr, "Internal Error: Symbol table corrupted (non-pair node).\n");
+            sl_gc_remove_root(&current_node);
+            return SL_OUT_OF_MEMORY_ERROR;  // Or a specific error
+        }
+        sl_object *sym_obj = sl_car(current_node);
+        if (sl_is_symbol(sym_obj) && sym_obj->data.symbol_name != NULL &&
+            strcmp(sym_obj->data.symbol_name, name) == 0) {
+            // Found existing symbol, return it
+            sl_gc_remove_root(&current_node);
+            return sym_obj;
+        }
+        current_node = sl_cdr(current_node);
+    }
+    sl_gc_remove_root(&current_node);  // Unroot traversal pointer
+    // --- End Symbol Interning Search ---
+
+    // Symbol not found, create a new one
+    sl_object *new_sym = sl_allocate_object();
+    CHECK_ALLOC(new_sym);  // Checks for SL_OUT_OF_MEMORY_ERROR
+
+    sl_gc_add_root(&new_sym);  // Root the new symbol temporarily
+
+    new_sym->type = SL_TYPE_SYMBOL;
+    new_sym->data.symbol_name = strdup(name);
+    if (!new_sym->data.symbol_name) {
+        return_object_to_free_list(new_sym);  // Cleanup allocated object
+        sl_gc_remove_root(&new_sym);
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+
+    // Add the new symbol object to the global symbol table
+    // The table stores pairs: (symbol_obj . next_node)
+    sl_object *new_table_node = sl_make_pair(new_sym, sl_symbol_table);
+    if (new_table_node == SL_OUT_OF_MEMORY_ERROR) {
+        // Failed to make pair, cleanup the symbol object too
+        free(new_sym->data.symbol_name);      // Free the string
+        return_object_to_free_list(new_sym);  // Return the object
+        sl_gc_remove_root(&new_sym);
+        return SL_OUT_OF_MEMORY_ERROR;  // Propagate error
+    }
+
+    // Update global symbol table pointer *after* successful pair creation
+    sl_symbol_table = new_table_node;
+
+    sl_gc_remove_root(&new_sym);  // Unroot the symbol, it's now reachable via sl_symbol_table
+    return new_sym;               // Return the newly created and interned symbol
 }
 
 sl_object *sl_make_pair(sl_object *car_obj, sl_object *cdr_obj) {
@@ -779,11 +867,11 @@ static void sl_gc_sweep() {
                 obj->marked = false;  // Keep marked object, unmark for next cycle
             } else {
                 // --- Add Debugging ---
-                printf("[DEBUG GC SWEEP] Freeing object %p (type: %d)\n", (void *)obj, obj->type);
+                // printf("[DEBUG GC SWEEP] Freeing object %p (type: %d)\n", (void *)obj, obj->type);
                 if (obj->type == SL_TYPE_PAIR) {
                     // Be careful printing car/cdr if they might be invalid!
                     // Maybe just print their addresses?
-                    printf("    Pair CAR: %p, CDR: %p\n", (void *)obj->data.pair.car, (void *)obj->data.pair.cdr);
+                    // printf("    Pair CAR: %p, CDR: %p\n", (void *)obj->data.pair.car, (void *)obj->data.pair.cdr);
                 }
                 bool is_critical = false;
                 if (obj->type == SL_TYPE_SYMBOL && obj->data.symbol_name != NULL) {
@@ -819,7 +907,10 @@ static void sl_gc_sweep() {
                         free(obj->data.string_val);
                         break;
                     case SL_TYPE_SYMBOL:
-                        free(obj->data.symbol_name);
+                        // --- REMOVED: free(obj->data.symbol_name); ---
+                        // Interned symbol names are managed by the symbol table
+                        // and freed only during sl_mem_shutdown.
+                        // free(obj->data.symbol_name);
                         break;
                     case SL_TYPE_ERROR:
                         if (obj != SL_OUT_OF_MEMORY_ERROR) free(obj->data.error_str);

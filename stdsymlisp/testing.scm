@@ -6,6 +6,7 @@
 (define tests-run-count 0)
 (define tests-passed-count 0)
 (define tests-failed-count 0)
+;(define grotzel 0)
 
 ;; assert-equal: Compare two values for equality
 (define assert-equal

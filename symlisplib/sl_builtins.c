@@ -610,6 +610,182 @@ static sl_object *sl_builtin_lcm(sl_object *args) {
     return result_obj;
 }
 
+// (abs num) -> Returns the absolute value of a number.
+static sl_object *sl_builtin_abs(sl_object *args) {
+    sl_object *arity_check = check_arity("abs", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *num_obj = sl_car(args);
+    if (!sl_is_number(num_obj)) {
+        return sl_make_errorf("Error (abs): Argument must be a number.");
+    }
+
+    sl_object *result = NULL;
+    mpq_t num_q, abs_q;
+    // mpq_inits(num_q, abs_q, NULL);
+    sl_gc_add_root(&num_obj);  // Protect input
+
+    if (!get_number_as_mpq(num_obj, num_q, "abs")) {
+        result = sl_make_errorf("Error (abs): Invalid number format.");  // Fallback
+    } else {
+        mpq_init(abs_q);                       // Initialize absolute value
+        mpq_abs(abs_q, num_q);                 // Calculate absolute value
+        result = make_number_from_mpq(abs_q);  // Create SymLisp number (uses static helper in sl_core.c)
+        CHECK_ALLOC(result);
+        mpq_clear(abs_q);  // Free the absolute value mpq_t
+        mpq_clear(num_q);  // Free the original number mpq_t
+    }
+
+    sl_gc_remove_root(&num_obj);
+    // mpq_clears(num_q, abs_q, NULL);
+    return result;
+}
+
+// (max num ...) -> Returns the maximum of one or more numbers.
+static sl_object *sl_builtin_max(sl_object *args) {
+    if (args == SL_NIL) {
+        return sl_make_errorf("Error (max): Requires at least one argument.");
+    }
+
+    sl_object *max_obj = sl_car(args);  // Initialize max with the first argument
+    if (!sl_is_number(max_obj)) {
+        return sl_make_errorf("Error (max): Arguments must be numbers.");
+    }
+
+    mpq_t max_q, current_q;
+    // mpq_inits(max_q, current_q, NULL);
+    sl_gc_add_root(&max_obj);  // Protect current max object
+
+    // Get the first number as mpq
+    if (!get_number_as_mpq(max_obj, max_q, "max")) {
+        // mpq_clears(max_q, current_q, NULL);
+        sl_gc_remove_root(&max_obj);
+        return sl_make_errorf("Error (max): Invalid number format for first argument.");  // Fallback
+    }
+
+    sl_object *current_node = sl_cdr(args);
+    sl_gc_add_root(&current_node);  // Protect arg list traversal
+
+    while (sl_is_pair(current_node)) {
+        sl_object *current_arg = sl_car(current_node);
+        if (!sl_is_number(current_arg)) {
+            // mpq_clears(max_q, current_q, NULL);
+            mpq_clear(max_q);  // Clear max_q
+            sl_gc_remove_root(&current_node);
+            sl_gc_remove_root(&max_obj);
+            return sl_make_errorf("Error (max): Arguments must be numbers.");
+        }
+
+        // Get current argument as mpq
+        if (!get_number_as_mpq(current_arg, current_q, "max")) {
+            // mpq_clears(max_q, current_q, NULL);
+            mpq_clear(max_q);  // Clear max_q
+            sl_gc_remove_root(&current_node);
+            sl_gc_remove_root(&max_obj);
+            return sl_make_errorf("Error (max): Invalid number format for argument.");  // Fallback
+        }
+
+        // Compare and update max if current is greater
+        if (mpq_cmp(current_q, max_q) > 0) {
+            // mpq_clear(max_q);             // Clear old max_q
+            mpq_set(max_q, current_q);    // Update max_q
+            sl_gc_remove_root(&max_obj);  // Unroot old max object
+            max_obj = current_arg;        // Update max_obj pointer
+            sl_gc_add_root(&max_obj);     // Root new max object
+        }
+        mpq_clear(current_q);  // Clear current_q
+
+        current_node = sl_cdr(current_node);
+    }
+
+    // Check for improper list
+    if (current_node != SL_NIL) {
+        // mpq_clears(max_q, current_q, NULL);
+        mpq_clear(max_q);  // Clear old max_q
+        sl_gc_remove_root(&current_node);
+        sl_gc_remove_root(&max_obj);
+        return sl_make_errorf("Error (max): Improper argument list.");
+    }
+
+    // mpq_clears(max_q, current_q, NULL);
+    mpq_clear(max_q);  // Clear old max_q
+    sl_gc_remove_root(&current_node);
+    sl_gc_remove_root(&max_obj);  // Unroot the final max object
+    return max_obj;               // Return the object itself, not a copy
+}
+
+// (min num ...) -> Returns the minimum of one or more numbers.
+static sl_object *sl_builtin_min(sl_object *args) {
+    if (args == SL_NIL) {
+        return sl_make_errorf("Error (min): Requires at least one argument.");
+    }
+
+    sl_object *min_obj = sl_car(args);  // Initialize min with the first argument
+    if (!sl_is_number(min_obj)) {
+        return sl_make_errorf("Error (min): Arguments must be numbers.");
+    }
+
+    mpq_t min_q, current_q;
+    // mpq_inits(min_q, current_q, NULL);
+    sl_gc_add_root(&min_obj);  // Protect current min object
+
+    // Get the first number as mpq
+    if (!get_number_as_mpq(min_obj, min_q, "min")) {
+        // mpq_clears(min_q, current_q, NULL);
+        sl_gc_remove_root(&min_obj);
+        return sl_make_errorf("Error (min): Invalid number format for first argument.");  // Fallback
+    }
+
+    sl_object *current_node = sl_cdr(args);
+    sl_gc_add_root(&current_node);  // Protect arg list traversal
+
+    while (sl_is_pair(current_node)) {
+        sl_object *current_arg = sl_car(current_node);
+        if (!sl_is_number(current_arg)) {
+            // mpq_clears(min_q, current_q, NULL);
+            mpq_clear(min_q);  // Clear min_q
+            sl_gc_remove_root(&current_node);
+            sl_gc_remove_root(&min_obj);
+            return sl_make_errorf("Error (min): Arguments must be numbers.");
+        }
+
+        // Get current argument as mpq
+        if (!get_number_as_mpq(current_arg, current_q, "min")) {
+            // mpq_clears(min_q, current_q, NULL);
+            mpq_clear(min_q);  // Clear min_q
+            sl_gc_remove_root(&current_node);
+            sl_gc_remove_root(&min_obj);
+            return sl_make_errorf("Error (min): Invalid number format for argument.");  // Fallback
+        }
+
+        // Compare and update min if current is smaller
+        if (mpq_cmp(current_q, min_q) < 0) {
+            mpq_set(min_q, current_q);    // Update min_q
+            sl_gc_remove_root(&min_obj);  // Unroot old min object
+            min_obj = current_arg;        // Update min_obj pointer
+            sl_gc_add_root(&min_obj);     // Root new min object
+        }
+        mpq_clear(current_q);  // Clear current_q
+
+        current_node = sl_cdr(current_node);
+    }
+
+    // Check for improper list
+    if (current_node != SL_NIL) {
+        mpq_clear(min_q);  // Clear min_q
+        // mpq_clears(min_q, current_q, NULL);
+        sl_gc_remove_root(&current_node);
+        sl_gc_remove_root(&min_obj);
+        return sl_make_errorf("Error (min): Improper argument list.");
+    }
+
+    mpq_clear(min_q);  // Clear min_q
+    // mpq_clears(min_q, current_q, NULL);
+    sl_gc_remove_root(&current_node);
+    sl_gc_remove_root(&min_obj);  // Unroot the final min object
+    return min_obj;               // Return the object itself, not a copy
+}
+
 // --- Comparison Builtins ---
 
 // (= num1 num2) - Numeric equality
@@ -1146,6 +1322,9 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "quotient", sl_builtin_quotient);        // <<< ADDED
     define_builtin(global_env, "gcd", sl_builtin_gcd);                  // <<< ADDED
     define_builtin(global_env, "lcm", sl_builtin_lcm);                  // <<< ADDED
+    define_builtin(global_env, "abs", sl_builtin_abs);                  // <<< ADDED
+    define_builtin(global_env, "max", sl_builtin_max);                  // <<< ADDED
+    define_builtin(global_env, "min", sl_builtin_min);                  // <<< ADDED
 
     // Comparison
     define_builtin(global_env, "=", sl_builtin_num_eq);

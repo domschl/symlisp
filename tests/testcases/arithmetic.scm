@@ -113,3 +113,31 @@
 (define-test "lcm-one-arg-neg" (assert-equal (lcm -15) 15)) ; Result is non-negative
 (define-test "lcm-no-args" (assert-equal (lcm) 1))
 (define-test "lcm-multiple" (assert-equal (lcm 12 24 6) 24))
+
+;; --- ABS ---
+(define-test "abs-positive-int" (assert-equal (abs 5) 5))
+(define-test "abs-negative-int" (assert-equal (abs -10) 10))
+(define-test "abs-zero" (assert-equal (abs 0) 0))
+(define-test "abs-positive-fraction" (assert-equal (abs 3/4) 3/4))
+(define-test "abs-negative-fraction" (assert-equal (abs -2/3) 2/3))
+(define-test "abs-simplified-fraction" (assert-equal (abs -6/3) 2)) ; Simplifies to -2, then abs is 2
+
+;; --- MAX ---
+(define-test "max-two-pos" (assert-equal (max 10 5) 10))
+(define-test "max-multi-pos" (assert-equal (max 1 5 3 8 2) 8))
+(define-test "max-negatives" (assert-equal (max -10 -5 -20) -5))
+(define-test "max-mixed-sign" (assert-equal (max -10 5 -20 0) 5))
+(define-test "max-one-arg" (assert-equal (max 42) 42))
+(define-test "max-fractions" (assert-equal (max 1/2 3/4 1/4) 3/4))
+(define-test "max-mixed-types" (assert-equal (max 1 3/2 0 -1) 3/2))
+(define-test "max-equal-values" (assert-equal (max 5 5 5) 5))
+
+;; --- MIN ---
+(define-test "min-two-pos" (assert-equal (min 10 5) 5))
+(define-test "min-multi-pos" (assert-equal (min 1 5 3 8 2) 1))
+(define-test "min-negatives" (assert-equal (min -10 -5 -20) -20))
+(define-test "min-mixed-sign" (assert-equal (min -10 5 -20 0) -20))
+(define-test "min-one-arg" (assert-equal (min 42) 42))
+(define-test "min-fractions" (assert-equal (min 1/2 3/4 1/4) 1/4))
+(define-test "min-mixed-types" (assert-equal (min 1 3/2 0 -1) -1))
+(define-test "min-equal-values" (assert-equal (min 5 5 5) 5))

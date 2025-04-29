@@ -16,10 +16,23 @@
 // Helper to look up a symbol and return its value, printing errors
 static sl_object *get_global_var(const char *name) {
     sl_object *sym = sl_make_symbol(name);
-    if (!sym || sym == SL_OUT_OF_MEMORY_ERROR) {
-        fprintf(stderr, "Tester Error: Failed to create symbol '%s'.\n", name);
+    // --- ADDED: More robust check after sl_make_symbol ---
+
+    if (!sym) {
+        fprintf(stderr, "Tester Error: sl_make_symbol('%s') returned NULL.\n", name);
         return NULL;  // Indicate failure
     }
+    if (sym == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "Tester Error: Out of memory creating symbol '%s'.\n", name);
+        return NULL;  // Indicate failure
+    }
+    // Explicitly check if it's a symbol BEFORE passing to lookup
+    if (!sl_is_symbol(sym)) {
+        fprintf(stderr, "Tester Error: sl_make_symbol('%s') did not return a symbol object (type: %d).\n", name, sym->type);
+        return NULL;  // Indicate failure
+    }
+    // --- End Added Checks ---
+
     // Root symbol temporarily during lookup
     sl_gc_add_root(&sym);
     sl_object *binding_pair = sl_env_lookup(sl_global_env, sym);  // Lookup returns the pair

@@ -110,21 +110,24 @@ sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
             return SL_NIL;
         }
 
-        sl_object *bindings = current_env_obj->data.env.bindings;
-        sl_object *current_binding = bindings;
-        while (current_binding != SL_NIL) {
-            if (!sl_is_pair(current_binding)) break;  // Malformed env protection
-            sl_object *pair = sl_car(current_binding);
-            if (!sl_is_pair(pair)) break;  // Malformed env protection
-            sl_object *current_sym = sl_car(pair);
+        sl_object *bindings = current_env_obj->data.env.bindings;  // Get the list of pairs: ((sym1 . val1) (sym2 . val2) ...)
+        sl_object *current_binding_node = bindings;
+        while (sl_is_pair(current_binding_node)) {           // Iterate through the list of pairs
+            sl_object *pair = sl_car(current_binding_node);  // Get the (sym . val) pair
+            if (sl_is_pair(pair)) {                          // Check if it's actually a pair
+                sl_object *current_sym = sl_car(pair);       // Get the symbol from the pair
 
-            // --- CORRECTED COMPARISON ---
-            // if (sl_car(pair) == symbol) { // <<< OLD POINTER COMPARISON
-            if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON
-                // Found the symbol, return its value
-                return pair;  // sl_cdr(pair);
+                // --- CORRECTED COMPARISON ---
+                if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON
+                    // Found the symbol, return the binding pair itself
+                    return pair;  // <<< RETURN THE PAIR
+                }
+            } else {
+                // Malformed binding list, stop searching this frame
+                fprintf(stderr, "Warning (lookup): Malformed binding list encountered in env %p.\n", (void *)current_env_obj);
+                break;
             }
-            current_binding = sl_cdr(current_binding);
+            current_binding_node = sl_cdr(current_binding_node);  // Move to the next node in the list of pairs
         }
         // Not found in current frame, move to outer
         current_env_obj = current_env_obj->data.env.outer;

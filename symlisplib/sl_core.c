@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdarg.h>    // For va_list
 #include <inttypes.h>  // For PRId64
@@ -122,6 +123,103 @@ void debug_find_symbol(const char *target_name, const char *label) {
     if (!found) {
         printf("[DEBUG SYMBOL CHECK - %s] '%s' symbol object NOT found in heap.\n", label, target_name);
     }
+}
+
+// Encodes a Unicode code point into a UTF-8 sequence in buffer.
+// Returns the number of bytes written (1-4).
+// Buffer should have space for at least 4 bytes + null terminator if needed.
+int encode_utf8(uint32_t code_point, char *buffer) {
+    if (code_point <= 0x7F) {  // 1-byte sequence (ASCII)
+        buffer[0] = (char)code_point;
+        return 1;
+    } else if (code_point <= 0x7FF) {  // 2-byte sequence
+        buffer[0] = (char)(0xC0 | (code_point >> 6));
+        buffer[1] = (char)(0x80 | (code_point & 0x3F));
+        return 2;
+    } else if (code_point <= 0xFFFF) {  // 3-byte sequence
+        // Check for surrogates (should not happen for valid code points)
+        if (code_point >= 0xD800 && code_point <= 0xDFFF) return 0;  // Error
+        buffer[0] = (char)(0xE0 | (code_point >> 12));
+        buffer[1] = (char)(0x80 | ((code_point >> 6) & 0x3F));
+        buffer[2] = (char)(0x80 | (code_point & 0x3F));
+        return 3;
+    } else if (code_point <= 0x10FFFF) {  // 4-byte sequence
+        buffer[0] = (char)(0xF0 | (code_point >> 18));
+        buffer[1] = (char)(0x80 | ((code_point >> 12) & 0x3F));
+        buffer[2] = (char)(0x80 | ((code_point >> 6) & 0x3F));
+        buffer[3] = (char)(0x80 | (code_point & 0x3F));
+        return 4;
+    } else {
+        return 0;  // Invalid code point
+    }
+}
+
+// Decodes a single UTF-8 character sequence starting at *ptr.
+// Advances *ptr past the consumed bytes (1-4).
+// Returns the decoded Unicode code point (uint32_t).
+// Returns UTF8_REPLACEMENT_CHAR on decoding errors (invalid sequence, overlong, etc.)
+// and advances *ptr by 1 byte in case of error.
+uint32_t decode_utf8(const char **ptr) {
+    const unsigned char *p = (const unsigned char *)*ptr;
+    uint32_t code_point = 0;
+    int bytes_consumed = 0;
+
+    if (*p == '\0') {
+        return 0;  // End of string, return 0 (or a specific EOF marker if needed)
+    }
+
+    // Determine sequence length and initial bits
+    if (*p <= 0x7F) {  // 1-byte sequence (ASCII 0xxxxxxx)
+        code_point = *p;
+        bytes_consumed = 1;
+    } else if ((*p & 0xE0) == 0xC0) {           // 2-byte sequence (110xxxxx 10xxxxxx)
+        if ((p[1] & 0xC0) != 0x80) goto error;  // Check continuation byte
+        code_point = ((uint32_t)(p[0] & 0x1F) << 6) |
+                     ((uint32_t)(p[1] & 0x3F));
+        bytes_consumed = 2;
+        // Check for overlong encoding (should be >= 0x80)
+        if (code_point < 0x80) goto error;
+    } else if ((*p & 0xF0) == 0xE0) {                                    // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
+        if ((p[1] & 0xC0) != 0x80 || (p[2] & 0xC0) != 0x80) goto error;  // Check continuation bytes
+        code_point = ((uint32_t)(p[0] & 0x0F) << 12) |
+                     ((uint32_t)(p[1] & 0x3F) << 6) |
+                     ((uint32_t)(p[2] & 0x3F));
+        bytes_consumed = 3;
+        // Check for overlong encoding (should be >= 0x800)
+        if (code_point < 0x800) goto error;
+        // Check for surrogates (U+D800 to U+DFFF)
+        if (code_point >= 0xD800 && code_point <= 0xDFFF) goto error;
+    } else if ((*p & 0xF8) == 0xF0) {                                                             // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+        if ((p[1] & 0xC0) != 0x80 || (p[2] & 0xC0) != 0x80 || (p[3] & 0xC0) != 0x80) goto error;  // Check continuation bytes
+        code_point = ((uint32_t)(p[0] & 0x07) << 18) |
+                     ((uint32_t)(p[1] & 0x3F) << 12) |
+                     ((uint32_t)(p[2] & 0x3F) << 6) |
+                     ((uint32_t)(p[3] & 0x3F));
+        bytes_consumed = 4;
+        // Check for overlong encoding (should be >= 0x10000)
+        if (code_point < 0x10000) goto error;
+        // Check if code point is within valid Unicode range (<= U+10FFFF)
+        if (code_point > 0x10FFFF) goto error;
+    } else {
+        // Invalid starting byte (e.g., 10xxxxxx, 11111xxx)
+        goto error;
+    }
+
+    // Check for incomplete sequence (EOF before all bytes read)
+    // This requires knowing the string length or checking for null terminators within the sequence.
+    // Let's assume null-terminated strings for now. Check if any byte within the sequence is '\0'.
+    for (int i = 1; i < bytes_consumed; ++i) {
+        if (p[i] == '\0') goto error;
+    }
+
+    // Success
+    *ptr += bytes_consumed;
+    return code_point;
+
+error:
+    // Invalid sequence, return replacement char and advance by 1 byte
+    (*ptr)++;
+    return UTF8_REPLACEMENT_CHAR;
 }
 
 // --- Memory Management Functions ---
@@ -496,31 +594,15 @@ sl_object *sl_make_string(const char *str) {
     }
     return new_str;
 }
-/*
-sl_object *sl_make_symbol(const char *name) {
-    // TODO: Implement symbol interning later.
-    sl_object *new_sym = sl_allocate_object();
-    CHECK_ALLOC(new_sym);  // <<< ADD CHECK
 
-    new_sym->type = SL_TYPE_SYMBOL;
-    new_sym->data.symbol_name = strdup(name);
-    if (!new_sym->data.symbol_name) {
-        return_object_to_free_list(new_sym);  // <<< Cleanup
-        return SL_OUT_OF_MEMORY_ERROR;
-    }
-
-    // Add to symbol table (requires allocating a pair)
-    sl_object *pair = sl_make_pair(new_sym, sl_symbol_table);
-    if (pair == SL_OUT_OF_MEMORY_ERROR) {  // <<< Check nested allocation
-        // Failed to make pair, cleanup the symbol object too
-        free(new_sym->data.symbol_name);      // Free the string
-        return_object_to_free_list(new_sym);  // Return the object
-        return SL_OUT_OF_MEMORY_ERROR;        // Propagate error
-    }
-    sl_symbol_table = pair;  // Update global only on full success
-
-    return new_sym;
-} */
+// Create a character object
+sl_object *sl_make_char(uint32_t code_point) {
+    sl_object *new_char = sl_allocate_object();
+    CHECK_ALLOC(new_char);
+    new_char->type = SL_TYPE_CHAR;
+    new_char->data.code_point = code_point;
+    return new_char;
+}
 
 sl_object *sl_make_symbol(const char *name) {
     // --- Symbol Interning Logic ---
@@ -853,8 +935,9 @@ static void sl_gc_mark(sl_object *root) {
         sl_gc_mark(root->data.env.bindings);
         sl_gc_mark(root->data.env.outer);
         break;
-    case SL_TYPE_NUMBER:   // Numbers don't reference other sl_objects
-    case SL_TYPE_STRING:   // String data is freed in sweep, no sl_object refs
+    case SL_TYPE_NUMBER:  // Numbers don't reference other sl_objects
+    case SL_TYPE_STRING:  // String data is freed in sweep, no sl_object refs
+    case SL_TYPE_CHAR:
     case SL_TYPE_BOOLEAN:  // Constants or simple value
     case SL_TYPE_SYMBOL:   // Symbol name is freed in sweep (if not interned), no sl_object refs
     case SL_TYPE_NIL:      // Constant
@@ -1072,6 +1155,18 @@ char *sl_object_to_string(sl_object *obj) {
         *p++ = '"';
         *p = '\0';
         return buf;  // Correct: buf is valid here
+    }
+    case SL_TYPE_CHAR: {
+        char utf8_buffer[5];  // Max 4 bytes + null terminator
+        int bytes_written = encode_utf8(obj->data.code_point, utf8_buffer);
+        if (bytes_written > 0) {
+            utf8_buffer[bytes_written] = '\0';  // Null-terminate
+            printf("%s", utf8_buffer);          // Print the UTF-8 sequence
+        } else {
+            // Handle invalid code point? Print placeholder?
+            printf("<?>");
+        }
+        break;
     }
     case SL_TYPE_PAIR: {
         char *car_str = sl_object_to_string(sl_car(obj));

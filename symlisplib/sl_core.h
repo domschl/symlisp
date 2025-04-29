@@ -23,7 +23,8 @@ typedef enum {
     SL_TYPE_PAIR,
     SL_TYPE_FUNCTION,
     SL_TYPE_ENV,
-    SL_TYPE_ERROR  // New type for error objects
+    SL_TYPE_ERROR,  // New type for error objects
+    SL_TYPE_CHAR
 } sl_object_type;
 
 // --- Number Representation ---
@@ -85,7 +86,8 @@ typedef struct sl_object {
             struct sl_object *bindings;
             struct sl_object *outer;
         } env;
-        char *error_str;  // <<< CORRECTED
+        char *error_str;      // <<< CORRECTED
+        uint32_t code_point;  // Store Unicode code point for char
     } data;
 } sl_object;
 
@@ -129,7 +131,8 @@ sl_object *sl_make_number_z(const mpz_t num);                        // Create i
 sl_object *sl_make_number_zz(const mpz_t num_z, const mpz_t den_z);  // Create rational from GMP mpz_t
 sl_object *sl_make_number_q(const mpq_t value);                      // Create rational from GMP mpq_t
 sl_object *sl_make_string(const char *str);
-sl_object *sl_make_symbol(const char *name);  // Interns the symbol
+sl_object *sl_make_char(uint32_t code_point);  // <<< ADDED
+sl_object *sl_make_symbol(const char *name);   // Interns the symbol
 sl_object *sl_make_pair(sl_object *car, sl_object *cdr);
 sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env);
 sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *args));
@@ -172,6 +175,7 @@ void sl_mem_shutdown();
 #define sl_is_bignum(obj) (sl_is_number(obj) && (obj)->data.number.is_bignum)
 #define sl_is_smallnum(obj) (sl_is_number(obj) && !(obj)->data.number.is_bignum)
 #define sl_is_string(obj) ((obj) != NULL && (obj)->type == SL_TYPE_STRING)
+#define sl_is_char(obj) ((obj) != NULL && (obj)->type == SL_TYPE_CHAR)  // <<< ADDED
 #define sl_is_boolean(obj) ((obj) != NULL && (obj)->type == SL_TYPE_BOOLEAN)
 #define sl_is_true(obj) ((obj) == SL_TRUE)
 #define sl_is_false(obj) ((obj) == SL_FALSE || (obj) == SL_NIL)  // Scheme standard: nil is falsey
@@ -224,6 +228,12 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop);
 #define sl_string_value(obj) ((obj)->data.string_val)  // <<< CORRECTED
 #define sl_symbol_name(obj) ((obj)->data.symbol_name)  // <<< CORRECTED
 #define sl_boolean_value(obj) ((obj)->data.boolean)    // Direct bool value
+
+// UTF-8 helpers
+// Unicode Replacement Character U+FFFD
+#define UTF8_REPLACEMENT_CHAR 0xFFFD
+int encode_utf8(uint32_t code_point, char *buffer);
+uint32_t decode_utf8(const char **ptr);
 
 // Function accessors
 #define sl_closure_params(obj) ((obj)->data.function.def.closure.params)

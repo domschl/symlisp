@@ -46,6 +46,7 @@ top_of_eval:;
     case SL_TYPE_BOOLEAN:
     case SL_TYPE_NUMBER:
     case SL_TYPE_STRING:
+    case SL_TYPE_CHAR:
     case SL_TYPE_ERROR:  // Errors evaluate to themselves
         result = obj;    // Self-evaluating
         break;

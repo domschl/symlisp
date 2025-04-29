@@ -195,6 +195,70 @@ static sl_object *read_atom(FILE *stream) {
 
 // --- Parsing Implementation ---
 
+static sl_object *parse_character_literal(const char **input) {
+    const char *start = *input;  // Points right after #\
+
+    // Check for named characters first
+    if (strncmp(start, "newline", 7) == 0 && !isalnum((unsigned char)start[7])) {
+        *input += 7;
+        return sl_make_char(0x0A);  // Use code point for newline
+    } else if (strncmp(start, "space", 5) == 0 && !isalnum((unsigned char)start[5])) {
+        *input += 5;
+        return sl_make_char(0x20);  // Use code point for space
+    } else if (strncmp(start, "tab", 3) == 0 && !isalnum((unsigned char)start[3])) {
+        *input += 3;
+        return sl_make_char(0x09);  // Use code point for tab
+    }
+    // TODO: Add other named characters (#\return, #\alarm etc.)
+    // TODO: Add #\uXXXX and #\UXXXXXXXX parsing
+    // TODO: Add direct UTF-8 character parsing (e.g., #\é)
+
+    // Check for hex escape #\xHH
+    if (start[0] == 'x' && isxdigit((unsigned char)start[1])) {
+        char hex_str[3] = {0};
+        hex_str[0] = start[1];
+        if (isxdigit((unsigned char)start[2])) {  // Two hex digits
+            hex_str[1] = start[2];
+            *input += 3;  // Consumed xHH
+        } else {          // Only one hex digit
+            *input += 2;  // Consumed xH
+        }
+        long char_code = strtol(hex_str, NULL, 16);
+        // Basic check for valid Unicode range (up to 0x10FFFF)
+        if (char_code >= 0 && char_code <= 0x10FFFF &&
+            !(char_code >= 0xD800 && char_code <= 0xDFFF)) {  // Exclude surrogates
+            return sl_make_char((uint32_t)char_code);
+        } else {
+            fprintf(stderr, "Error: Invalid hex character code #\\x%s\n", hex_str);  // <<< REPLACE
+            return SL_NIL;                                                           // Indicate parse error
+        }
+    }
+
+    // Otherwise, it must be a single ASCII character literal for now
+    // (UTF-8 decoding needed for multi-byte chars like #\é)
+    if (start[0] == '\0') {
+        fprintf(stderr, "Error: Unexpected end of input after #\\\n");  // <<< REPLACE
+        return SL_NIL;
+    }
+
+    // Create a temporary pointer to pass to the decoder
+    const char *char_ptr = start;
+    uint32_t code_point = decode_utf8(&char_ptr);  // decode_utf8 advances char_ptr
+
+    if (code_point == 0 && char_ptr == start) {  // Check if decode_utf8 hit EOF immediately
+        fprintf(stderr, "Error: Unexpected end of input after #\\\n");
+        return SL_NIL;
+    }
+    if (code_point == UTF8_REPLACEMENT_CHAR) {
+        // Decoder encountered an error
+        fprintf(stderr, "Error: Invalid UTF-8 sequence for character literal starting with byte 0x%02X\n", (unsigned char)*start);
+        *input = char_ptr;  // Update main pointer past the invalid byte
+        return SL_NIL;
+    }
+    *input = char_ptr;                // Update main pointer past the consumed bytes
+    return sl_make_char(code_point);  // Cast ASCII char to code point
+}
+
 // Skips whitespace characters and Scheme comments (;) in the input string.
 // Modifies the input pointer to point after the skipped characters.
 void skip_whitespace_and_comments(const char **input) {
@@ -389,6 +453,26 @@ static sl_object *parse_list(const char **input) {
 // Parses an atom (symbol, number, boolean)
 static sl_object *parse_atom(const char **input) {
     const char *start = *input;
+    // --- Handle # literals first ---
+    if (start[0] == '#') {
+        if (start[1] == 't' && !is_delimiter(start[2])) {  // Check delimiter
+            *input += 2;
+            return SL_TRUE;
+        } else if (start[1] == 'f' && !is_delimiter(start[2])) {  // Check delimiter
+            *input += 2;
+            return SL_FALSE;
+        } else if (start[1] == '\\') {
+            *input += 2;                            // Consume #\
+            // --- CALL PARSE_CHARACTER_LITERAL ---
+            return parse_character_literal(input);  // <<< CORRECTED CALL
+        }
+        // Add other # literals here (#;, #! etc.) if needed
+
+        // If # is followed by something else unexpected for a literal,
+        // it might be part of a symbol (though unusual). Let it fall through.
+    }
+
+    // --- If not a # literal, proceed to read the atom token ---
     const char *ptr = start;
 
     // Read until a delimiter is found

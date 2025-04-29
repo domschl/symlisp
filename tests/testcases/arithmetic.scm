@@ -176,4 +176,27 @@
 ; Error case (optional)
 ; (define-test "eisqrt-error-negative" (assert-error? (exact-integer-sqrt -10)))
 
+;; --- FLOAT ---
+(define-test "float-int-default" (assert-equal (float 123) "123.0000000000")) ; Default 10 places
+(define-test "float-int-prec-3" (assert-equal (float 123 3) "123.000"))
+(define-test "float-int-prec-0" (assert-equal (float 123 0) "123"))
+(define-test "float-neg-int-default" (assert-equal (float -45) "-45.0000000000"))
+(define-test "float-neg-int-prec-2" (assert-equal (float -45 2) "-45.00"))
+(define-test "float-zero-default" (assert-equal (float 0) "0.0000000000"))
+(define-test "float-zero-prec-0" (assert-equal (float 0 0) "0"))
+
+(define-test "float-fraction-1/2-default" (assert-equal (float 1/2) "0.5000000000"))
+(define-test "float-fraction-1/2-prec-3" (assert-equal (float 1/2 3) "0.500"))
+(define-test "float-fraction-1/3-default" (assert-equal (float 1/3) "0.3333333333")) ; Rounded
+(define-test "float-fraction-1/3-prec-5" (assert-equal (float 1/3 5) "0.33333"))
+(define-test "float-fraction-2/3-default" (assert-equal (float 2/3) "0.6666666667")) ; Rounded up
+(define-test "float-fraction-2/3-prec-4" (assert-equal (float 2/3 4) "0.6667"))
+(define-test "float-fraction-neg-1/4-default" (assert-equal (float -1/4) "-0.2500000000"))
+(define-test "float-fraction-neg-1/4-prec-1" (assert-equal (float -1/4 1) "-0.3")) ; Rounded
+(define-test "float-fraction-neg-1/4-prec-2" (assert-equal (float -1/4 2) "-0.25"))
+(define-test "float-fraction-small-prec-5" (assert-equal (float 1/8 5) "0.12500"))
+(define-test "float-fraction-very-small-prec-5" (assert-equal (float 1/1000 5) "0.00100"))
+(define-test "float-fraction-mixed-prec-3" (assert-equal (float 123/8 3) "15.375"))
+(define-test "float-fraction-mixed-round-prec-2" (assert-equal (float 123/8 2) "15.38")) ; 15.375 rounds up
+
 ;;; --- END OF ARITHMETIC TESTS ---

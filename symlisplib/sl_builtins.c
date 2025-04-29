@@ -975,6 +975,165 @@ static sl_object *sl_builtin_exact_integer_sqrt(sl_object *args) {
     return result_obj;
 }
 
+#define DEFAULT_FLOAT_PRECISION 10  // Default decimal places if not specified
+
+// (float num [precision]) -> Returns string representation of num to precision decimal places.
+static sl_object *sl_builtin_float(sl_object *args) {
+    // Arity check: 1 or 2 arguments
+    size_t arg_count = 0;
+    sl_object *current = args;
+    while (sl_is_pair(current)) {
+        arg_count++;
+        current = sl_cdr(current);
+    }
+    if (current != SL_NIL || (arg_count != 1 && arg_count != 2)) {
+        return sl_make_errorf("Error (float): Expected 1 or 2 arguments, got %zu in %s list.",
+                              arg_count, (current == SL_NIL ? "a proper" : "an improper"));
+    }
+
+    sl_object *num_obj = sl_car(args);
+    sl_object *prec_obj = (arg_count == 2) ? sl_cadr(args) : NULL;
+    long precision = DEFAULT_FLOAT_PRECISION;  // Use long for precision value
+
+    if (!sl_is_number(num_obj)) {
+        return sl_make_errorf("Error (float): First argument must be a number.");
+    }
+
+    // Validate precision argument if provided
+    if (prec_obj) {
+        if (!sl_is_number(prec_obj) || !sl_number_is_integer(prec_obj)) {
+            return sl_make_errorf("Error (float): Precision argument must be an integer.");
+        }
+        // Get precision value, check range
+        mpz_t prec_z;
+        mpz_init(prec_z);
+        sl_number_get_z(prec_obj, prec_z);  // We know it's an integer
+        if (!mpz_fits_slong_p(prec_z) || mpz_sgn(prec_z) < 0) {
+            mpz_clear(prec_z);
+            return sl_make_errorf("Error (float): Precision must be a non-negative integer fitting in a long.");
+        }
+        precision = mpz_get_si(prec_z);
+        mpz_clear(prec_z);
+    }
+
+    // --- Perform Conversion ---
+    sl_object *result_obj = NULL;
+    mpq_t num_q;
+    mpz_t num_z, den_z, scale_factor, scaled_num, scaled_result, scaled_rem, two_rem;
+    bool is_neg = false;
+
+    // Initialize GMP variables
+    // mpq_init(num_q);  // Init in get_number_as_mpq!
+    mpz_inits(num_z, den_z, scale_factor, scaled_num, scaled_result, scaled_rem, two_rem, NULL);
+
+    sl_gc_add_root(&num_obj);                 // Protect input number
+    if (prec_obj) sl_gc_add_root(&prec_obj);  // Protect precision if it exists
+
+    // Get the number as mpq_t
+    if (!get_number_as_mpq(num_obj, num_q, "float")) {
+        result_obj = sl_make_errorf("Error (float): Invalid number format.");  // Fallback
+        goto cleanup_float;
+    }
+
+    // Handle sign
+    if (mpq_sgn(num_q) < 0) {
+        is_neg = true;
+        mpq_abs(num_q, num_q);  // Work with absolute value
+    }
+
+    // Get absolute numerator and denominator
+    mpq_get_num(num_z, num_q);
+    mpq_get_den(den_z, num_q);
+
+    // Calculate scale factor = 10^precision
+    mpz_ui_pow_ui(scale_factor, 10, precision);
+
+    // Calculate scaled numerator = num_z * scale_factor
+    mpz_mul(scaled_num, num_z, scale_factor);
+
+    // Perform division with remainder: scaled_num / den_z
+    mpz_tdiv_qr(scaled_result, scaled_rem, scaled_num, den_z);
+
+    // Rounding: Add 1 to scaled_result if 2 * remainder >= denominator
+    mpz_mul_ui(two_rem, scaled_rem, 2);
+    if (mpz_cmp(two_rem, den_z) >= 0) {
+        mpz_add_ui(scaled_result, scaled_result, 1);
+    }
+
+    // Convert the scaled integer result to string
+    // Add 2 extra bytes: 1 for potential sign, 1 for null terminator
+    // Add 'precision' extra bytes: for potential "0." prefix and padding
+    size_t result_str_len_needed = mpz_sizeinbase(scaled_result, 10) + 2 + precision;
+    char *result_str = malloc(result_str_len_needed);
+    if (!result_str) {
+        result_obj = SL_OUT_OF_MEMORY_ERROR;
+        goto cleanup_float;
+    }
+    mpz_get_str(result_str, 10, scaled_result);
+
+    size_t num_digits = strlen(result_str);
+    size_t final_str_len = 0;
+    char *final_str = NULL;
+
+    // Allocate final string buffer (consider sign, decimal point, padding)
+    // Max length: sign + integer_digits + '.' + precision_digits + null
+    final_str_len = (is_neg ? 1 : 0) + num_digits + (precision > 0 ? 1 : 0) + 1;
+    // If result is small (e.g., 0.001 with precision 3 -> scaled "1"), need padding
+    if (precision > 0 && num_digits <= precision) {
+        final_str_len += (precision - num_digits + 1);  // Need space for "0." and leading zeros
+    }
+    final_str = malloc(final_str_len);
+    if (!final_str) {
+        free(result_str);
+        result_obj = SL_OUT_OF_MEMORY_ERROR;
+        goto cleanup_float;
+    }
+
+    // Format the final string with decimal point and sign
+    char *p = final_str;
+    if (is_neg) {
+        *p++ = '-';
+    }
+
+    if (precision == 0) {
+        // No decimal part, just copy the integer string
+        strcpy(p, result_str);
+    } else if (num_digits > precision) {
+        // Integer part exists
+        size_t int_part_len = num_digits - precision;
+        strncpy(p, result_str, int_part_len);
+        p += int_part_len;
+        *p++ = '.';
+        strcpy(p, result_str + int_part_len);
+    } else {
+        // No integer part (or integer part is 0)
+        *p++ = '0';
+        *p++ = '.';
+        // Add leading zeros if needed
+        for (size_t i = 0; i < (precision - num_digits); ++i) {
+            *p++ = '0';
+        }
+        strcpy(p, result_str);
+    }
+
+    result_obj = sl_make_string(final_str);  // Creates string object (copies final_str)
+    CHECK_ALLOC(result_obj);
+
+    // Free intermediate strings
+    free(result_str);
+    free(final_str);
+
+cleanup_float:
+    // Clear all GMP variables
+    mpq_clear(num_q);
+    mpz_clears(num_z, den_z, scale_factor, scaled_num, scaled_result, scaled_rem, two_rem, NULL);
+
+    // Unroot objects
+    sl_gc_remove_root(&num_obj);
+    if (prec_obj) sl_gc_remove_root(&prec_obj);
+    return result_obj;
+}
+
 // --- Comparison Builtins ---
 
 // (= num1 num2) - Numeric equality
@@ -1538,6 +1697,7 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "expt", sl_builtin_expt);                              // <<< ADDED
     define_builtin(global_env, "square", sl_builtin_square);                          // <<< ADDED
     define_builtin(global_env, "exact-integer-sqrt", sl_builtin_exact_integer_sqrt);  // <<< ADDED
+    define_builtin(global_env, "float", sl_builtin_float);                            // <<< ADDED
 
     // Comparison
     define_builtin(global_env, "=", sl_builtin_num_eq);

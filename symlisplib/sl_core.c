@@ -29,7 +29,7 @@ static size_t free_count = 0;
 
 // --- GC Root Set ---
 // Simple dynamic array for roots
-static sl_object **gc_roots = NULL;
+static sl_object ***gc_roots = NULL;
 static size_t root_count = 0;
 static size_t root_capacity = 0;
 
@@ -208,7 +208,7 @@ void sl_mem_init(size_t first_chunk_size) {
 
     // Initialize GC roots array
     root_capacity = 16;  // Initial capacity
-    gc_roots = malloc(root_capacity * sizeof(sl_object *));
+    gc_roots = malloc(root_capacity * sizeof(sl_object **));
     if (!gc_roots) {
         perror("Failed to allocate GC roots array");
         // Cleanup?
@@ -283,7 +283,7 @@ void sl_gc_add_root(sl_object **root_ptr) {
     if (root_count >= root_capacity) {
         // Resize roots array
         size_t new_capacity = root_capacity == 0 ? 16 : root_capacity * 2;
-        sl_object **new_roots = realloc(gc_roots, new_capacity * sizeof(sl_object *));
+        sl_object ***new_roots = realloc(gc_roots, new_capacity * sizeof(sl_object **));
         if (!new_roots) {
             fprintf(stderr, "Error: Failed to resize GC roots array\n");
             // Cannot add root, potential memory leak if object becomes unreachable otherwise
@@ -818,9 +818,7 @@ void sl_gc() {
 
     // 1. Mark all objects reachable from the root set
     for (size_t i = 0; i < root_count; ++i) {
-        // Cast gc_roots[i] to sl_object** for initialization (though types match)
-        // sl_object **root_ptr = (sl_object **)gc_roots[i];  // <<< CAST ADDED
-        sl_object **root_ptr = gc_roots[i];
+        sl_object **root_ptr = (sl_object **)(gc_roots[i]);
         // Check if the root pointer itself is valid AND if the object it points to is valid
         if (root_ptr && *root_ptr) {
             sl_gc_mark(*root_ptr);

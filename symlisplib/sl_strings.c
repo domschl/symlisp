@@ -786,6 +786,10 @@ static sl_object *sl_builtin_number_to_string(sl_object *args) {
     return result;  // sl_make_string copied it
 }
 
+// (string->number string [radix]) -> number or #f
+// Converts a string representation to a number (currently integer only).
+// Returns #f if the string is not a valid integer representation in the given radix,
+// or if there are any non-whitespace characters after the number part.
 static sl_object *sl_builtin_string_to_number(sl_object *args) {
     sl_object *arity_check = check_arity_range("string->number", args, 1, 2);
     if (arity_check != SL_TRUE) return arity_check;
@@ -807,137 +811,110 @@ static sl_object *sl_builtin_string_to_number(sl_object *args) {
     const char *input_str_orig = str_obj->data.string_val;
     if (!input_str_orig) input_str_orig = "";
 
-    const char *start_ptr = input_str_orig;
+    const char *parse_start_ptr = input_str_orig;
     // Skip leading whitespace
-    while (*start_ptr && isspace((unsigned char)*start_ptr)) {
-        start_ptr++;
+    while (*parse_start_ptr && isspace((unsigned char)*parse_start_ptr)) {
+        parse_start_ptr++;
     }
 
-    // Check for empty string after whitespace
-    if (*start_ptr == '\0') return SL_FALSE;
+    // --- Handle Optional Leading Sign ---
+    const char *gmp_start_ptr = parse_start_ptr;    // Pointer to pass to GMP
+    const char *digit_start_ptr = parse_start_ptr;  // Pointer to the first potential digit
+    bool sign_present = false;
+    if (*gmp_start_ptr == '+') {
+        sign_present = true;
+        gmp_start_ptr++;    // Skip the '+' for GMP parsing
+        digit_start_ptr++;  // First digit is after '+'
+    } else if (*gmp_start_ptr == '-') {
+        sign_present = true;
+        // Keep the '-' for GMP parsing
+        digit_start_ptr++;  // First digit is after '-'
+    }
+
+    // --- Pre-validation: Check for empty, just sign, or invalid first digit ---
+    if (*digit_start_ptr == '\0') {  // Empty, just '+', or just '-' after whitespace
+        return SL_FALSE;
+    }
+    // Check if first char *after* any sign is valid for radix
+    int first_digit_val = -1;
+    if (*digit_start_ptr >= '0' && *digit_start_ptr <= '9')
+        first_digit_val = *digit_start_ptr - '0';
+    else if (*digit_start_ptr >= 'a' && *digit_start_ptr <= 'z')
+        first_digit_val = *digit_start_ptr - 'a' + 10;
+    else if (*digit_start_ptr >= 'A' && *digit_start_ptr <= 'Z')
+        first_digit_val = *digit_start_ptr - 'A' + 10;
+
+    if (first_digit_val == -1 || first_digit_val >= radix) {
+        // First char after sign is invalid for the radix
+        // printf("Invalid first char after sign\n"); // Optional debug
+        return SL_FALSE;
+    }
+    // --- End Pre-validation ---
 
     // --- Use GMP to parse the integer ---
     mpz_t temp_int;
     mpz_init(temp_int);
 
-    // mpz_set_str returns 0 on success, -1 on failure
-    int ret = mpz_set_str(temp_int, start_ptr, radix);
+    // Pass gmp_start_ptr (which might be after a '+', but includes '-') to mpz_set_str
+    int ret = mpz_set_str(temp_int, gmp_start_ptr, radix);
 
     if (ret != 0) {
-        // Basic parse failed (e.g., empty after sign, invalid char for radix)
+        // Parse failed (e.g., invalid char later in string for radix)
         mpz_clear(temp_int);
+        // printf("Parse failed\n"); // Optional debug
         return SL_FALSE;
     }
 
-    // --- Validation: Check trailing characters using re-formatting ---
+    // --- Validation: Find where the valid number sequence *should* end ---
+    // Scan manually from gmp_start_ptr to find the end of the valid sequence.
+    const char *end_ptr = gmp_start_ptr;
+    bool first_char = true;
+    while (*end_ptr != '\0') {
+        int digit_val = -1;
+        bool is_sign = (*end_ptr == '-' || *end_ptr == '+');  // '+' shouldn't be here now
 
-    // Re-format the parsed number back to string to get its exact representation length
-    // mpz_sizeinbase + 2 gives enough space (sign + null)
-    size_t reformatted_buf_size = mpz_sizeinbase(temp_int, radix) + 2;
-    char *reformatted_buf = malloc(reformatted_buf_size);
-    if (!reformatted_buf) {
-        mpz_clear(temp_int);
-        return SL_OUT_OF_MEMORY_ERROR;
-    }
-    mpz_get_str(reformatted_buf, radix, temp_int);  // Format back
-    size_t parsed_len = strlen(reformatted_buf);
-
-    // Check if the original string *starts* with this exact representation
-    // (case-insensitive compare needed for hex?)
-    // mpz_set_str handles case, mpz_get_str produces lowercase hex.
-    // Let's try strncasecmp for safety, though strncmp might work if input was already lowercase/numeric.
-    if (strncasecmp(start_ptr, reformatted_buf, parsed_len) != 0) {
-        // This case is tricky. Example: input "+05", reformatted "5". Length mismatch.
-        // Example: input "0xff", reformatted "ff". Length mismatch.
-        // mpz_set_str is more lenient than mpz_get_str format.
-        // Let's revert to manual check after successful parse.
-
-        free(reformatted_buf);  // Free buffer before trying alternative
-
-        // --- Alternative Validation: Manually find end of parsed part ---
-        const char *end_ptr = start_ptr;
-        bool sign_present = false;
-        if (*end_ptr == '+' || *end_ptr == '-') {
-            sign_present = true;
-            end_ptr++;
+        if (is_sign && first_char) {
+            // Allow leading sign (only '-') at the very beginning of gmp_start_ptr
+            if (*end_ptr == '+') {
+                mpz_clear(temp_int);
+                return SL_FALSE;
+            }
+            // It's a '-', continue scanning
+        } else if (*end_ptr >= '0' && *end_ptr <= '9') {
+            digit_val = *end_ptr - '0';
+        } else if (*end_ptr >= 'a' && *end_ptr <= 'z') {
+            digit_val = *end_ptr - 'a' + 10;
+        } else if (*end_ptr >= 'A' && *end_ptr <= 'Z') {
+            digit_val = *end_ptr - 'A' + 10;
+        } else {
+            // Not a sign, not a valid digit for any radix
+            break;
         }
-        // Skip leading zeros after sign (e.g., "+007")
-        while (*end_ptr == '0') {
-            end_ptr++;
-        }
-        // Now, scan the actual digits that mpz_set_str would have used
-        const char *digit_start = end_ptr;  // Remember where digits start
-        while (*end_ptr != '\0') {
-            int digit_val = -1;
-            if (*end_ptr >= '0' && *end_ptr <= '9')
-                digit_val = *end_ptr - '0';
-            else if (*end_ptr >= 'a' && *end_ptr <= 'z')
-                digit_val = *end_ptr - 'a' + 10;
-            else if (*end_ptr >= 'A' && *end_ptr <= 'Z')
-                digit_val = *end_ptr - 'A' + 10;
 
+        // If it wasn't the initial sign, check if the digit is valid for the current radix
+        if (!is_sign || !first_char) {
             if (digit_val == -1 || digit_val >= radix) {
                 break;  // Found first character not part of the number in this radix
             }
-            end_ptr++;
         }
-        // Handle the case where the string was just "0", "+0", "-0", "000" etc.
-        if (end_ptr == digit_start && *digit_start != '0') {
-            // If we didn't advance past any digits, but mpz_set_str succeeded,
-            // it must have been just "0" (or "+0" / "-0").
-            // Check if the character at digit_start is '0'.
-            if (*digit_start == '0') {
-                end_ptr++;  // Consume the single '0'
-            } else if (sign_present && digit_start == start_ptr + 1) {
-                // It was just "+" or "-", mpz_set_str should have failed. This path shouldn't be reached.
-                mpz_clear(temp_int);
-                return SL_FALSE;
-            } else {
-                // Only sign, no digits? mpz_set_str should have failed.
-                mpz_clear(temp_int);
-                return SL_FALSE;
-            }
-        }
-        // If input was just "+", "-", mpz_set_str returns -1, so we don't get here.
-        // If input was "+0", end_ptr is now after the 0.
-        // If input was "+123", end_ptr is now after the 3.
-        // If input was "+123 ", end_ptr is now at the space.
 
-        // Now, end_ptr points to the first character *after* the parsed number part.
-        // Check if all remaining characters are whitespace.
-        const char *trailing_ptr = end_ptr;
-        while (*trailing_ptr != '\0') {
-            if (!isspace((unsigned char)*trailing_ptr)) {
-                // Found non-whitespace after the number part
-                mpz_clear(temp_int);
-                return SL_FALSE;
-            }
-            trailing_ptr++;
-        }
-        // If we got here, the parse succeeded and only whitespace followed.
-
-    } else {
-        // --- Original Re-format Validation Logic ---
-        // This path is taken if strncasecmp passed (simple cases like "123", "-45")
-        const char *end_ptr = start_ptr + parsed_len;
-        free(reformatted_buf);  // Free the temp buffer
-
-        // Check if all remaining characters are whitespace.
-        const char *trailing_ptr = end_ptr;
-        while (*trailing_ptr != '\0') {
-            if (!isspace((unsigned char)*trailing_ptr)) {
-                // Found non-whitespace after the number part
-                mpz_clear(temp_int);
-                return SL_FALSE;
-            }
-            trailing_ptr++;
-        }
+        end_ptr++;
+        first_char = false;  // No longer the first character
     }
 
-    // If we got here, mpz_set_str succeeded and validation passed.
-    sl_object *result = sl_make_number_from_mpz(temp_int);
-    mpz_clear(temp_int);
-    return result;
+    // After the loop, end_ptr points to the first character *after* the number part.
+    // For the conversion to be valid, this character MUST be '\0'.
+    if (*end_ptr == '\0') {
+        // Success: The entire string (from gmp_start_ptr) was consumed.
+        sl_object *result = sl_make_number_from_mpz(temp_int);
+        mpz_clear(temp_int);
+        return result;
+    } else {
+        // Failure: Trailing characters found after the number part.
+        // printf("Trail\n"); // Optional debug
+        mpz_clear(temp_int);
+        return SL_FALSE;
+    }
 }
 
 // --- Comparison Functions ---

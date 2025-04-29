@@ -51,7 +51,30 @@ void sl_env_define(sl_object *env_obj, sl_object *symbol, sl_object *value) {
 
     // Not found in this frame, create a new binding pair and prepend it
     sl_object *new_binding_pair = sl_make_pair(symbol, value);
-    sl_set_env_bindings(env_obj, sl_make_pair(new_binding_pair, sl_env_bindings(env_obj)));
+    if (!new_binding_pair || new_binding_pair == SL_OUT_OF_MEMORY_ERROR) {
+        // Handle allocation failure for the inner pair
+        fprintf(stderr, "Error (define): Failed to allocate binding pair.\n");
+        // Potentially return an error object or signal failure differently
+        return;
+    }
+
+    // --- FIX: Root the intermediate pair before the next allocation ---
+    sl_gc_add_root(&new_binding_pair);
+
+    sl_object *new_bindings_head = sl_make_pair(new_binding_pair, sl_env_bindings(env_obj));
+
+    // --- FIX: Unroot the intermediate pair ---
+    sl_gc_remove_root(&new_binding_pair);
+
+    if (!new_bindings_head || new_bindings_head == SL_OUT_OF_MEMORY_ERROR) {
+        // Handle allocation failure for the outer pair
+        fprintf(stderr, "Error (define): Failed to allocate updated bindings list head.\n");
+        // The inner new_binding_pair might leak here until next GC if not handled
+        return;
+    }
+
+    // Update the environment's bindings list
+    sl_set_env_bindings(env_obj, new_bindings_head);
 }
 
 // Sets the value of an existing variable in the nearest environment where it's defined.

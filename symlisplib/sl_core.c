@@ -11,7 +11,7 @@
 
 // Define buffer size for error messages formatted by sl_make_errorf
 #define ERROR_BUFFER_SIZE 256
-#define DEFAULT_CHUNK_OBJECT_COUNT 8192  // Objects per chunk
+#define DEFAULT_CHUNK_OBJECT_COUNT 512  // Objects per chunk
 
 // --- Memory Management Variables ---
 // Structure to manage heap chunks
@@ -778,7 +778,38 @@ static void sl_gc_sweep() {
             if (obj->marked) {
                 obj->marked = false;  // Keep marked object, unmark for next cycle
             } else {
-                // Unreachable or already FREE: free associated resources and add to free list
+                // --- Add Debugging ---
+                printf("[DEBUG GC SWEEP] Freeing object %p (type: %d)\n", (void *)obj, obj->type);
+                if (obj->type == SL_TYPE_PAIR) {
+                    // Be careful printing car/cdr if they might be invalid!
+                    // Maybe just print their addresses?
+                    printf("    Pair CAR: %p, CDR: %p\n", (void *)obj->data.pair.car, (void *)obj->data.pair.cdr);
+                }
+                bool is_critical = false;
+                if (obj->type == SL_TYPE_SYMBOL && obj->data.symbol_name != NULL) {
+                    // Check for specific critical symbols being freed
+                    if (strcmp(obj->data.symbol_name, "set!") == 0 ||
+                        strcmp(obj->data.symbol_name, "define") == 0 ||
+                        strcmp(obj->data.symbol_name, "lambda") == 0 ||
+                        strcmp(obj->data.symbol_name, "assert-equal") == 0)  // Add others if needed
+                    {
+                        printf("[DEBUG GC SWEEP] *** WARNING: Freeing critical SYMBOL '%s' (%p) ***\n", obj->data.symbol_name, (void *)obj);
+                        is_critical = true;
+                    } else {
+                        // Optional: Print non-critical symbols being freed
+                        // printf("[DEBUG GC SWEEP] Freeing SYMBOL: %s (%p)\n", obj->data.symbol.name, (void*)obj);
+                    }
+                } else if (obj->type == SL_TYPE_PAIR) {
+                    // Optional: Print pairs being freed
+                    // printf("[DEBUG GC SWEEP] Freeing PAIR: (%p)\n", (void*)obj);
+                } else if (obj->type == SL_TYPE_FUNCTION && obj->data.function.is_builtin) {
+                    // Check if a builtin function object itself is being freed
+                    if (strcmp(obj->data.function.def.builtin.name, "set!") == 0) {  // Check name stored in builtin
+                        printf("[DEBUG GC SWEEP] *** WARNING: Freeing 'set!' BUILTIN function object (%p) ***\n", (void *)obj);
+                        is_critical = true;
+                    }
+                }
+                // --- End Debugging ---
                 if (obj->type != SL_TYPE_FREE) {  // Only free resources if it wasn't already free
                     switch (obj->type) {
                     case SL_TYPE_NUMBER:
@@ -805,6 +836,10 @@ static void sl_gc_sweep() {
                 obj->next = free_list;
                 free_list = obj;
                 free_count++;
+                // Optional: Add breakpoint if a critical object was freed
+                if (is_critical) {
+                    fprintf(stderr, "[DEBUG GC SWEEP] Critical object freed...\n");
+                }  // raise(SIGTRAP);  // Or{ __builtin_debugtrap(); } // Or raise(SIGTRAP);
             }
         }
         current_chunk = current_chunk->next_chunk;

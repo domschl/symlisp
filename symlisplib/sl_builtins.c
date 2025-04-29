@@ -1281,21 +1281,42 @@ static sl_object *sl_builtin_load(sl_object *args) {
 
 // --- Builtin Initialization ---
 
-// Helper to define a builtin
-static void define_builtin(sl_object *env, const char *name, sl_object *(*func_ptr)(sl_object *args)) {
-    sl_object *sym = sl_make_symbol(name);
-    sl_gc_add_root(&sym);
-    sl_object *builtin = sl_make_builtin(name, func_ptr);
-    sl_gc_add_root(&builtin);
+// Helper to define a builtin function in an environment
+static void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_ptr) {
+    // --- FIX: Root env temporarily ---
+    sl_gc_add_root(&env);  // Protect env during allocations below
 
-    if (sym == SL_OUT_OF_MEMORY_ERROR || builtin == SL_OUT_OF_MEMORY_ERROR) {
-        fprintf(stderr, "FATAL ERROR: Out of memory defining builtin '%s'\n", name);
+    sl_object *sym = sl_make_symbol(name);
+    if (!sym || sym == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "FATAL: Failed to create symbol for builtin '%s'\n", name);
+        sl_gc_remove_root(&env);  // Unroot env before potentially exiting
+        // Consider exiting or handling more gracefully
         exit(EXIT_FAILURE);
     }
+    // --- FIX: Root sym ---
+    sl_gc_add_root(&sym);
 
-    sl_env_define(env, sym, builtin);
-    sl_gc_remove_root(&builtin);
+    sl_object *func = sl_make_builtin(name, func_ptr);
+    if (!func || func == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "FATAL: Failed to create builtin object for '%s'\n", name);
+        // --- FIX: Unroot sym and env ---
+        sl_gc_remove_root(&sym);
+        sl_gc_remove_root(&env);
+        // Consider exiting
+        exit(EXIT_FAILURE);
+    }
+    // --- FIX: Root func ---
+    sl_gc_add_root(&func);
+
+    // Define the symbol-function pair in the environment
+    // sl_env_define now handles its internal rooting correctly,
+    // but we needed to root sym and func before calling it.
+    sl_env_define(env, sym, func);
+
+    // --- FIX: Unroot temporary variables ---
+    sl_gc_remove_root(&func);
     sl_gc_remove_root(&sym);
+    sl_gc_remove_root(&env);  // Unroot env
 }
 
 void sl_builtins_init(sl_object *global_env) {

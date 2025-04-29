@@ -50,6 +50,26 @@ static sl_object *check_arity_min(const char *func_name, sl_object *args, size_t
     return SL_TRUE;  // Arity is correct
 }
 
+sl_object *check_arity_range(const char *func_name, sl_object *args, size_t min_expected, size_t max_expected) {
+    size_t count = 0;
+    sl_object *current = args;
+    while (sl_is_pair(current)) {
+        count++;
+        current = sl_cdr(current);
+    }
+    if (current != SL_NIL) {  // Improper list
+        return sl_make_errorf("Error (%s): Improper argument list provided.", func_name);
+    }
+    if (count < min_expected || count > max_expected) {
+        if (min_expected == max_expected) {
+            return sl_make_errorf("Error (%s): Expected %zu arguments, got %zu.", func_name, min_expected, count);
+        } else {
+            return sl_make_errorf("Error (%s): Expected between %zu and %zu arguments, got %zu.", func_name, min_expected, max_expected, count);
+        }
+    }
+    return SL_TRUE;  // Arity is correct
+}
+
 // Helper to get a number object's value as int64_t if it's an integer and fits.
 // Returns true on success, false on failure (non-number, non-integer, out of range, or error).
 // Prints an error message to stderr on failure.

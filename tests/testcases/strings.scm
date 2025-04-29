@@ -60,4 +60,113 @@
   (assert-equal (string-ref "a¬é𐍈!" 4) #\!))
 
 
+(define-test "string-append-none"
+  (assert-equal (string-append) ""))
+
+(define-test "string-append-one-empty"
+  (assert-equal (string-append "") ""))
+
+(define-test "string-append-one"
+  (assert-equal (string-append "hello") "hello"))
+
+(define-test "string-append-two-ascii"
+  (assert-equal (string-append "hello" " world") "hello world"))
+
+(define-test "string-append-multiple-ascii"
+  (assert-equal (string-append "a" "b" "c" "d") "abcd"))
+
+(define-test "string-append-with-empty"
+  (assert-equal (string-append "a" "" "b" "" "" "c") "abc"))
+
+(define-test "string-append-utf8"
+  (assert-equal (string-append "你好" "世界") "你好世界")) ; Hello World in Chinese
+
+(define-test "string-append-mixed-utf8"
+  (assert-equal (string-append "Euro: €" ", Gothic: 𐍈") "Euro: €, Gothic: 𐍈"))
+
+;; --- substring ---
+
+(define-test "substring-ascii-full"
+  (assert-equal (substring "abcde" 0 5) "abcde"))
+
+(define-test "substring-ascii-start"
+  (assert-equal (substring "abcde" 0 2) "ab"))
+
+(define-test "substring-ascii-middle"
+  (assert-equal (substring "abcde" 1 4) "bcd"))
+
+(define-test "substring-ascii-end"
+  (assert-equal (substring "abcde" 3 5) "de"))
+
+(define-test "substring-ascii-implicit-end"
+  (assert-equal (substring "abcde" 2) "cde"))
+
+(define-test "substring-ascii-single-char"
+  (assert-equal (substring "abcde" 2 3) "c"))
+
+(define-test "substring-ascii-empty-result"
+  (assert-equal (substring "abcde" 2 2) ""))
+
+(define-test "substring-empty-string"
+  (assert-equal (substring "" 0 0) ""))
+
+(define-test "substring-utf8-full"
+  (assert-equal (substring "你好世界" 0 4) "你好世界"))
+
+(define-test "substring-utf8-start"
+  (assert-equal (substring "你好世界" 0 2) "你好"))
+
+(define-test "substring-utf8-middle"
+  (assert-equal (substring "你好世界" 1 3) "好世"))
+
+(define-test "substring-utf8-end"
+  (assert-equal (substring "你好世界" 2 4) "世界"))
+
+(define-test "substring-utf8-implicit-end"
+  (assert-equal (substring "你好世界" 1) "好世界"))
+
+(define-test "substring-utf8-single-multi-byte"
+  (assert-equal (substring "你好世界" 1 2) "好"))
+
+(define-test "substring-mixed-1"
+  (assert-equal (substring "a¬é𐍈!" 0 3) "a¬é"))
+
+(define-test "substring-mixed-2"
+  (assert-equal (substring "a¬é𐍈!" 1 4) "¬é𐍈"))
+
+(define-test "substring-mixed-3"
+  (assert-equal (substring "a¬é𐍈!" 3) "𐍈!"))
+
+(define-test "substring-mixed-4-emoji"
+  (assert-equal (substring "Hi😊!" 2 3) "😊"))
+
+;; --- string->list ---
+
+(define-test "string->list-empty"
+  (assert-equal (string->list "") '()))
+
+(define-test "string->list-ascii"
+  (assert-equal (string->list "abc") '(#\a #\b #\c)))
+
+(define-test "string->list-utf8"
+  (assert-equal (string->list "你好") '(#\你 #\好)))
+
+(define-test "string->list-mixed"
+  (assert-equal (string->list "a¬€😊") '(#\a #\¬ #\€ #\😊)))
+
+;; --- list->string ---
+
+(define-test "list->string-empty"
+  (assert-equal (list->string '()) ""))
+
+(define-test "list->string-ascii"
+  (assert-equal (list->string '(#\h #\e #\l #\l #\o)) "hello"))
+
+(define-test "list->string-utf8"
+  (assert-equal (list->string '(#\世 #\界)) "世界"))
+
+(define-test "list->string-mixed"
+  (assert-equal (list->string '(#\a #\¬ #\€ #\😊 #\!)) "a¬€😊!"))
+
+
 ;;; --- END OF STRING TESTS ---

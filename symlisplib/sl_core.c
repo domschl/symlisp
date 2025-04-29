@@ -252,6 +252,22 @@ error:
     return UTF8_REPLACEMENT_CHAR;
 }
 
+// Helper shortcuts
+
+// --- Helpers ---
+// Helper needed for set! (if not already defined in sl_core.c/h)
+sl_object *sl_cadr(sl_object *list) {
+    if (!sl_is_pair(list)) return SL_NIL;
+    return sl_car(sl_cdr(list));
+}
+// Helper for (cdr (cdr list))
+sl_object *sl_cddr(sl_object *list) {
+    if (!sl_is_pair(list)) return SL_NIL;  // Or error? R7RS allows errors
+    sl_object *cdr_val = sl_cdr(list);
+    if (!sl_is_pair(cdr_val)) return SL_NIL;  // Or error?
+    return sl_cdr(cdr_val);
+}
+
 // --- Memory Management Functions ---
 
 // Allocate and initialize a new heap chunk
@@ -888,13 +904,6 @@ void sl_number_get_num_z(sl_object *obj, mpz_t rop) {
     } else {
         mpz_set_si(rop, obj->data.number.value.small_num.num);
     }
-}
-
-// --- Helpers ---
-// Helper needed for set! (if not already defined in sl_core.c/h)
-sl_object *sl_cadr(sl_object *list) {
-    if (!sl_is_pair(list)) return SL_NIL;
-    return sl_car(sl_cdr(list));
 }
 
 // Checks if obj is a proper list (NIL or pairs ending in NIL)

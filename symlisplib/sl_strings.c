@@ -112,14 +112,324 @@ static sl_object *sl_builtin_string_ref(sl_object *args) {
     return sl_make_char(target_code_point);
 }
 
+// (string-append str1 str2 ...) -> string
+static sl_object *sl_builtin_string_append(sl_object *args) {
+    sl_gc_add_root(&args);
+    size_t total_byte_len = 0;
+    sl_object *current_arg = args;
+
+    // First pass: Calculate total byte length and check types
+    while (sl_is_pair(current_arg)) {
+        sl_object *str = sl_car(current_arg);
+        if (!sl_is_string(str)) {
+            sl_gc_remove_root(&args);
+            return sl_make_errorf("string-append: Expected a string, got %s", sl_type_name(str ? str->type : -1));
+        }
+        const char *str_val = str->data.string_val;
+        if (str_val) {
+            total_byte_len += strlen(str_val);
+        }
+        current_arg = sl_cdr(current_arg);
+    }
+    if (!sl_is_nil(current_arg)) {
+        sl_gc_remove_root(&args);
+        return sl_make_errorf("string-append: Internal error - improper argument list");
+    }
+
+    // Allocate buffer using standard malloc
+    char *buffer = malloc(total_byte_len + 1);  // <<< USE malloc
+    if (!buffer) {
+        sl_gc_remove_root(&args);
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+    buffer[0] = '\0';
+
+    // Second pass: Concatenate strings
+    current_arg = args;
+    char *current_pos = buffer;
+    while (sl_is_pair(current_arg)) {
+        sl_object *str = sl_car(current_arg);
+        const char *str_val = str->data.string_val;
+        if (str_val) {
+            size_t len = strlen(str_val);
+            memcpy(current_pos, str_val, len);
+            current_pos += len;
+        }
+        current_arg = sl_cdr(current_arg);
+    }
+    *current_pos = '\0';
+
+    sl_gc_remove_root(&args);
+
+    // Create the string object. sl_make_string should copy the buffer.
+    sl_object *result = sl_make_string(buffer);
+
+    free(buffer);  // <<< USE free
+
+    return result;
+}
+
+// Helper to get byte offset for character index (needed for substring)
+// Returns true on success, false if k is out of bounds or invalid UTF-8 found
+static bool get_byte_offset_for_char_index(const char *str, size_t k, size_t *byte_offset) {
+    const char *ptr = str;
+    size_t current_char_index = 0;
+    *byte_offset = 0;  // Initialize
+
+    while (*ptr != '\0') {
+        if (current_char_index == k) {
+            *byte_offset = (size_t)(ptr - str);
+            return true;  // Found the starting byte of the k-th character
+        }
+        const char *start_ptr = ptr;
+        uint32_t cp = decode_utf8(&ptr);                         // Advances ptr
+        if (cp == 0 && *ptr == '\0' && ptr == start_ptr) break;  // End of string
+        if (cp == UTF8_REPLACEMENT_CHAR && ptr == start_ptr + 1) {
+            // Decode error, but still count as one char position if ptr advanced
+        } else if (ptr == start_ptr) {
+            // Should not happen with valid decode_utf8 unless at end
+            break;
+        }
+        current_char_index++;
+    }
+
+    // If loop finishes, check if k is exactly the length of the string
+    if (current_char_index == k) {
+        *byte_offset = (size_t)(ptr - str);  // Offset is end of string
+        return true;
+    }
+
+    return false;  // k was out of bounds
+}
+
+// (substring str start [end]) -> string
+static sl_object *sl_builtin_substring(sl_object *args) {
+    // Use the newly added check_arity_range
+    sl_object *arity_check = check_arity_range("substring", args, 2, 3);  // <<< USE check_arity_range
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    sl_object *start_obj = sl_cadr(args);
+    // Use the newly added sl_cddr
+    sl_object *end_obj = sl_is_pair(sl_cddr(args)) ? sl_car(sl_cddr(args)) : NULL;  // <<< USE sl_cddr
+
+    if (!sl_is_string(str_obj)) return sl_make_errorf("substring: Expected string as first argument, got %s", sl_type_name(str_obj ? str_obj->type : -1));
+    // Use the existing sl_number_is_integer predicate
+    if (!sl_is_number(start_obj) || !sl_number_is_integer(start_obj)) return sl_make_errorf("substring: Expected integer as start index, got %s", sl_type_name(start_obj ? start_obj->type : -1));     // <<< USE sl_number_is_integer
+    if (end_obj && (!sl_is_number(end_obj) || !sl_number_is_integer(end_obj))) return sl_make_errorf("substring: Expected integer as end index, got %s", sl_type_name(end_obj ? end_obj->type : -1));  // <<< USE sl_number_is_integer
+
+    int64_t k_start;
+    if (!get_number_as_int64(start_obj, &k_start, "substring")) return SL_NIL;
+
+    int64_t k_end = -1;
+    if (end_obj) {
+        if (!get_number_as_int64(end_obj, &k_end, "substring")) return SL_NIL;
+    }
+
+    if (k_start < 0) return sl_make_errorf("substring: Start index %" PRId64 " must be non-negative", k_start);
+    if (end_obj && k_end < k_start) return sl_make_errorf("substring: End index %" PRId64 " cannot be less than start index %" PRId64, k_end, k_start);
+
+    const char *input_str = str_obj->data.string_val;
+    if (!input_str) input_str = "";
+
+    size_t start_byte_offset = 0;
+    size_t end_byte_offset = 0;
+
+    // Find start byte offset
+    if (!get_byte_offset_for_char_index(input_str, (size_t)k_start, &start_byte_offset)) {
+        // Calculate actual length for error message
+        size_t len = 0;  // <<< Define and calculate len here
+        const char *len_ptr = input_str;
+        while (*len_ptr != '\0') {
+            const char *cp_start = len_ptr;
+            uint32_t cp = decode_utf8(&len_ptr);
+            if (cp == 0 && *len_ptr == '\0' && len_ptr == cp_start) break;
+            len++;
+            if (cp == UTF8_REPLACEMENT_CHAR && *len_ptr == '\0') break;
+        }
+        return sl_make_errorf("substring: Start index %" PRId64 " is out of bounds for string of length %zu", k_start, len);
+    }
+
+    // Find end byte offset
+    if (end_obj) {
+        if (!get_byte_offset_for_char_index(input_str, (size_t)k_end, &end_byte_offset)) {
+            // Calculate actual length for error message
+            size_t len = 0;  // <<< Define and calculate len here too
+            const char *len_ptr = input_str;
+            while (*len_ptr != '\0') {
+                const char *cp_start = len_ptr;
+                uint32_t cp = decode_utf8(&len_ptr);
+                if (cp == 0 && *len_ptr == '\0' && len_ptr == cp_start) break;
+                len++;
+                if (cp == UTF8_REPLACEMENT_CHAR && *len_ptr == '\0') break;
+            }
+            return sl_make_errorf("substring: End index %" PRId64 " is out of bounds for string of length %zu", k_end, len);
+        }
+    } else {
+        end_byte_offset = strlen(input_str);
+    }
+
+    // Allocate buffer for the substring using standard malloc
+    size_t sub_len = end_byte_offset - start_byte_offset;
+    char *buffer = malloc(sub_len + 1);  // <<< USE malloc
+    if (!buffer) {
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+
+    // Copy the bytes
+    memcpy(buffer, input_str + start_byte_offset, sub_len);
+    buffer[sub_len] = '\0';
+
+    // Create the string object
+    sl_object *result = sl_make_string(buffer);
+    free(buffer);  // <<< USE free
+
+    return result;
+}
+
+// (string->list str) -> list-of-chars
+// (This function does not use sl_string_buffer and should be okay as is)
+static sl_object *sl_builtin_string_to_list(sl_object *args) {
+    sl_object *arity_check = check_arity("string->list", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    if (!sl_is_string(str_obj)) return sl_make_errorf("string->list: Expected a string, got %s", sl_type_name(str_obj ? str_obj->type : -1));
+
+    const char *input_str = str_obj->data.string_val;
+    if (!input_str) input_str = "";
+
+    sl_object *head = SL_NIL;
+    sl_object **tail_ptr = &head;
+    const char *ptr = input_str;
+
+    sl_gc_add_root(&head);  // Protect the list being built
+
+    while (*ptr != '\0') {
+        const char *start_ptr = ptr;
+        uint32_t cp = decode_utf8(&ptr);                         // Advances ptr
+        if (cp == 0 && *ptr == '\0' && ptr == start_ptr) break;  // End of string
+
+        // Handle decode error? R7RS says string->list raises error on invalid encoding.
+        if (cp == UTF8_REPLACEMENT_CHAR && ptr == start_ptr + 1) {
+            sl_gc_remove_root(&head);
+            return sl_make_errorf("string->list: Invalid UTF-8 sequence in string");
+        }
+
+        sl_object *char_obj = sl_make_char(cp);
+        if (char_obj == SL_OUT_OF_MEMORY_ERROR) {
+            sl_gc_remove_root(&head);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        sl_gc_add_root(&char_obj);  // Protect new char
+
+        sl_object *new_pair = sl_make_pair(char_obj, SL_NIL);
+        sl_gc_remove_root(&char_obj);  // Unroot char, now part of pair
+
+        if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
+            sl_gc_remove_root(&head);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+
+        *tail_ptr = new_pair;
+        tail_ptr = &new_pair->data.pair.cdr;
+    }
+
+    sl_gc_remove_root(&head);
+    return head;
+}
+
+// (list->string list-of-chars) -> string
+static sl_object *sl_builtin_list_to_string(sl_object *args) {
+    sl_object *arity_check = check_arity("list->string", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *list_obj = sl_car(args);
+    if (!sl_is_list(list_obj)) {
+        return sl_make_errorf("list->string: Expected a proper list, got %s", sl_type_name(list_obj ? list_obj->type : -1));
+    }
+
+    // Use realloc approach for building the string buffer
+    char *buffer = NULL;
+    size_t capacity = 0;
+    size_t length = 0;
+    sl_object *current = list_obj;
+    sl_gc_add_root(&current);
+
+    while (sl_is_pair(current)) {
+        sl_object *char_obj = sl_car(current);
+        if (!sl_is_char(char_obj)) {
+            free(buffer);  // <<< USE free
+            sl_gc_remove_root(&current);
+            return sl_make_errorf("list->string: List element is not a character: %s", sl_type_name(char_obj ? char_obj->type : -1));
+        }
+
+        uint32_t cp = char_obj->data.code_point;
+        char utf8_bytes[5];
+        size_t bytes_written = encode_utf8(cp, utf8_bytes);
+
+        // Ensure buffer has enough space (+1 for null terminator)
+        if (length + bytes_written + 1 > capacity) {
+            size_t new_capacity = capacity == 0 ? 16 : capacity * 2;
+            if (new_capacity < length + bytes_written + 1) {
+                new_capacity = length + bytes_written + 1;
+            }
+            // Use standard realloc
+            char *new_buffer = realloc(buffer, new_capacity);  // <<< USE realloc
+            if (!new_buffer) {
+                free(buffer);  // <<< USE free
+                sl_gc_remove_root(&current);
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+            buffer = new_buffer;
+            capacity = new_capacity;
+        }
+
+        // Append encoded bytes
+        memcpy(buffer + length, utf8_bytes, bytes_written);
+        length += bytes_written;
+
+        current = sl_cdr(current);
+    }
+
+    // Check if list was proper
+    if (!sl_is_nil(current)) {
+        free(buffer);  // <<< USE free
+        sl_gc_remove_root(&current);
+        return sl_make_errorf("list->string: Expected a proper list, but encountered non-nil cdr");
+    }
+
+    sl_gc_remove_root(&current);
+
+    // Finalize buffer
+    if (!buffer) {           // Handle empty list case
+        buffer = malloc(1);  // <<< USE malloc
+        if (!buffer) return SL_OUT_OF_MEMORY_ERROR;
+        capacity = 1;
+    } else if (length + 1 > capacity) {
+        char *new_buffer = realloc(buffer, length + 1);  // <<< USE realloc
+        if (!new_buffer) {
+            free(buffer);  // <<< USE free
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        buffer = new_buffer;
+    }
+    buffer[length] = '\0';
+
+    // Create string object
+    sl_object *result = sl_make_string(buffer);
+    free(buffer);  // <<< USE free
+
+    return result;
+}
+
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string-length", sl_builtin_string_length);
     define_builtin(global_env, "string-ref", sl_builtin_string_ref);
-
-    // Add other string functions here later
-    // define_builtin(global_env, "string=?", sl_builtin_string_eq);
-    // define_builtin(global_env, "substring", sl_builtin_substring);
-    // ... etc ...
+    define_builtin(global_env, "string-append", sl_builtin_string_append);  // <<< ADDED
+    define_builtin(global_env, "substring", sl_builtin_substring);          // <<< ADDED
+    define_builtin(global_env, "string->list", sl_builtin_string_to_list);  // <<< ADDED
+    define_builtin(global_env, "list->string", sl_builtin_list_to_string);  // <<< ADDED
 }

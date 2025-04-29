@@ -10,6 +10,7 @@
 #include "sl_parse.h"
 #include "sl_eval.h"  // <<< ADDED for sl_eval_stream
 #include "sl_predicates.h"
+#include "sl_strings.h"
 
 // Helper to check arity.
 // Returns SL_TRUE if arity matches and list is proper.
@@ -47,6 +48,45 @@ static sl_object *check_arity_min(const char *func_name, sl_object *args, size_t
         return sl_make_errorf("Error (%s): Expected at least %zu arguments, got %zu.", func_name, min_expected, count);
     }
     return SL_TRUE;  // Arity is correct
+}
+
+// Helper to get a number object's value as int64_t if it's an integer and fits.
+// Returns true on success, false on failure (non-number, non-integer, out of range, or error).
+// Prints an error message to stderr on failure.
+bool get_number_as_int64(sl_object *obj, int64_t *out, const char *func_name) {
+    if (!sl_is_number(obj)) {
+        fprintf(stderr, "Error (%s): Expected a number, got %s.\n", func_name, sl_type_name(obj ? obj->type : -1));
+        return false;
+    }
+    if (!sl_number_is_integer(obj)) {
+        // TODO: Print the actual non-integer value?
+        fprintf(stderr, "Error (%s): Expected an integer, but got a non-integer number.\n", func_name);
+        return false;
+    }
+
+    // Use a temporary mpz_t to handle both small and big integers uniformly
+    mpz_t temp_z;
+    mpz_init(temp_z);
+
+    // sl_number_get_z handles both small and big nums internally
+    sl_number_get_z(obj, temp_z);
+
+    // Check if the integer value fits within int64_t range
+    // Using mpz_fits_slong_p assuming long is at least 64 bits,
+    // or mpz_fits_sint_p if int is 64 bits. A more explicit check might be needed
+    // depending on platform guarantees, but slong is often 64 bits on 64-bit systems.
+    // Let's assume mpz_fits_slong_p is sufficient for int64_t for now.
+    if (!mpz_fits_slong_p(temp_z)) {
+        // Value is too large or too small for int64_t
+        gmp_fprintf(stderr, "Error (%s): Integer value %Zd is out of range for a 64-bit signed integer.\n", func_name, temp_z);
+        mpz_clear(temp_z);
+        return false;
+    }
+
+    // It fits, get the value
+    *out = mpz_get_si(temp_z);  // mpz_get_si returns long int
+    mpz_clear(temp_z);
+    return true;
 }
 
 // Helper to get a number object's value as mpq_t
@@ -1558,6 +1598,8 @@ static bool sl_equal_recursive(sl_object *obj1, sl_object *obj2) {
         // Compare string contents
         // Assumes sl_string_value returns a null-terminated C string
         return (strcmp(sl_string_value(obj1), sl_string_value(obj2)) == 0);
+    case SL_TYPE_CHAR:  // <<< ADDED
+        return obj1->data.code_point == obj2->data.code_point;
     case SL_TYPE_SYMBOL:
         // Compare symbol names (since interning is not yet implemented)
         // Once interning is done, this case can just return true (because if they
@@ -1716,4 +1758,5 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "load", sl_builtin_load);
 
     sl_predicates_init(global_env);
+    sl_strings_init(global_env);
 }

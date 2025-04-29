@@ -187,6 +187,9 @@ void sl_mem_shutdown();
 #define sl_is_error(obj) ((obj) && (obj)->type == SL_TYPE_ERROR)
 bool sl_is_list(sl_object *obj);  // <<< ADD DECLARATION
 
+// Types
+const char *sl_type_name(sl_object_type type);  // <<< ADDED
+
 // --- Accessor Macros/Functions ---
 // Pair accessors
 #define sl_car(obj) ((obj)->data.pair.car)

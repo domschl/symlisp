@@ -22,6 +22,35 @@
             (display "\n")
             #f)))))
 
+;; Asserts that evaluating 'expr' results in an error object
+(define (assert-error expr-quoted)
+  ;; --- DEBUG ---
+  (display "[DEBUG assert-error] === Evaluating for error: ")
+  (display expr-quoted)
+  (newline)
+  ;; --- END DEBUG ---
+  (let ((result (eval expr-quoted (interaction-environment)))) ; Or use appropriate env
+    ;; --- DEBUG ---
+    (display "[DEBUG assert-error] === Eval result: ")
+    (display result)
+    (newline)
+    ;; --- END DEBUG ---
+
+    (if (error? result) ; <<< Use the new error? predicate
+        (begin
+          ;; (display ".") ; Optional: Indicate success
+          #t)
+        (begin
+          (newline)
+          (display "ASSERT-ERROR FAILED: Expected an error for expression: ")
+          (display expr-quoted) ; Use write for unambiguous representation
+          (newline)
+          (display "  Instead got: ")
+          (display result)
+          (newline)
+          (set! *tests-failed* (+ *tests-failed* 1))
+          #f))))
+
 ;; define-test: Define and run a named test case with ONE assertion
 (define define-test
   (lambda (name assertion)

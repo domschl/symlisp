@@ -99,6 +99,36 @@ bool fits_int64(const mpz_t val) {
 #endif
 }
 
+// Returns a string representation of an object type
+const char *sl_type_name(sl_object_type type) {
+    switch (type) {
+    case SL_TYPE_FREE:
+        return "free";  // Internal state
+    case SL_TYPE_NIL:
+        return "nil";
+    case SL_TYPE_BOOLEAN:
+        return "boolean";
+    case SL_TYPE_NUMBER:
+        return "number";
+    case SL_TYPE_STRING:
+        return "string";
+    case SL_TYPE_SYMBOL:
+        return "symbol";
+    case SL_TYPE_PAIR:
+        return "pair";
+    case SL_TYPE_FUNCTION:
+        return "function";  // Covers both builtin and closure
+    case SL_TYPE_ENV:
+        return "environment";
+    case SL_TYPE_ERROR:
+        return "error";
+    case SL_TYPE_CHAR:
+        return "char";
+    default:
+        return "unknown";
+    }
+}
+
 // DEBUG: Function to find and print details of a specific symbol in the heap
 void debug_find_symbol(const char *target_name, const char *label) {
     heap_chunk *chunk = first_chunk;
@@ -1157,16 +1187,30 @@ char *sl_object_to_string(sl_object *obj) {
         return buf;  // Correct: buf is valid here
     }
     case SL_TYPE_CHAR: {
-        char utf8_buffer[5];  // Max 4 bytes + null terminator
-        int bytes_written = encode_utf8(obj->data.code_point, utf8_buffer);
-        if (bytes_written > 0) {
-            utf8_buffer[bytes_written] = '\0';  // Null-terminate
-            printf("%s", utf8_buffer);          // Print the UTF-8 sequence
-        } else {
-            // Handle invalid code point? Print placeholder?
-            printf("<?>");
+        uint32_t cp = obj->data.code_point;
+        // Handle named characters first
+        if (cp == '\n') return strdup("#\\newline");
+        if (cp == ' ') return strdup("#\\space");
+        if (cp == '\t') return strdup("#\\tab");
+        // Add other named characters if desired (#\return, etc.)
+
+        // Handle printable ASCII characters (excluding space, handled above)
+        if (cp >= 33 && cp <= 126) {
+            return dynamic_sprintf("#\\%c", (char)cp);
         }
-        break;
+
+        // Handle other characters using hex representation
+        // Use \xHH for values up to FF, \xHHHH for larger values (like R7RS)
+        // Adjust format if you prefer #\uXXXX or #\UXXXXXXXX
+        if (cp <= 0xFF) {
+            return dynamic_sprintf("#\\x%02X", cp);
+        } else if (cp <= 0xFFFF) {
+            return dynamic_sprintf("#\\x%04X", cp);
+        } else {  // Up to 0x10FFFF
+            // R7RS doesn't specify > 4 hex digits, but this is unambiguous
+            return dynamic_sprintf("#\\x%X", cp);
+        }
+        // Note: No 'break' needed as all paths return.
     }
     case SL_TYPE_PAIR: {
         char *car_str = sl_object_to_string(sl_car(obj));
@@ -1201,7 +1245,7 @@ char *sl_object_to_string(sl_object *obj) {
         return dynamic_sprintf("#<unknown_type:%d>", obj->type);
     }
     // Should not be reachable if all cases return or break
-    // return strdup("#<InternalError:UnhandledTypeInToString>");
+    return strdup("#<InternalError:UnhandledTypeInToString>");
 }
 
 // Helper to create a number object from mpz_t, simplifying if possible

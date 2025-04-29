@@ -117,7 +117,7 @@ top_of_eval:;
                 sl_object *test_result = sl_eval(test_expr, env);  // Eval test - MIGHT GC
                 sl_gc_add_root(&test_result);
 
-                if (test_result == SL_OUT_OF_MEMORY_ERROR) {
+                if (test_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(test_result)) {
                     result = test_result;  // Propagate error
                 } else if (test_result != SL_FALSE) {
                     obj = conseq_expr;  // Tail call conseq
@@ -837,12 +837,21 @@ sl_object *sl_eval_list(sl_object *list, sl_object *env) {
         sl_object *arg_expr = sl_car(current_expr);
         sl_object *evaled_arg = sl_eval(arg_expr, env);
         sl_gc_add_root(&evaled_arg);
-
+        /*
         if (evaled_arg == SL_OUT_OF_MEMORY_ERROR) {
             return_value = evaled_arg;  // Set error object
             sl_gc_remove_root(&evaled_arg);
             goto cleanup_eval_list;
         }
+        */
+
+        // --- Check for ANY error from sl_eval --- <<< MODIFIED CHECK
+        if (evaled_arg == SL_OUT_OF_MEMORY_ERROR || sl_is_error(evaled_arg)) {
+            return_value = evaled_arg;  // Set error object
+            sl_gc_remove_root(&evaled_arg);
+            goto cleanup_eval_list;  // Propagate error immediately
+        }
+        // --- End Modified Check ---
 
         sl_object *new_pair = sl_make_pair(evaled_arg, SL_NIL);
 
@@ -869,10 +878,30 @@ cleanup_eval_list:
 }
 
 sl_object *sl_apply(sl_object *fn, sl_object *args) {
-    if (!sl_is_function(fn)) {
-        return sl_make_errorf("Apply: Not a function");
+    // --- DEBUG ---
+    fprintf(stderr, "[DEBUG sl_apply] ENTERED sl_apply. fn type=%s, args type=%s\n",
+            sl_type_name(fn ? fn->type : -1), sl_type_name(args ? args->type : -1));
+    // --- END DEBUG ---
+
+    // --- Check for error during argument evaluation --- <<< NEW CHECK
+    if (args == SL_OUT_OF_MEMORY_ERROR || sl_is_error(args)) {
+        fprintf(stderr, "[DEBUG sl_apply] Error detected in evaluated arguments, propagating directly.\n");  // DEBUG
+        return args;                                                                                         // Propagate the error returned by sl_eval_list
     }
-    // We assume args is a proper list as constructed by sl_eval_list
+    // --- End New Check ---
+
+    if (!sl_is_function(fn)) {
+        // Create string representation of fn for error message
+        char *fn_str = sl_object_to_string(fn);
+        sl_object *err = sl_make_errorf("Apply: Not a function: %s", fn_str ? fn_str : "<?>");
+        free(fn_str);
+        return err;
+    }
+    // --- Check if args is a proper list (should be, unless error occurred) ---
+    // This check might now be redundant due to the error check above, but keep for safety?
+    if (!sl_is_list(args)) {
+        return sl_make_errorf("Apply: Internal error - args is not a list (type: %s)", sl_type_name(args ? args->type : -1));
+    }
 
     sl_object *result = SL_NIL;
     // --- Root key variables ---
@@ -881,7 +910,30 @@ sl_object *sl_apply(sl_object *fn, sl_object *args) {
     sl_gc_add_root(&result);
 
     if (fn->data.function.is_builtin) {
+        /*
+                // --- DEBUG ---
+                const char *builtin_name = fn->data.function.def.builtin.name ? fn->data.function.def.builtin.name : "<?>";
+                fprintf(stderr, "[DEBUG sl_apply] >>> Calling builtin '%s'\n", builtin_name);
+                char *args_str = sl_object_to_string(args);
+                fprintf(stderr, "[DEBUG sl_apply] Builtin Args: %s\n", args_str ? args_str : "(null)");
+                free(args_str);
+                // --- END DEBUG ---
+        */
         result = fn->data.function.def.builtin.func_ptr(args);
+        /*
+                // --- DEBUG ---
+                fprintf(stderr, "[DEBUG sl_apply] <<< Builtin '%s' returned object type: %s\n",
+                        builtin_name, sl_type_name(result ? result->type : -1));
+                if (sl_is_error(result)) {
+                    fprintf(stderr, "[DEBUG sl_apply] Builtin returned ERROR: %s\n", result->data.error_str ? result->data.error_str : "??");
+                } else {
+                    // Optionally print non-error result for context
+                    char *res_str = sl_object_to_string(result);
+                    fprintf(stderr, "[DEBUG sl_apply] Builtin returned value: %s\n", res_str ? res_str : "(null)");
+                    free(res_str);
+                }
+                // --- END DEBUG ---
+        */
     } else {
         // Apply a user-defined closure
         sl_object *params = fn->data.function.def.closure.params;

@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "sl_predicates.h"
 #include "sl_builtins.h"  // For check_arity, define_builtin
 #include "sl_core.h"
@@ -69,6 +71,34 @@ static sl_object *sl_predicate_listp(sl_object *args) {
     return sl_is_list(obj) ? SL_TRUE : SL_FALSE;
 }
 
+// (error? obj) -> #t if obj is an error object, #f otherwise
+static sl_object *sl_predicate_errorp(sl_object *args) {
+    // --- DEBUG ---
+    fprintf(stderr, "[DEBUG error?] Checking object at %p, type=%d (%s)\n",
+            (void *)args, args ? args->type : -1, args ? sl_type_name(args->type) : "null");
+    bool is_err = sl_is_error(args);  // Assuming sl_is_error(obj) is ((obj) != NULL && (obj)->type == SL_TYPE_ERROR)
+    fprintf(stderr, "[DEBUG error?] sl_is_error macro returned: %s\n", is_err ? "true" : "false");
+    // --- END DEBUG ---
+
+    sl_object *result_bool = is_err ? SL_TRUE : SL_FALSE;
+
+    // --- DEBUG ---
+    fprintf(stderr, "[DEBUG error?] Returning boolean object %s at %p, type=%d\n",
+            is_err ? "SL_TRUE" : "SL_FALSE",
+            (void *)result_bool, result_bool ? result_bool->type : -1);
+    // --- END DEBUG ---
+
+    return result_bool;
+}
+
+// (char? obj) -> #t if obj is a character, #f otherwise
+static sl_object *sl_predicate_charp(sl_object *args) {
+    sl_object *arity_check = check_arity("char?", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+    sl_object *obj = sl_car(args);
+    return sl_is_char(obj) ? SL_TRUE : SL_FALSE;
+}
+
 // --- Initialization ---
 
 void sl_predicates_init(sl_object *global_env) {
@@ -81,6 +111,8 @@ void sl_predicates_init(sl_object *global_env) {
     define_builtin(global_env, "procedure?", sl_predicate_procedurep);
     define_builtin(global_env, "null?", sl_predicate_nullp);
     define_builtin(global_env, "list?", sl_predicate_listp);
+    define_builtin(global_env, "char?", sl_predicate_charp);
+    define_builtin(global_env, "error?", sl_predicate_errorp);  // <<< ADDED
 
     // Add other predicate groups here later (Equivalence, Numeric)
 }

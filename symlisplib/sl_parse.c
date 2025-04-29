@@ -57,6 +57,27 @@ static bool sbuf_append_char(sl_string_buffer *sbuf, char c) {
     return true;
 }
 
+// Add a helper to append multiple bytes if needed
+static bool sbuf_append_bytes(sl_string_buffer *sbuf, const char *bytes, size_t len) {
+    // Implementation depends on your sl_string_buffer details
+    // Ensure buffer has space, realloc if needed, then memcpy
+    // Return true on success, false on memory allocation failure
+    // Placeholder implementation:
+    if (sbuf->capacity < sbuf->length + len) {
+        size_t new_capacity = (sbuf->capacity == 0) ? 8 : sbuf->capacity * 2;
+        while (new_capacity < sbuf->length + len) {
+            new_capacity *= 2;
+        }
+        char *new_buffer = (char *)realloc(sbuf->buffer, new_capacity);
+        if (!new_buffer) return false;
+        sbuf->buffer = new_buffer;
+        sbuf->capacity = new_capacity;
+    }
+    memcpy(sbuf->buffer + sbuf->length, bytes, len);
+    sbuf->length += len;
+    return true;
+}
+
 // Appends a null-terminated string to the buffer
 static bool sbuf_append_str(sl_string_buffer *sbuf, const char *str) {
     if (!str) return true;  // Nothing to append
@@ -519,26 +540,34 @@ static sl_object *parse_string_literal(const char **input) {
     sbuf_init(&sbuf);
     bool success = true;
 
-    while (true) {
+    while (success) {  // Loop while successful
         char current_char = *ptr;
 
         if (current_char == '"') {
-            // End of string
             ptr++;  // Consume closing '"'
-            break;
+            break;  // End of string
         }
 
         if (current_char == '\0') {
             fprintf(stderr, "Error: Unterminated string literal.\n");
             success = false;
-            break;
+            break;  // Unterminated
         }
 
         if (current_char == '\\') {
-            // Escape sequence
+            // --- Handle Escape Sequence ---
             ptr++;  // Consume '\'
             char escaped_char = *ptr;
-            char char_to_append;
+            if (escaped_char == '\0') {
+                fprintf(stderr, "Error: Unterminated escape sequence in string literal.\n");
+                success = false;
+                break;
+            }
+            ptr++;  // Consume the character after '\'
+
+            char char_to_append = 0;  // Will be set if simple escape
+            bool simple_escape = true;
+
             switch (escaped_char) {
             case 'n':
                 char_to_append = '\n';
@@ -552,49 +581,79 @@ static sl_object *parse_string_literal(const char **input) {
             case '\\':
                 char_to_append = '\\';
                 break;
-            // Add other escapes like \r if needed
-            case '\0':  // Unterminated escape sequence
-                fprintf(stderr, "Error: Unterminated escape sequence in string literal.\n");
-                success = false;
-                goto end_loop;  // Use goto to break out of nested structure cleanly
+            // Add \r etc. if needed
+            case 'x': {                 // Hex escape \xHH
+                simple_escape = false;  // Not a simple char append
+                char hex_str[3] = {0};
+                // Check if the *next two* chars are hex digits
+                if (isxdigit((unsigned char)ptr[0]) && isxdigit((unsigned char)ptr[1])) {
+                    hex_str[0] = ptr[0];
+                    hex_str[1] = ptr[1];
+                    ptr += 2;  // Consume HH *after* the 'x'
+                    long byte_val = strtol(hex_str, NULL, 16);
+                    if (!sbuf_append_char(&sbuf, (char)byte_val)) { success = false; }
+                } else {
+                    fprintf(stderr, "Error: Invalid hex escape sequence \\x%.*s\n",
+                            isxdigit((unsigned char)ptr[0]) ? 2 : (ptr[0] ? 1 : 0), ptr);
+                    success = false;
+                    // Consume the bad chars after \x to avoid loops
+                    if (isxdigit((unsigned char)ptr[0])) ptr++;
+                    if (isxdigit((unsigned char)ptr[1])) ptr++;  // Might consume too much if only 1 hex digit
+                }
+                break;  // Break from switch
+            }
             default:
-                // Invalid escape sequence, treat as literal backslash followed by char?
-                // Or signal error? Let's signal error for now.
+                // Invalid escape sequence
+                simple_escape = false;  // Not a simple char append
                 fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
                 success = false;
-                goto end_loop;
+                break;  // Break from switch
             }
-            if (!sbuf_append_char(&sbuf, char_to_append)) {
-                success = false;  // Allocation error
-                break;
+
+            // Append character for simple escapes if successful so far
+            if (simple_escape && success) {
+                if (!sbuf_append_char(&sbuf, char_to_append)) {
+                    success = false;
+                }
             }
-            ptr++;  // Consume the character after '\'
+            // --- End Handle Escape Sequence ---
+
         } else {
-            // Regular character
+            // --- Handle Regular Character ---
+            // Append the byte directly (handles UTF-8 implicitly)
             if (!sbuf_append_char(&sbuf, current_char)) {
-                success = false;  // Allocation error
-                break;
+                success = false;
             }
             ptr++;  // Consume the regular character
+            // --- End Handle Regular Character ---
         }
-    }
+    }  // End while(success)
 
-end_loop:  // Label for goto
+    // No goto needed
 
     *input = ptr;  // Update the main input pointer
 
+    sl_object *str_obj = SL_NIL;
     if (success) {
-        // Create the string object. sl_make_string copies the buffer.
-        // Create the string object. sl_make_string copies the buffer.
-        // If sbuf.buffer is NULL (empty string parsed), pass "" literal instead.
-        const char *string_to_make = (sbuf.buffer != NULL) ? sbuf.buffer : "";  // <<< FIX
-        sl_object *str_obj = sl_make_string(string_to_make);
-        sbuf_free(&sbuf);  // Free the temporary buffer
-        return str_obj;    // Returns SL_NIL on allocation failure within sl_make_string
-    } else {
-        sbuf_free(&sbuf);  // Free buffer even on failure
-        return SL_NIL;
+        // Null-terminate buffer before creating object
+        if (!sbuf_append_char(&sbuf, '\0')) {
+            fprintf(stderr, "Error: Failed to null-terminate string buffer.\n");
+            success = false;
+        } else {
+            // Adjust length back as null terminator isn't part of the Scheme string value
+            sbuf.length--;
+            const char *string_to_make = (sbuf.buffer != NULL) ? sbuf.buffer : "";
+            str_obj = sl_make_string(string_to_make);
+            if (str_obj == SL_OUT_OF_MEMORY_ERROR) {
+                fprintf(stderr, "Error: Out of memory creating string object.\n");
+                success = false;   // Mark as failure
+                str_obj = SL_NIL;  // Ensure NIL is returned
+            }
+        }
     }
+
+    sbuf_free(&sbuf);
+    return success ? str_obj : SL_NIL;  // Return object or NIL on failure
 }
 
 // --- parse_number and parse_symbol_or_bool implementations ---

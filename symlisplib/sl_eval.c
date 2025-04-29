@@ -878,11 +878,6 @@ cleanup_eval_list:
 }
 
 sl_object *sl_apply(sl_object *fn, sl_object *args) {
-    // --- DEBUG ---
-    fprintf(stderr, "[DEBUG sl_apply] ENTERED sl_apply. fn type=%s, args type=%s\n",
-            sl_type_name(fn ? fn->type : -1), sl_type_name(args ? args->type : -1));
-    // --- END DEBUG ---
-
     // --- Check for error during argument evaluation --- <<< NEW CHECK
     if (args == SL_OUT_OF_MEMORY_ERROR || sl_is_error(args)) {
         fprintf(stderr, "[DEBUG sl_apply] Error detected in evaluated arguments, propagating directly.\n");  // DEBUG
@@ -910,30 +905,7 @@ sl_object *sl_apply(sl_object *fn, sl_object *args) {
     sl_gc_add_root(&result);
 
     if (fn->data.function.is_builtin) {
-        /*
-                // --- DEBUG ---
-                const char *builtin_name = fn->data.function.def.builtin.name ? fn->data.function.def.builtin.name : "<?>";
-                fprintf(stderr, "[DEBUG sl_apply] >>> Calling builtin '%s'\n", builtin_name);
-                char *args_str = sl_object_to_string(args);
-                fprintf(stderr, "[DEBUG sl_apply] Builtin Args: %s\n", args_str ? args_str : "(null)");
-                free(args_str);
-                // --- END DEBUG ---
-        */
         result = fn->data.function.def.builtin.func_ptr(args);
-        /*
-                // --- DEBUG ---
-                fprintf(stderr, "[DEBUG sl_apply] <<< Builtin '%s' returned object type: %s\n",
-                        builtin_name, sl_type_name(result ? result->type : -1));
-                if (sl_is_error(result)) {
-                    fprintf(stderr, "[DEBUG sl_apply] Builtin returned ERROR: %s\n", result->data.error_str ? result->data.error_str : "??");
-                } else {
-                    // Optionally print non-error result for context
-                    char *res_str = sl_object_to_string(result);
-                    fprintf(stderr, "[DEBUG sl_apply] Builtin returned value: %s\n", res_str ? res_str : "(null)");
-                    free(res_str);
-                }
-                // --- END DEBUG ---
-        */
     } else {
         // Apply a user-defined closure
         sl_object *params = fn->data.function.def.closure.params;

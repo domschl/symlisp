@@ -74,18 +74,18 @@ static sl_object *sl_predicate_listp(sl_object *args) {
 // (error? obj) -> #t if obj is an error object, #f otherwise
 static sl_object *sl_predicate_errorp(sl_object *args) {
     // --- DEBUG ---
-    fprintf(stderr, "[DEBUG error?] Checking object at %p, type=%d (%s)\n",
-            (void *)args, args ? args->type : -1, args ? sl_type_name(args->type) : "null");
+    // fprintf(stderr, "[DEBUG error?] Checking object at %p, type=%d (%s)\n",
+    //        (void *)args, args ? args->type : -1, args ? sl_type_name(args->type) : "null");
     bool is_err = sl_is_error(args);  // Assuming sl_is_error(obj) is ((obj) != NULL && (obj)->type == SL_TYPE_ERROR)
-    fprintf(stderr, "[DEBUG error?] sl_is_error macro returned: %s\n", is_err ? "true" : "false");
+    // fprintf(stderr, "[DEBUG error?] sl_is_error macro returned: %s\n", is_err ? "true" : "false");
     // --- END DEBUG ---
 
     sl_object *result_bool = is_err ? SL_TRUE : SL_FALSE;
 
     // --- DEBUG ---
-    fprintf(stderr, "[DEBUG error?] Returning boolean object %s at %p, type=%d\n",
-            is_err ? "SL_TRUE" : "SL_FALSE",
-            (void *)result_bool, result_bool ? result_bool->type : -1);
+    // fprintf(stderr, "[DEBUG error?] Returning boolean object %s at %p, type=%d\n",
+    //        is_err ? "SL_TRUE" : "SL_FALSE",
+    //        (void *)result_bool, result_bool ? result_bool->type : -1);
     // --- END DEBUG ---
 
     return result_bool;

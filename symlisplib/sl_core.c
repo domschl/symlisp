@@ -141,8 +141,8 @@ void debug_find_symbol(const char *target_name, const char *label) {
                 // Use strncmp for safety in case name isn't null-terminated?
                 // For now, assume strdup worked correctly initially.
                 if (strcmp(obj->data.symbol_name, target_name) == 0) {
-                    printf("[DEBUG SYMBOL CHECK - %s] Found '%s' Object: %p, Name Ptr: %p, Name Value: \"%s\"\n",
-                           label, target_name, (void *)obj, (void *)obj->data.symbol_name, obj->data.symbol_name);
+                    // printf("[DEBUG SYMBOL CHECK - %s] Found '%s' Object: %p, Name Ptr: %p, Name Value: \"%s\"\n",
+                    //        label, target_name, (void *)obj, (void *)obj->data.symbol_name, obj->data.symbol_name);
                     found = true;
                     // Don't return early, check all chunks in case of duplicates (shouldn't happen without interning)
                 }
@@ -151,7 +151,7 @@ void debug_find_symbol(const char *target_name, const char *label) {
         chunk = chunk->next_chunk;
     }
     if (!found) {
-        printf("[DEBUG SYMBOL CHECK - %s] '%s' symbol object NOT found in heap.\n", label, target_name);
+        // printf("[DEBUG SYMBOL CHECK - %s] '%s' symbol object NOT found in heap.\n", label, target_name);
     }
 }
 
@@ -258,7 +258,7 @@ error:
 static bool allocate_new_chunk(size_t objects_in_chunk) {
     if (objects_in_chunk == 0) objects_in_chunk = DEFAULT_CHUNK_OBJECT_COUNT;
 
-    printf("[DEBUG] Allocating new heap chunk with %zu objects...\n", objects_in_chunk);
+    // printf("[DEBUG] Allocating new heap chunk with %zu objects...\n", objects_in_chunk);
 
     heap_chunk *new_chunk_node = (heap_chunk *)malloc(sizeof(heap_chunk));
     if (!new_chunk_node) {
@@ -304,7 +304,7 @@ static bool allocate_new_chunk(size_t objects_in_chunk) {
     total_heap_objects += objects_in_chunk;
     free_count += objects_in_chunk;
 
-    printf("[DEBUG] New chunk allocated. Total objects: %zu. Free count: %zu\n", total_heap_objects, free_count);
+    // printf("[DEBUG] New chunk allocated. Total objects: %zu. Free count: %zu\n", total_heap_objects, free_count);
     return true;
 }
 
@@ -374,7 +374,7 @@ void sl_mem_init(size_t first_chunk_size) {
 }
 
 void sl_mem_shutdown() {
-    printf("[DEBUG] Shutting down memory...\n");
+    // printf("[DEBUG] Shutting down memory...\n");
     heap_chunk *current_chunk = first_chunk;
     while (current_chunk != NULL) {
         heap_chunk *next = current_chunk->next_chunk;
@@ -464,16 +464,8 @@ void sl_gc_remove_root(sl_object **root_ptr) {
 // Simple allocation from the free list
 sl_object *sl_allocate_object() {
     if (free_list == NULL) {
-        /*
-        printf("[DEBUG] free_list is NULL. Running GC...\n");  // DEBUG
-        sl_env_dump(sl_global_env, "Before GC");               // <<< DUMP 1
-        debug_find_symbol("set!", "Before GC");                // <<< ADD
-        sl_gc();
-        sl_env_dump(sl_global_env, "After GC");  // <<< DUMP 2
-        debug_find_symbol("set!", "After GC");   // <<< ADD
-        */
         if (free_list == NULL) {
-            printf("[DEBUG] free_list still NULL after GC. Allocating new chunk...\n");  // DEBUG
+            // printf("[DEBUG] free_list still NULL after GC. Allocating new chunk...\n");  // DEBUG
             // Still no memory after GC. Allocate a new chunk.
             if (!allocate_new_chunk(DEFAULT_CHUNK_OBJECT_COUNT)) {
                 fprintf(stderr, "Error: Out of memory! Failed to allocate new heap chunk.\n");
@@ -485,9 +477,9 @@ sl_object *sl_allocate_object() {
                 fprintf(stderr, "[DEBUG] Internal Error: New chunk allocation reported success but free_list is still NULL.\n");
                 return SL_OUT_OF_MEMORY_ERROR;  // <<< Return static error
             }
-            printf("[DEBUG] New chunk allocated. Proceeding with allocation.\n");  // DEBUG
+            // printf("[DEBUG] New chunk allocated. Proceeding with allocation.\n");  // DEBUG
         } else {
-            printf("[DEBUG] GC freed objects. free_list is now %p.\n", (void *)free_list);  // DEBUG
+            // printf("[DEBUG] GC freed objects. free_list is now %p.\n", (void *)free_list);  // DEBUG
         }
     }
 

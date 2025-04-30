@@ -16,5 +16,6 @@ sl_object *check_arity_range(const char *func_name, sl_object *args, size_t min_
 void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_ptr);
 bool get_number_as_int64(sl_object *obj, int64_t *out, const char *func_name);
 bool get_number_as_mpq(sl_object *obj, mpq_t out, const char *func_name);
+sl_object *append_to_list(sl_object **head_root, sl_object **tail_root, sl_object *item);
 
 #endif  // SL_BUILTINS_H

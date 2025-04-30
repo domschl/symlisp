@@ -11,6 +11,7 @@
 #include "sl_eval.h"  // <<< ADDED for sl_eval_stream
 #include "sl_predicates.h"
 #include "sl_strings.h"
+#include "sl_higher_order.h"
 
 // Helper to check arity.
 // Returns SL_TRUE if arity matches and list is proper.
@@ -1832,7 +1833,7 @@ void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_p
 // Helper to append an item to a list being built (handles GC rooting)
 // Returns the new head on success, or NULL on OOM error or internal error.
 // Takes pointers to the head and tail roots.
-static sl_object *append_to_list(sl_object **head_root, sl_object **tail_root, sl_object *item) {
+sl_object *append_to_list(sl_object **head_root, sl_object **tail_root, sl_object *item) {
     // Item is assumed to be rooted by the caller if necessary before calling append_to_list
     sl_object *new_pair = sl_make_pair(item, SL_NIL);
     if (!new_pair) return NULL;  // OOM
@@ -2021,4 +2022,5 @@ void sl_builtins_init(sl_object *global_env) {
 
     sl_predicates_init(global_env);
     sl_strings_init(global_env);
+    sl_register_higher_order_primitives(global_env);
 }

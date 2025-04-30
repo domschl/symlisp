@@ -73,9 +73,11 @@ static sl_object *sl_predicate_listp(sl_object *args) {
 
 // (error? obj) -> #t if obj is an error object, #f otherwise
 static sl_object *sl_predicate_errorp(sl_object *args) {
-    bool is_err = sl_is_error(args);  // Assuming sl_is_error(obj) is ((obj) != NULL && (obj)->type == SL_TYPE_ERROR)
-    sl_object *result_bool = is_err ? SL_TRUE : SL_FALSE;
-    return result_bool;
+    // <<< FIX: Need arity check and argument extraction >>>
+    sl_object *arity_check = check_arity("error?", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+    sl_object *obj = sl_car(args);
+    return sl_is_error(obj) ? SL_TRUE : SL_FALSE;
 }
 
 // (char? obj) -> #t if obj is a character, #f otherwise
@@ -96,6 +98,68 @@ static sl_object *sl_predicate_environmentp(sl_object *args) {
     // Or: return (obj != NULL && obj->type == SL_TYPE_ENV) ? SL_TRUE : SL_FALSE;
 }
 
+// --- Type Predicates ---
+
+// --- Numeric Predicates ---
+
+// Returns true if obj is a number representing an integer, false otherwise.
+static bool is_integer_object(sl_object *obj) {
+    if (!sl_is_number(obj)) {
+        return false;
+    }
+    // Access the number data based on your sl_core.c structure
+    sl_number *num = &obj->data.number;
+    if (num->is_bignum) {  // Check if using mpq_t
+        // Check if denominator is 1
+        return mpz_cmp_ui(mpq_denref(num->value.big_num), 1) == 0;
+    } else {  // Check if using small_num struct
+        return num->value.small_num.den == 1;
+    }
+}
+
+// (odd? n) -> #t if n is an odd integer, #f otherwise
+static sl_object *sl_predicate_oddp(sl_object *args) {
+    sl_object *arity_check = check_arity("odd?", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+    sl_object *obj = sl_car(args);
+
+    if (!is_integer_object(obj)) {  // <<< Uses the helper
+        return SL_FALSE;            // Not an integer
+    }
+
+    sl_number *num = &obj->data.number;
+    bool is_odd = false;
+
+    if (num->is_bignum) {  // Handle mpq_t
+        is_odd = mpz_odd_p(mpq_numref(num->value.big_num));
+    } else {  // Handle small_num
+        is_odd = (num->value.small_num.num % 2 != 0);
+    }
+    return is_odd ? SL_TRUE : SL_FALSE;
+}
+
+// (even? n) -> #t if n is an even integer, #f otherwise
+static sl_object *sl_predicate_evenp(sl_object *args) {
+    sl_object *arity_check = check_arity("even?", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+    sl_object *obj = sl_car(args);
+
+    if (!is_integer_object(obj)) {  // <<< Uses the helper
+        return SL_FALSE;            // Not an integer
+    }
+
+    sl_number *num = &obj->data.number;
+    bool is_even = false;
+
+    if (num->is_bignum) {  // Handle mpq_t
+        is_even = mpz_even_p(mpq_numref(num->value.big_num));
+    } else {  // Handle small_num
+        is_even = (num->value.small_num.num % 2 == 0);
+    }
+    return is_even ? SL_TRUE : SL_FALSE;
+}
+// ...
+
 // --- Initialization ---
 
 void sl_predicates_init(sl_object *global_env) {
@@ -111,6 +175,9 @@ void sl_predicates_init(sl_object *global_env) {
     define_builtin(global_env, "char?", sl_predicate_charp);
     define_builtin(global_env, "error?", sl_predicate_errorp);  // <<< ADDED
     define_builtin(global_env, "environment?", sl_predicate_environmentp);
+    // Numeric Predicates
+    define_builtin(global_env, "odd?", sl_predicate_oddp);
+    define_builtin(global_env, "even?", sl_predicate_evenp);
 
     // Add other predicate groups here later (Equivalence, Numeric)
 }

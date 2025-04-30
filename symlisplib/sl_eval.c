@@ -311,6 +311,7 @@ top_of_eval:;
 
                 if (test_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(test_result)) {
                     result = test_result;  // Propagate error
+                    goto cleanup_if;
                 } else if (test_result != SL_FALSE) {
                     obj = conseq_expr;  // Tail call conseq
                 } else {
@@ -321,6 +322,13 @@ top_of_eval:;
                 sl_gc_remove_root(&alt_expr);
                 sl_gc_remove_root(&conseq_expr);
                 goto top_of_eval;  // Tail call optimization
+
+            cleanup_if:                           // Cleanup path for errors during test eval or structure check
+                sl_gc_remove_root(&test_result);  // Ensure unrooted
+                sl_gc_remove_root(&alt_expr);     // Ensure unrooted
+                sl_gc_remove_root(&conseq_expr);  // Ensure unrooted
+                // args was already unrooted
+                break;  // <<< FIX: Break from switch, result holds the error >>>
             }
             // --- DEFINE ---
             else if (strcmp(op_name, "define") == 0) {

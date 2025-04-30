@@ -155,14 +155,9 @@ bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value) {
 
             // --- CORRECTED COMPARISON ---
             // if (sl_car(pair) == symbol) { // <<< OLD POINTER COMPARISON
-            if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON
-                                                                                                       // Found the symbol in this frame, update the value
-                // <<< ADD DEBUG >>>
-                printf("[DEBUG SET!] Found pair %p for symbol '%s'. Current value: %p. Setting value to: %p\n",
-                       (void *)pair, sl_symbol_name(symbol), (void *)sl_cdr(pair), (void *)value);
-                // <<< END DEBUG >>>
-                sl_set_cdr(pair, value);  // Assumes sl_set_cdr handles GC if needed
-                return true;              // Success
+            if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON                                                                                                       // Found the symbol in this frame, update the value
+                sl_set_cdr(pair, value);                                                               // Assumes sl_set_cdr handles GC if needed
+                return true;                                                                           // Success
             }
             current_binding = sl_cdr(current_binding);
         }
@@ -200,9 +195,6 @@ sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
                 // --- CORRECTED COMPARISON ---
                 if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON
                     // Found the symbol, return the binding pair itself
-
-                    fprintf(stderr, "    Found symbol '%s' in env %p, pair %p\n", target_name, (void *)current_env_obj, (void *)pair);
-
                     return pair;  // <<< RETURN THE PAIR
                 }
             } else {

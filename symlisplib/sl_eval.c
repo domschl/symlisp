@@ -1254,12 +1254,7 @@ top_of_eval:;
 
                 while (v_iter != SL_NIL) {
                     // Assumes lists are same length
-                    printf("[DEBUG DO BIND] Defining %s in env %p\n", sl_symbol_name(sl_car(v_iter)), (void *)loop_env);  // <<< ADD
-
                     sl_env_define(loop_env, sl_car(v_iter), sl_car(iv_iter));
-
-                    sl_env_dump(loop_env, "After Define");  // <<< ADD DUMP HERE
-
                     // Check OOM?
                     v_iter = sl_cdr(v_iter);
                     iv_iter = sl_cdr(iv_iter);
@@ -1268,14 +1263,8 @@ top_of_eval:;
                 // --- 4. The Loop ---
                 sl_object *step_vals_list = SL_NIL;  // Temp storage for evaluated steps
                 sl_gc_add_root(&step_vals_list);
-
-                sl_env_dump(loop_env, "Before Step Eval");
-
                 while (true) {
                     // a. Evaluate Test in loop_env
-
-                    sl_env_dump(loop_env, "Before Step Eval step X");
-
                     sl_object *test_result = sl_eval(test_expr, loop_env);  // MIGHT GC
                     sl_gc_add_root(&test_result);
 
@@ -1354,18 +1343,8 @@ top_of_eval:;
                         sl_object *step_expr = sl_car(current_step_expr_node);
                         const char *current_var_name = sl_is_pair(v_iter_debug) ? sl_symbol_name(sl_car(v_iter_debug)) : "???";
 
-                        // <<< --- MORE DEBUGGING --- >>>
-                        printf("[DEBUG STEP] === Evaluating step for '%s' ===\n", current_var_name);
-                        sl_env_dump(loop_env, "Env BEFORE sl_eval step");
-                        // <<< --- END DEBUGGING --- >>>
-
                         sl_object *step_val = sl_eval(step_expr, loop_env);  // <<< EVALUATE STEP
 
-                        // <<< --- MORE DEBUGGING --- >>>
-                        printf("[DEBUG STEP] === Evaluated step for '%s' ===\n", current_var_name);
-                        printf("[DEBUG STEP] Result Addr: %p, Type: %d\n", (void *)step_val, step_val ? step_val->type : -1);
-                        sl_env_dump(loop_env, "Env AFTER sl_eval step");
-                        // <<< --- END DEBUGGING --- >>>
                         sl_gc_add_root(&step_val);
 
                         if (step_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(step_val)) {
@@ -1392,20 +1371,11 @@ top_of_eval:;
                     sl_object *sv_iter = step_vals_list;
                     while (v_iter != SL_NIL) {  // Assumes lists are same length
 
-                        // <<< ADD DEBUG >>>
-                        printf("[DEBUG UPDATE] Will call sl_env_set('%s', %p)\n", sl_symbol_name(sl_car(v_iter)), (void *)v_iter);
-                        // <<< END DEBUG >>>
-
                         if (!sl_env_set(loop_env, sl_car(v_iter), sl_car(sv_iter))) {
                             // Should not happen if vars were defined correctly
                             result = sl_make_errorf("Eval: Internal error - failed to set! do variable '%s'", sl_symbol_name(sl_car(v_iter)));
                             goto cleanup_do_loop;
                         }
-
-                        // <<< ADD DEBUG >>>
-                        printf("[DEBUG UPDATE] After sl_env_set for '%s'\n", sl_symbol_name(sl_car(v_iter)));
-                        sl_env_dump(loop_env, "Env state mid-update");
-                        // <<< END DEBUG >>>
 
                         v_iter = sl_cdr(v_iter);
                         sv_iter = sl_cdr(sv_iter);

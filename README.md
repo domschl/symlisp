@@ -42,7 +42,7 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Nested defines, let, let*, letrec*
 - [x] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
 - [x] higher-order functions, map, reduce, foldl, foldr, filter.
-- [ ] more loop stuff?
+- [x] the `do` loop.
 - [ ] Macros: define-syntax, let-syntax
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
 - [ ] Check against r7rs

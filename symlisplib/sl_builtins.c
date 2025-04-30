@@ -346,7 +346,6 @@ static sl_object *sl_builtin_add(sl_object *args) {
     // No specific arity check needed for +, 0 args is valid (returns 0)
     mpq_t sum, temp;
     mpq_init(sum);  // Initialize sum to 0/1
-
     sl_object *current = args;
     while (sl_is_pair(current)) {
         sl_object *arg = sl_car(current);
@@ -356,7 +355,7 @@ static sl_object *sl_builtin_add(sl_object *args) {
             return sl_make_errorf("Error (+): Non-number argument found.");
         }
         mpq_add(sum, sum, temp);
-        mpq_clear(temp);
+        mpq_clear(temp);  // Clear temp after use
         current = sl_cdr(current);
     }
     if (current != SL_NIL) {  // Improper list
@@ -381,7 +380,7 @@ static sl_object *sl_builtin_sub(sl_object *args) {
     if (!get_number_as_mpq(first_arg, result_q, "-")) {
         // mpq_init(result_q) was called above, but get_number_as_mpq failed
         // before re-initializing it. We still need to clear the initial one.
-        mpq_clear(result_q);
+        // mpq_clear(result_q);
         return sl_make_errorf("Error (-): Non-number argument found (first).");
     }
 
@@ -398,7 +397,7 @@ static sl_object *sl_builtin_sub(sl_object *args) {
             if (!got_num) {
                 // Failed to get number, temp was NOT initialized by get_number_as_mpq.
                 // Only clear result_q which was initialized earlier.
-                mpq_clear(result_q);
+                // mpq_clear(result_q);
                 return sl_make_errorf("Error (-): Non-number argument found (subsequent).");
             }
             // If we got here, temp WAS initialized by get_number_as_mpq

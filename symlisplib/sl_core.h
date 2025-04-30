@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <gmp.h>
 
 // --- Type Definitions ---
@@ -198,10 +199,49 @@ const char *sl_type_name(sl_object_type type);  // <<< ADDED
 
 // --- Accessor Macros/Functions ---
 // Pair accessors
-#define sl_car(obj) ((obj)->data.pair.car)
-#define sl_cdr(obj) ((obj)->data.pair.cdr)
-#define sl_set_car(obj, val) ((obj)->data.pair.car = (val))
-#define sl_set_cdr(obj, val) ((obj)->data.pair.cdr = (val))
+// #define sl_car(obj) ((obj)->data.pair.car)
+// #define sl_cdr(obj) ((obj)->data.pair.cdr)
+// #define sl_set_car(obj, val) ((obj)->data.pair.car = (val))
+// #define sl_set_cdr(obj, val) ((obj)->data.pair.cdr = (val))
+
+static inline sl_object *sl_car(sl_object *obj) {
+    if (!sl_is_pair(obj)) {
+        // Option 1: Return NIL (safer for many Lisp operations)
+        return SL_NIL;
+        // Option 2: Trigger an error (stricter)
+        // return sl_make_errorf("car: Expected a pair, got %s", sl_type_name(obj ? obj->type : -1));
+    }
+    return obj->data.pair.car;
+}
+
+static inline sl_object *sl_cdr(sl_object *obj) {
+    if (!sl_is_pair(obj)) {
+        // Option 1: Return NIL
+        return SL_NIL;
+        // Option 2: Trigger an error
+        // return sl_make_errorf("cdr: Expected a pair, got %s", sl_type_name(obj ? obj->type : -1));
+    }
+    return obj->data.pair.cdr;
+}
+
+static inline void sl_set_car(sl_object *obj, sl_object *val) {
+    if (!sl_is_pair(obj)) {
+        // Handle error: maybe print to stderr, maybe make it return bool?
+        fprintf(stderr, "Warning: set-car! called on non-pair.\n");
+        return;
+    }
+    obj->data.pair.car = val;
+}
+
+static inline void sl_set_cdr(sl_object *obj, sl_object *val) {
+    if (!sl_is_pair(obj)) {
+        // Handle error
+        fprintf(stderr, "Warning: set-cdr! called on non-pair.\n");
+        return;
+    }
+    obj->data.pair.cdr = val;
+}
+
 sl_object *sl_cadr(sl_object *list);
 sl_object *sl_caddr(sl_object *list);
 sl_object *sl_cddr(sl_object *list);

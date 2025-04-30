@@ -136,10 +136,6 @@ static sl_object *sl_builtin_car(sl_object *args) {
 
     sl_object *pair = sl_car(args);  // Get the first argument
     if (!sl_is_pair(pair)) {
-        // Use sl_object_to_string_buf for better error message if available
-        // char arg_str[64];
-        // sl_object_to_string_buf(pair, arg_str, sizeof(arg_str));
-        // return sl_make_errorf("Error (car): Argument must be a pair, got %s.", arg_str);
         return sl_make_errorf("Error (car): Argument must be a pair, got type %d.", pair ? pair->type : -1);
     }
     return sl_car(pair);
@@ -154,6 +150,39 @@ static sl_object *sl_builtin_cdr(sl_object *args) {
         return sl_make_errorf("Error (cdr): Argument must be a pair, got type %d.", pair ? pair->type : -1);
     }
     return sl_cdr(pair);
+}
+
+static sl_object *sl_builtin_cadr(sl_object *args) {
+    sl_object *arity_check = check_arity("cadr", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *pair = sl_car(args);  // Get the first argument
+    if (!sl_is_pair(pair)) {
+        return sl_make_errorf("Error (cadr): Argument must be a pair, got type %d.", pair ? pair->type : -1);
+    }
+    return sl_cadr(pair);
+}
+
+static sl_object *sl_builtin_cddr(sl_object *args) {
+    sl_object *arity_check = check_arity("cddr", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *pair = sl_car(args);  // Get the first argument
+    if (!sl_is_pair(pair)) {
+        return sl_make_errorf("Error (cddr): Argument must be a pair, got type %d.", pair ? pair->type : -1);
+    }
+    return sl_cddr(pair);
+}
+
+static sl_object *sl_builtin_caddr(sl_object *args) {
+    sl_object *arity_check = check_arity("caddr", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *pair = sl_car(args);  // Get the first argument
+    if (!sl_is_pair(pair)) {
+        return sl_make_errorf("Error (caddr): Argument must be a pair, got type %d.", pair ? pair->type : -1);
+    }
+    return sl_caddr(pair);
 }
 
 static sl_object *sl_builtin_cons(sl_object *args) {
@@ -2069,6 +2098,9 @@ void sl_builtins_init(sl_object *global_env) {
     // Core functions
     define_builtin(global_env, "car", sl_builtin_car);
     define_builtin(global_env, "cdr", sl_builtin_cdr);
+    define_builtin(global_env, "cadr", sl_builtin_cadr);
+    define_builtin(global_env, "caddr", sl_builtin_caddr);
+    define_builtin(global_env, "cddr", sl_builtin_cddr);
     define_builtin(global_env, "cons", sl_builtin_cons);
     define_builtin(global_env, "cons*", sl_builtin_cons_star);   // <<< ADDED
     define_builtin(global_env, "list", sl_builtin_list);         // <<< ADDED

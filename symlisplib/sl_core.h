@@ -203,6 +203,7 @@ const char *sl_type_name(sl_object_type type);  // <<< ADDED
 #define sl_set_car(obj, val) ((obj)->data.pair.car = (val))
 #define sl_set_cdr(obj, val) ((obj)->data.pair.cdr = (val))
 sl_object *sl_cadr(sl_object *list);
+sl_object *sl_caddr(sl_object *list);
 sl_object *sl_cddr(sl_object *list);
 
 // Number accessors (Implementations needed in .c file)

@@ -2,7 +2,7 @@
 
 (define test-list-1 '(1 2 3 4))
 (define test-list-2 '(a b c))
-(define test-list-3 '((1 2) (3 4)))
+(define test-list-3 '((1 2) (3 4) (5 6))) ; Extended list 3 for caddr
 (define test-list-4 '())
 
 ;; --- CAR ---
@@ -13,8 +13,23 @@
 ;; --- CDR ---
 (define-test "cdr-simple" (assert-equal (cdr test-list-1) '(2 3 4)))
 (define-test "cdr-symbol" (assert-equal (cdr test-list-2) '(b c)))
-(define-test "cdr-nested" (assert-equal (cdr test-list-3) '((3 4))))
+(define-test "cdr-nested" (assert-equal (cdr test-list-3) '((3 4) (5 6))))
 (define-test "cdr-last-pair" (assert-equal (cdr '(4)) '()))
+
+;; --- CXR ---
+(define-test "cadr-simple" (assert-equal (cadr test-list-1) 2)) ; (car (cdr '(1 2 3 4))) -> (car '(2 3 4)) -> 2
+(define-test "cadr-symbol" (assert-equal (cadr test-list-2) 'b)) ; (car (cdr '(a b c))) -> (car '(b c)) -> b
+(define-test "cadr-nested" (assert-equal (cadr test-list-3) '(3 4))) ; (car (cdr '((1 2) (3 4) (5 6)))) -> (car '((3 4) (5 6))) -> (3 4)
+
+(define-test "cddr-simple" (assert-equal (cddr test-list-1) '(3 4))) ; (cdr (cdr '(1 2 3 4))) -> (cdr '(2 3 4)) -> (3 4)
+(define-test "cddr-symbol" (assert-equal (cddr test-list-2) '(c))) ; (cdr (cdr '(a b c))) -> (cdr '(b c)) -> (c)
+(define-test "cddr-nested" (assert-equal (cddr test-list-3) '((5 6)))) ; (cdr (cdr '((1 2) (3 4) (5 6)))) -> (cdr '((3 4) (5 6))) -> ((5 6))
+
+(define-test "caddr-simple" (assert-equal (caddr test-list-1) 3)) ; (car (cdr (cdr '(1 2 3 4)))) -> (car '(3 4)) -> 3
+(define-test "caddr-symbol" (assert-equal (caddr test-list-2) 'c)) ; (car (cdr (cdr '(a b c)))) -> (car '(c)) -> c
+(define-test "caddr-nested" (assert-equal (caddr test-list-3) '(5 6))) ; (car (cdr (cdr '((1 2) (3 4) (5 6))))) -> (car '((5 6))) -> (5 6)
+
+(define test-list-3 '((1 2) (3 4))) ; Reduced list to 2 again
 
 ;; --- CONS ---
 (define-test "cons-number-list" (assert-equal (cons 0 test-list-1) '(0 1 2 3 4)))

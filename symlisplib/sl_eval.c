@@ -1088,6 +1088,249 @@ top_of_eval:;
                 sl_gc_remove_root(&args);  // Final unroot of args list
                 break;                     // Break from switch case 'or'
             }  // End OR block
+            // --- DO --- <<< NEW BLOCK
+            else if (strcmp(op_name, "do") == 0) {
+                // (do ((var1 init1 step1) ...) (test result ...) command ...)
+                sl_gc_add_root(&args);  // Root the rest of the form
+
+                // --- 1. Parse Structure ---
+                if (!sl_is_pair(args) || !sl_is_pair(sl_cdr(args))) {
+                    result = sl_make_errorf("Eval: Malformed do (missing bindings or test/result)");
+                    goto cleanup_do;
+                }
+                sl_object *bindings = sl_car(args);
+                sl_object *test_result_pair = sl_cadr(args);
+                sl_object *commands = sl_cddr(args);  // Can be NIL
+
+                if (!sl_is_list(bindings)) {
+                    result = sl_make_errorf("Eval: Malformed do bindings (not a list)");
+                    goto cleanup_do;
+                }
+                if (!sl_is_pair(test_result_pair)) {
+                    result = sl_make_errorf("Eval: Malformed do test/result pair");
+                    goto cleanup_do;
+                }
+                if (!sl_is_list(commands)) {  // commands can be NIL, sl_is_list handles that
+                    result = sl_make_errorf("Eval: Malformed do commands (improper list)");
+                    goto cleanup_do;
+                }
+
+                sl_object *test_expr = sl_car(test_result_pair);
+                sl_object *result_exprs = sl_cdr(test_result_pair);  // List of result expressions
+
+                // Root parsed parts
+                sl_gc_add_root(&bindings);
+                sl_gc_add_root(&test_expr);
+                sl_gc_add_root(&result_exprs);
+                sl_gc_add_root(&commands);
+
+                // --- 2. Process Bindings & Evaluate Inits ---
+                sl_object *vars_list = SL_NIL;       // List of var symbols
+                sl_object *steps_list = SL_NIL;      // List of step expressions
+                sl_object *init_vals_list = SL_NIL;  // List of evaluated init values
+                sl_object **vars_tail = &vars_list;
+                sl_object **steps_tail = &steps_list;
+                sl_object **inits_tail = &init_vals_list;
+                sl_object *current_binding_node = bindings;
+                bool init_ok = true;
+
+                sl_gc_add_root(&vars_list);
+                sl_gc_add_root(&steps_list);
+                sl_gc_add_root(&init_vals_list);
+                sl_gc_add_root(&current_binding_node);
+
+                while (current_binding_node != SL_NIL) {
+                    if (!sl_is_pair(current_binding_node)) { /* caught by sl_is_list */
+                        break;
+                    }
+                    sl_object *binding_spec = sl_car(current_binding_node);
+
+                    // Validate binding spec: (var init step)
+                    if (!sl_is_pair(binding_spec) || !sl_is_pair(sl_cdr(binding_spec)) || !sl_is_pair(sl_cddr(binding_spec)) || sl_cdr(sl_cddr(binding_spec)) != SL_NIL) {
+                        result = sl_make_errorf("Eval: Malformed do binding spec (should be list of 3 elements)");
+                        init_ok = false;
+                        break;
+                    }
+                    sl_object *var_sym = sl_car(binding_spec);
+                    sl_object *init_expr = sl_cadr(binding_spec);
+                    sl_object *step_expr = sl_caddr(binding_spec);
+
+                    if (!sl_is_symbol(var_sym)) {
+                        result = sl_make_errorf("Eval: Variable in do binding must be a symbol");
+                        init_ok = false;
+                        break;
+                    }
+
+                    // Evaluate init_expr in the *outer* environment (env)
+                    sl_object *init_val = sl_eval(init_expr, env);  // MIGHT GC
+                    sl_gc_add_root(&init_val);
+
+                    if (init_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(init_val)) {
+                        result = init_val;  // Propagate error
+                        sl_gc_remove_root(&init_val);
+                        init_ok = false;
+                        break;
+                    }
+
+                    // Append var, step, and init_val to respective lists
+                    if (!append_to_list(&vars_list, vars_tail, var_sym) ||
+                        !append_to_list(&steps_list, steps_tail, step_expr) ||
+                        !append_to_list(&init_vals_list, inits_tail, init_val)) {
+                        result = sl_make_errorf("Eval: OOM building do loop state");
+                        sl_gc_remove_root(&init_val);
+                        init_ok = false;
+                        break;
+                    }
+
+                    sl_gc_remove_root(&init_val);  // Value is safe in init_vals_list
+                    current_binding_node = sl_cdr(current_binding_node);
+                }
+                sl_gc_remove_root(&current_binding_node);
+
+                if (!init_ok) { goto cleanup_do_state; }  // Error during init eval
+
+                // --- 3. Create Loop Environment & Bind Initial Values ---
+                sl_object *loop_env = sl_env_create(env);
+                CHECK_ALLOC_GOTO(loop_env, cleanup_do_state, result);
+                sl_gc_add_root(&loop_env);
+
+                sl_object *v_iter = vars_list;
+                sl_object *iv_iter = init_vals_list;
+                while (v_iter != SL_NIL) {  // Assumes lists are same length
+                    sl_env_define(loop_env, sl_car(v_iter), sl_car(iv_iter));
+                    // Check OOM?
+                    v_iter = sl_cdr(v_iter);
+                    iv_iter = sl_cdr(iv_iter);
+                }
+
+                // --- 4. The Loop ---
+                sl_object *step_vals_list = SL_NIL;  // Temp storage for evaluated steps
+                sl_gc_add_root(&step_vals_list);
+
+                while (true) {
+                    // a. Evaluate Test in loop_env
+                    sl_object *test_result = sl_eval(test_expr, loop_env);  // MIGHT GC
+                    sl_gc_add_root(&test_result);
+
+                    if (test_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(test_result)) {
+                        result = test_result;  // Propagate error
+                        sl_gc_remove_root(&test_result);
+                        goto cleanup_do_loop;
+                    }
+
+                    // b. Check Test Result
+                    if (test_result != SL_FALSE) {
+                        sl_gc_remove_root(&test_result);  // Unroot test result
+
+                        // Evaluate result expressions sequentially in loop_env
+                        sl_object *current_res_expr_node = result_exprs;
+                        result = SL_NIL;  // Default if no result exprs
+                        sl_gc_add_root(&current_res_expr_node);
+
+                        while (current_res_expr_node != SL_NIL) {
+                            if (!sl_is_pair(current_res_expr_node)) {
+                                result = sl_make_errorf("Eval: Malformed do result expressions (improper list)");
+                                goto cleanup_do_results;
+                            }
+                            sl_object *res_expr = sl_car(current_res_expr_node);
+                            sl_gc_remove_root(&result);            // Unroot previous result
+                            result = sl_eval(res_expr, loop_env);  // MIGHT GC
+                            sl_gc_add_root(&result);               // Root new result
+
+                            if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
+                                goto cleanup_do_results;  // Propagate error
+                            }
+                            current_res_expr_node = sl_cdr(current_res_expr_node);
+                        }
+                    cleanup_do_results:
+                        sl_gc_remove_root(&current_res_expr_node);
+                        goto cleanup_do_loop;  // Exit loop, result holds final value/error
+                    }
+                    sl_gc_remove_root(&test_result);  // Unroot test result (#f)
+
+                    // c. Execute Commands in loop_env
+                    sl_object *current_cmd_node = commands;
+                    sl_gc_add_root(&current_cmd_node);
+                    while (current_cmd_node != SL_NIL) {
+                        if (!sl_is_pair(current_cmd_node)) { /* Handled by initial check */
+                            break;
+                        }
+                        sl_object *cmd_expr = sl_car(current_cmd_node);
+                        sl_object *cmd_result = sl_eval(cmd_expr, loop_env);  // MIGHT GC
+                        sl_gc_add_root(&cmd_result);                          // Root intermediate result
+
+                        if (cmd_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(cmd_result)) {
+                            result = cmd_result;  // Propagate error
+                            sl_gc_remove_root(&cmd_result);
+                            sl_gc_remove_root(&current_cmd_node);
+                            goto cleanup_do_loop;
+                        }
+                        sl_gc_remove_root(&cmd_result);  // Discard command result
+                        current_cmd_node = sl_cdr(current_cmd_node);
+                    }
+                    sl_gc_remove_root(&current_cmd_node);
+
+                    // d. Evaluate Steps in loop_env (store temporarily)
+                    step_vals_list = SL_NIL;  // Reset temp list
+                    sl_object **step_vals_tail = &step_vals_list;
+                    sl_object *current_step_expr_node = steps_list;
+                    sl_gc_add_root(&current_step_expr_node);
+                    bool step_ok = true;
+
+                    while (current_step_expr_node != SL_NIL) {
+                        sl_object *step_expr = sl_car(current_step_expr_node);
+                        sl_object *step_val = sl_eval(step_expr, loop_env);  // MIGHT GC
+                        sl_gc_add_root(&step_val);
+
+                        if (step_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(step_val)) {
+                            result = step_val;  // Propagate error
+                            sl_gc_remove_root(&step_val);
+                            step_ok = false;
+                            break;
+                        }
+
+                        if (!append_to_list(&step_vals_list, step_vals_tail, step_val)) {
+                            result = sl_make_errorf("Eval: OOM building do step values");
+                            sl_gc_remove_root(&step_val);
+                            step_ok = false;
+                            break;
+                        }
+                        sl_gc_remove_root(&step_val);  // Value safe in step_vals_list
+                        current_step_expr_node = sl_cdr(current_step_expr_node);
+                    }
+                    sl_gc_remove_root(&current_step_expr_node);
+                    if (!step_ok) { goto cleanup_do_loop; }  // Error during step eval
+
+                    // e. Update Bindings Simultaneously
+                    v_iter = vars_list;
+                    sl_object *sv_iter = step_vals_list;
+                    while (v_iter != SL_NIL) {  // Assumes lists are same length
+                        if (!sl_env_set(loop_env, sl_car(v_iter), sl_car(sv_iter))) {
+                            // Should not happen if vars were defined correctly
+                            result = sl_make_errorf("Eval: Internal error - failed to set! do variable '%s'", sl_symbol_name(sl_car(v_iter)));
+                            goto cleanup_do_loop;
+                        }
+                        v_iter = sl_cdr(v_iter);
+                        sv_iter = sl_cdr(sv_iter);
+                    }
+                    // Loop continues (go back to step 4a)
+                }  // End while(true) loop
+
+            cleanup_do_loop:
+                sl_gc_remove_root(&step_vals_list);
+                sl_gc_remove_root(&loop_env);
+            cleanup_do_state:
+                sl_gc_remove_root(&init_vals_list);
+                sl_gc_remove_root(&steps_list);
+                sl_gc_remove_root(&vars_list);
+                sl_gc_remove_root(&commands);
+                sl_gc_remove_root(&result_exprs);
+                sl_gc_remove_root(&test_expr);
+                sl_gc_remove_root(&bindings);
+            cleanup_do:
+                sl_gc_remove_root(&args);
+                break;  // Break from switch case 'do'
+            }  // End DO block
 
             // --- END OF SPECIAL FORMS ---
             // If none of the above matched, it's not a special form we handle here.

@@ -264,6 +264,20 @@ sl_object *sl_cadr(sl_object *list) {
     if (!sl_is_pair(list)) return SL_NIL;
     return sl_car(sl_cdr(list));
 }
+
+sl_object *sl_caddr(sl_object *list) {
+    if (!sl_is_pair(list)) return SL_NIL;
+    sl_object *cdr_val = sl_cdr(list);
+    if (!sl_is_pair(cdr_val)) return SL_NIL;
+    // --- FIX START ---
+    // Original incorrect line: return sl_car(cdr_val); // This is cadr
+    // Correct implementation for caddr: (car (cdr (cdr list)))
+    sl_object *cddr_val = sl_cdr(cdr_val);
+    if (!sl_is_pair(cddr_val)) return SL_NIL;  // Check if cddr is a pair
+    return sl_car(cddr_val);
+    // --- FIX END ---
+}
+
 // Helper for (cdr (cdr list))
 sl_object *sl_cddr(sl_object *list) {
     if (!sl_is_pair(list)) return SL_NIL;  // Or error? R7RS allows errors

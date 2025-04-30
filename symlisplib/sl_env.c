@@ -196,6 +196,9 @@ sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
                 // --- CORRECTED COMPARISON ---
                 if (sl_is_symbol(current_sym) && strcmp(sl_symbol_name(current_sym), target_name) == 0) {  // <<< NAME COMPARISON
                     // Found the symbol, return the binding pair itself
+
+                    fprintf(stderr, "    Found symbol '%s' in env %p, pair %p\n", target_name, (void *)current_env_obj, (void *)pair);
+
                     return pair;  // <<< RETURN THE PAIR
                 }
             } else {

@@ -1125,18 +1125,24 @@ top_of_eval:;
                 sl_gc_add_root(&commands);
 
                 // --- 2. Process Bindings & Evaluate Inits ---
-                sl_object *vars_list = SL_NIL;       // List of var symbols
-                sl_object *steps_list = SL_NIL;      // List of step expressions
-                sl_object *init_vals_list = SL_NIL;  // List of evaluated init values
-                sl_object **vars_tail = &vars_list;
-                sl_object **steps_tail = &steps_list;
-                sl_object **inits_tail = &init_vals_list;
+                sl_object *vars_list = SL_NIL;
+                sl_object *steps_list = SL_NIL;
+                sl_object *init_vals_list = SL_NIL;
+                // --- NEW: Pointers TO the last node added ---
+                sl_object *vars_tail_node = SL_NIL;
+                sl_object *steps_tail_node = SL_NIL;
+                sl_object *inits_tail_node = SL_NIL;
                 sl_object *current_binding_node = bindings;
                 bool init_ok = true;
 
                 sl_gc_add_root(&vars_list);
                 sl_gc_add_root(&steps_list);
                 sl_gc_add_root(&init_vals_list);
+                // --- NEW: Root tail node pointers ---
+                sl_gc_add_root(&vars_tail_node);
+                sl_gc_add_root(&steps_tail_node);
+                sl_gc_add_root(&inits_tail_node);
+                // ---
                 sl_gc_add_root(&current_binding_node);
 
                 while (current_binding_node != SL_NIL) {
@@ -1172,22 +1178,71 @@ top_of_eval:;
                         break;
                     }
 
-                    // Append var, step, and init_val to respective lists
-                    if (!append_to_list(&vars_list, vars_tail, var_sym) ||
-                        !append_to_list(&steps_list, steps_tail, step_expr) ||
-                        !append_to_list(&init_vals_list, inits_tail, init_val)) {
-                        result = sl_make_errorf("Eval: OOM building do loop state");
-                        sl_gc_remove_root(&init_val);
+                    // --- REVISED: Append var ---
+                    sl_object *new_var_node = sl_make_pair(var_sym, SL_NIL);
+                    if (!new_var_node || new_var_node == SL_OUT_OF_MEMORY_ERROR) {
+                        result = SL_OUT_OF_MEMORY_ERROR;
                         init_ok = false;
+                        sl_gc_remove_root(&init_val);
                         break;
                     }
+                    sl_gc_add_root(&new_var_node);  // Root new node before potential modification/next alloc
+                    if (vars_list == SL_NIL) {
+                        vars_list = new_var_node;  // First node
+                    } else {
+                        sl_set_cdr(vars_tail_node, new_var_node);  // Link previous tail to new node
+                    }
+                    vars_tail_node = new_var_node;     // Update tail node pointer
+                    sl_gc_remove_root(&new_var_node);  // Unroot (safe in list or via tail pointer)
+
+                    // --- REVISED: Append step ---
+                    sl_object *new_step_node = sl_make_pair(step_expr, SL_NIL);
+                    if (!new_step_node || new_step_node == SL_OUT_OF_MEMORY_ERROR) {
+                        result = SL_OUT_OF_MEMORY_ERROR;
+                        init_ok = false;
+                        sl_gc_remove_root(&init_val);
+                        break;
+                    }
+                    sl_gc_add_root(&new_step_node);
+                    if (steps_list == SL_NIL) {
+                        steps_list = new_step_node;
+                    } else {
+                        sl_set_cdr(steps_tail_node, new_step_node);
+                    }
+                    steps_tail_node = new_step_node;
+                    sl_gc_remove_root(&new_step_node);
+
+                    // --- REVISED: Append init_val ---
+                    sl_object *new_init_node = sl_make_pair(init_val, SL_NIL);
+                    if (!new_init_node || new_init_node == SL_OUT_OF_MEMORY_ERROR) {
+                        result = SL_OUT_OF_MEMORY_ERROR;
+                        init_ok = false;
+                        sl_gc_remove_root(&init_val);
+                        break;
+                    }
+                    sl_gc_add_root(&new_init_node);
+                    if (init_vals_list == SL_NIL) {
+                        init_vals_list = new_init_node;
+                    } else {
+                        sl_set_cdr(inits_tail_node, new_init_node);
+                    }
+                    inits_tail_node = new_init_node;
+                    sl_gc_remove_root(&new_init_node);
+
+                    // --- End Appends ---
 
                     sl_gc_remove_root(&init_val);  // Value is safe in init_vals_list
                     current_binding_node = sl_cdr(current_binding_node);
                 }
                 sl_gc_remove_root(&current_binding_node);
 
-                if (!init_ok) { goto cleanup_do_state; }  // Error during init eval
+                // --- NEW: Remove roots for tail node pointers ---
+                sl_gc_remove_root(&vars_tail_node);
+                sl_gc_remove_root(&steps_tail_node);
+                sl_gc_remove_root(&inits_tail_node);
+                // ---
+
+                if (!init_ok) { goto cleanup_do_state; }  // Error during init eval or list building
 
                 // --- 3. Create Loop Environment & Bind Initial Values ---
                 sl_object *loop_env = sl_env_create(env);
@@ -1196,8 +1251,15 @@ top_of_eval:;
 
                 sl_object *v_iter = vars_list;
                 sl_object *iv_iter = init_vals_list;
-                while (v_iter != SL_NIL) {  // Assumes lists are same length
+
+                while (v_iter != SL_NIL) {
+                    // Assumes lists are same length
+                    printf("[DEBUG DO BIND] Defining %s in env %p\n", sl_symbol_name(sl_car(v_iter)), (void *)loop_env);  // <<< ADD
+
                     sl_env_define(loop_env, sl_car(v_iter), sl_car(iv_iter));
+
+                    sl_env_dump(loop_env, "After Define");  // <<< ADD DUMP HERE
+
                     // Check OOM?
                     v_iter = sl_cdr(v_iter);
                     iv_iter = sl_cdr(iv_iter);
@@ -1207,8 +1269,13 @@ top_of_eval:;
                 sl_object *step_vals_list = SL_NIL;  // Temp storage for evaluated steps
                 sl_gc_add_root(&step_vals_list);
 
+                sl_env_dump(loop_env, "Before Step Eval");
+
                 while (true) {
                     // a. Evaluate Test in loop_env
+
+                    sl_env_dump(loop_env, "Before Step Eval step X");
+
                     sl_object *test_result = sl_eval(test_expr, loop_env);  // MIGHT GC
                     sl_gc_add_root(&test_result);
 

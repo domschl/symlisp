@@ -86,6 +86,16 @@ static sl_object *sl_predicate_charp(sl_object *args) {
     return sl_is_char(obj) ? SL_TRUE : SL_FALSE;
 }
 
+// (environment? obj) -> #t if obj is an environment, #f otherwise
+static sl_object *sl_predicate_environmentp(sl_object *args) {
+    sl_object *arity_check = check_arity("environment?", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+    sl_object *obj = sl_car(args);
+    // Use the existing sl_is_env helper if available, otherwise check type directly
+    return sl_is_env(obj) ? SL_TRUE : SL_FALSE;
+    // Or: return (obj != NULL && obj->type == SL_TYPE_ENV) ? SL_TRUE : SL_FALSE;
+}
+
 // --- Initialization ---
 
 void sl_predicates_init(sl_object *global_env) {
@@ -100,6 +110,7 @@ void sl_predicates_init(sl_object *global_env) {
     define_builtin(global_env, "list?", sl_predicate_listp);
     define_builtin(global_env, "char?", sl_predicate_charp);
     define_builtin(global_env, "error?", sl_predicate_errorp);  // <<< ADDED
+    define_builtin(global_env, "environment?", sl_predicate_environmentp);
 
     // Add other predicate groups here later (Equivalence, Numeric)
 }

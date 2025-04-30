@@ -1690,6 +1690,105 @@ static sl_object *sl_builtin_load(sl_object *args) {
     return result;
 }
 
+// (write obj) -> Writes obj's external representation to stdout.
+static sl_object *sl_builtin_write(sl_object *args) {
+    sl_object *arity_check = check_arity("write", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *obj_to_write = sl_car(args);
+    sl_gc_add_root(&obj_to_write);  // Protect input
+
+    char *str_repr = sl_object_to_string(obj_to_write);
+    if (!str_repr) {
+        sl_gc_remove_root(&obj_to_write);
+        // sl_object_to_string returns NULL on failure (e.g., OOM)
+        return sl_make_errorf("write: Failed to convert object to string (allocation failed?)");
+    }
+
+    fputs(str_repr, stdout);
+    free(str_repr);  // Free the allocated string
+    fflush(stdout);  // Ensure output is flushed
+
+    sl_gc_remove_root(&obj_to_write);
+    // R7RS specifies write returns an unspecified value. Use SL_NIL.
+    return SL_NIL;
+}
+
+// (read) -> Reads one S-expression from stdin.
+static sl_object *sl_builtin_read(sl_object *args) {
+    sl_object *arity_check = check_arity("read", args, 0);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    // Call the stream parser directly on stdin
+    sl_object *result = sl_parse_stream(stdin);
+
+    // sl_parse_stream returns SL_EOF_OBJECT on EOF,
+    // SL_PARSE_ERROR on syntax errors,
+    // SL_OUT_OF_MEMORY_ERROR on allocation failure,
+    // or the parsed object on success.
+    if (result == SL_PARSE_ERROR) {
+        // Error message should have been printed by the parser
+        // Return a generic error or propagate SL_PARSE_ERROR?
+        // Let's return a new error object for now.
+        return sl_make_errorf("read: Failed to parse S-expression from input.");
+    }
+    // Propagate EOF, OOM, or return the valid object
+    return result;
+}
+
+// (eval expr env) -> Evaluates expr in the context of env.
+static sl_object *sl_builtin_eval(sl_object *args) {
+    sl_object *arity_check = check_arity("eval", args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *expr = sl_car(args);
+    sl_object *env_obj = sl_cadr(args);
+
+    // Check if the second argument is actually an environment
+    if (!sl_is_env(env_obj)) {
+        return sl_make_errorf("eval: Second argument must be an environment, got %s.", sl_type_name(env_obj ? env_obj->type : -1));
+    }
+
+    // Root arguments and evaluate
+    sl_gc_add_root(&expr);
+    sl_gc_add_root(&env_obj);
+
+    sl_object *result = sl_eval(expr, env_obj);  // Call the core evaluator
+
+    // Result is already managed by sl_eval's rooting, just unroot args
+    sl_gc_remove_root(&env_obj);
+    sl_gc_remove_root(&expr);
+
+    return result;  // Return the result of evaluation (could be value or error)
+}
+
+// (interaction-environment) -> Returns the global REPL environment. R5RS/R7RS.
+static sl_object *sl_builtin_interaction_environment(sl_object *args) {
+    sl_object *arity_check = check_arity("interaction-environment", args, 0);
+    if (arity_check != SL_TRUE) return arity_check;
+    // Simply return the global environment (needs to be accessible)
+    if (!sl_global_env) {
+        // This should ideally not happen if initialized correctly
+        return sl_make_errorf("interaction-environment: Global environment not initialized.");
+    }
+    return sl_global_env;
+}
+
+// (environment . bindings) -> Creates a new environment
+// Simplistic version: (environment) -> creates empty child of interaction-environment.
+static sl_object *sl_builtin_environment(sl_object *args) {
+    // For now, just create an empty environment whose parent is the global env.
+    sl_object *arity_check = check_arity("environment", args, 0);  // Simplest version: 0 args
+    if (arity_check != SL_TRUE) return arity_check;
+
+    if (!sl_global_env) {
+        return sl_make_errorf("environment: Global environment not initialized (cannot create child).");
+    }
+    sl_object *new_env = sl_env_create(sl_global_env);  // Parent is global env
+    CHECK_ALLOC(new_env);
+    return new_env;
+}
+
 // --- Builtin Initialization ---
 
 // Helper to define a builtin function in an environment
@@ -1776,6 +1875,13 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "display", sl_builtin_display);
     define_builtin(global_env, "newline", sl_builtin_newline);
     define_builtin(global_env, "load", sl_builtin_load);
+    define_builtin(global_env, "write", sl_builtin_write);  // <<< ADDED
+    define_builtin(global_env, "read", sl_builtin_read);    // <<< ADDED
+
+    // Evaluation
+    define_builtin(global_env, "eval", sl_builtin_eval);                                        // <<< ADDED
+    define_builtin(global_env, "interaction-environment", sl_builtin_interaction_environment);  // <<< ADDED
+    define_builtin(global_env, "environment", sl_builtin_environment);                          // <<< ADDED
 
     sl_predicates_init(global_env);
     sl_strings_init(global_env);

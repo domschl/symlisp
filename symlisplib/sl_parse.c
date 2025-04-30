@@ -105,6 +105,14 @@ static bool sl_write_pair_recursive(sl_object *pair, sl_string_buffer *sbuf);
 static bool sl_write_stream_recursive(sl_object *obj, FILE *stream);
 static bool sl_write_pair_stream_recursive(sl_object *pair, FILE *stream);
 
+// --- Forward Declarations (Stream Parsing) ---
+static sl_object *parse_stream_expression(FILE *stream);
+static sl_object *parse_stream_list(FILE *stream);
+static sl_object *parse_stream_atom(FILE *stream);
+static sl_object *parse_stream_string_literal(FILE *stream);
+static sl_object *parse_stream_character_literal(FILE *stream);
+static int peek_char(FILE *stream);  // Helper to peek next char
+
 // --- Public Parsing Functions ---
 
 // Helper to check if char is delimiter (adjust as needed for stream parsing)
@@ -744,6 +752,446 @@ static sl_object *parse_symbol_or_bool(const char **input_ptr, const char *start
     return result;  // SL_NIL if sl_make_symbol fails allocation
 }
 
+// Helper to peek at the next character without consuming it
+static int peek_char(FILE *stream) {
+    int c = fgetc(stream);
+    if (c != EOF) {
+        ungetc(c, stream);
+    }
+    return c;
+}
+
+// Skips whitespace and comments in a stream
+void skip_stream_whitespace_and_comments(FILE *stream) {
+    int c;
+    while (true) {
+        c = fgetc(stream);
+        // Skip standard whitespace
+        while (isspace(c)) {
+            c = fgetc(stream);
+        }
+
+        // Check for comment start
+        if (c == ';') {
+            // Consume comment until newline or EOF
+            while ((c = fgetc(stream)) != EOF && c != '\n') {
+                // Consume
+            }
+            // If we stopped at newline, continue skipping after it
+            // If we stopped at EOF, the outer loop will handle it.
+            if (c == '\n') {
+                continue;  // Go back to check for more whitespace/comments
+            } else {
+                // EOF reached after comment
+                break;
+            }
+        }
+
+        // If it's not whitespace and not a comment, put it back and stop.
+        if (c != EOF) {
+            ungetc(c, stream);
+        }
+        break;
+    }
+}
+
+// Parses the next S-expression from the input stream
+static sl_object *parse_stream_expression(FILE *stream) {
+    skip_stream_whitespace_and_comments(stream);
+
+    int current_char = peek_char(stream);
+
+    if (current_char == EOF) {
+        return SL_EOF_OBJECT;  // Use the dedicated EOF object
+    } else if (current_char == '(') {
+        return parse_stream_list(stream);
+    } else if (current_char == ')') {
+        fprintf(stderr, "Error: Unexpected ')'.\n");
+        fgetc(stream);          // Consume the ')' to avoid loops
+        return SL_PARSE_ERROR;  // Use the dedicated parse error object
+    } else if (current_char == '\'') {
+        fgetc(stream);  // Consume the quote character
+
+        sl_object *datum = parse_stream_expression(stream);  // Parse the datum
+
+        if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || datum == SL_PARSE_ERROR || datum == SL_EOF_OBJECT) {
+            if (datum == SL_EOF_OBJECT) {
+                fprintf(stderr, "Error: Unexpected end of input after quote (').\n");
+            }
+            // Error parsing the datum after quote, or OOM, or EOF
+            return datum;  // Propagate error, OOM, or EOF
+        }
+
+        sl_object *quote_sym = sl_make_symbol("quote");
+        CHECK_ALLOC(quote_sym);
+        sl_gc_add_root(&quote_sym);
+        sl_object *quoted_list = sl_make_pair(datum, SL_NIL);
+        CHECK_ALLOC(quoted_list);
+        sl_gc_add_root(&quoted_list);
+        sl_object *result = sl_make_pair(quote_sym, quoted_list);
+        sl_gc_remove_root(&quoted_list);
+        sl_gc_remove_root(&quote_sym);
+        CHECK_ALLOC(result);
+        return result;
+    } else if (current_char == '"') {
+        return parse_stream_string_literal(stream);
+    } else {
+        // Assume it's an atom (symbol, number, boolean, character)
+        return parse_stream_atom(stream);
+    }
+}
+
+// Parses a list from a stream starting after the opening '('
+static sl_object *parse_stream_list(FILE *stream) {
+    fgetc(stream);  // Consume '('
+
+    sl_object *head = SL_NIL;
+    sl_object *tail = SL_NIL;
+    sl_gc_add_root(&head);  // Protect list head
+
+    while (true) {
+        skip_stream_whitespace_and_comments(stream);
+        int current_char = peek_char(stream);
+
+        if (current_char == ')') {
+            fgetc(stream);  // Consume ')'
+            sl_gc_remove_root(&head);
+            return head;
+        }
+
+        if (current_char == EOF) {
+            fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
+            sl_gc_remove_root(&head);
+            return SL_PARSE_ERROR;
+        }
+
+        // Check for dotted pair syntax: . <datum> )
+        if (current_char == '.') {
+            fgetc(stream);  // Consume '.'
+            int next_char = peek_char(stream);
+            if (!is_stream_delimiter(next_char)) {
+                // It's not '. ' or similar, maybe part of a symbol like ".."? Put '.' back.
+                ungetc('.', stream);
+                // Fall through to parse as atom/element
+            } else {
+                // It is dot notation
+                skip_stream_whitespace_and_comments(stream);  // Skip space after dot
+
+                sl_object *cdr_val = parse_stream_expression(stream);
+                if (!cdr_val || cdr_val == SL_OUT_OF_MEMORY_ERROR || cdr_val == SL_PARSE_ERROR || cdr_val == SL_EOF_OBJECT) {
+                    fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
+                    sl_gc_remove_root(&head);
+                    return cdr_val;  // Propagate error, OOM, or EOF
+                }
+
+                skip_stream_whitespace_and_comments(stream);
+                if (peek_char(stream) != ')') {
+                    fprintf(stderr, "Error: Expected ')' after datum following '.' in list.\n");
+                    sl_gc_remove_root(&head);
+                    return SL_PARSE_ERROR;
+                }
+                fgetc(stream);  // Consume ')'
+
+                if (head == SL_NIL) {
+                    fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
+                    sl_gc_remove_root(&head);
+                    return SL_PARSE_ERROR;
+                }
+
+                sl_set_cdr(tail, cdr_val);
+                sl_gc_remove_root(&head);
+                return head;
+            }
+        }
+
+        // Parse the next element in the list
+        sl_object *element = parse_stream_expression(stream);
+        if (!element || element == SL_OUT_OF_MEMORY_ERROR || element == SL_PARSE_ERROR || element == SL_EOF_OBJECT) {
+            if (element == SL_EOF_OBJECT) {
+                fprintf(stderr, "Error: Unexpected end of input while parsing list element.\n");
+            }
+            sl_gc_remove_root(&head);
+            return element;  // Propagate error, OOM, or EOF
+        }
+
+        // Append the element to the list
+        sl_object *new_pair = sl_make_pair(element, SL_NIL);
+        CHECK_ALLOC(new_pair);
+
+        if (head == SL_NIL) {
+            head = new_pair;
+            tail = new_pair;
+        } else {
+            sl_set_cdr(tail, new_pair);
+            tail = new_pair;
+        }
+    }
+}
+
+// Parses an atom (symbol, number, boolean, character) from a stream
+static sl_object *parse_stream_atom(FILE *stream) {
+    int first_char = peek_char(stream);
+
+    // --- Handle # literals first ---
+    if (first_char == '#') {
+        fgetc(stream);  // Consume '#'
+        int second_char = peek_char(stream);
+        if (second_char == 't') {
+            fgetc(stream);                                  // Consume 't'
+            if (!is_stream_delimiter(peek_char(stream))) {  // Check delimiter
+                ungetc('t', stream);                        // Put back 't'
+                ungetc('#', stream);                        // Put back '#' - treat as symbol starting with #
+            } else {
+                return SL_TRUE;
+            }
+        } else if (second_char == 'f') {
+            fgetc(stream);                                  // Consume 'f'
+            if (!is_stream_delimiter(peek_char(stream))) {  // Check delimiter
+                ungetc('f', stream);                        // Put back 'f'
+                ungetc('#', stream);                        // Put back '#' - treat as symbol starting with #
+            } else {
+                return SL_FALSE;
+            }
+        } else if (second_char == '\\') {
+            fgetc(stream);  // Consume '\'
+            return parse_stream_character_literal(stream);
+        } else {
+            // Unknown # sequence, treat as symbol starting with #
+            ungetc('#', stream);  // Put '#' back
+        }
+    }
+
+    // --- If not a # literal, read the atom token ---
+    sl_string_buffer sbuf;
+    sbuf_init(&sbuf);
+    int c;
+    while (!is_stream_delimiter(c = fgetc(stream))) {
+        if (!sbuf_append_char(&sbuf, (char)c)) {
+            sbuf_free(&sbuf);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+    }
+    if (c != EOF) {
+        ungetc(c, stream);  // Put back the delimiter
+    }
+
+    if (sbuf.length == 0) {  // Should not happen if called correctly
+        sbuf_free(&sbuf);
+        fprintf(stderr, "Internal Error: Tried to parse empty atom from stream.\n");
+        return SL_PARSE_ERROR;
+    }
+
+    // Null-terminate the buffer
+    if (!sbuf_append_char(&sbuf, '\0')) {  // Ensure space for null terminator
+        sbuf_free(&sbuf);
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+
+    // --- Try parsing token as number or symbol ---
+    sl_object *result = NULL;
+    const char *token = sbuf.buffer;
+
+    // Try parsing as number
+    mpq_t num_q;
+    mpq_init(num_q);
+    if (mpq_set_str(num_q, token, 10) == 0) {
+        mpq_canonicalize(num_q);
+        mpz_t num_z, den_z;
+        mpz_inits(num_z, den_z, NULL);
+        mpq_get_num(num_z, num_q);
+        mpq_get_den(den_z, num_q);
+
+        if (mpz_cmp_si(den_z, 1) == 0 && fits_int64(num_z)) {
+            result = sl_make_number_si(mpz_get_si(num_z), 1);
+        } else if (fits_int64(num_z) && fits_int64(den_z)) {
+            result = sl_make_number_si(mpz_get_si(num_z), mpz_get_si(den_z));
+        } else {
+            result = sl_make_number_q(num_q);
+        }
+        mpz_clears(num_z, den_z, NULL);
+    }
+    mpq_clear(num_q);
+
+    if (!result) {
+        // If not a number, assume it's a symbol
+        result = sl_make_symbol(token);
+    }
+
+    sbuf_free(&sbuf);
+
+    // Check if object creation failed due to memory
+    if (result == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "Parser Error: Out of memory creating object for atom.\n");
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+    if (!result) {  // Should only happen if sl_make_symbol fails for non-OOM reasons (unlikely)
+        fprintf(stderr, "Parser Error: Failed to create object for atom '%s'.\n", token);
+        return SL_PARSE_ERROR;
+    }
+
+    return result;
+}
+
+// Parses a string literal from stream starting after the opening '"'
+static sl_object *parse_stream_string_literal(FILE *stream) {
+    fgetc(stream);  // Consume opening '"'
+    sl_string_buffer sbuf;
+    sbuf_init(&sbuf);
+    bool success = true;
+    int current_char;
+
+    while (success) {
+        current_char = fgetc(stream);
+
+        if (current_char == '"') {
+            break;  // End of string
+        }
+
+        if (current_char == EOF) {
+            fprintf(stderr, "Error: Unterminated string literal (EOF).\n");
+            success = false;
+            break;
+        }
+
+        if (current_char == '\\') {
+            // Handle Escape Sequence
+            int escaped_char = fgetc(stream);
+            if (escaped_char == EOF) {
+                fprintf(stderr, "Error: Unterminated escape sequence in string literal (EOF).\n");
+                success = false;
+                break;
+            }
+
+            char char_to_append = 0;
+            bool simple_escape = true;
+
+            switch (escaped_char) {
+            case 'n':
+                char_to_append = '\n';
+                break;
+            case 't':
+                char_to_append = '\t';
+                break;
+            case '"':
+                char_to_append = '"';
+                break;
+            case '\\':
+                char_to_append = '\\';
+                break;
+            case 'x': {  // Hex escape \xHH
+                simple_escape = false;
+                int d1 = fgetc(stream);
+                int d2 = fgetc(stream);
+                if (isxdigit(d1) && isxdigit(d2)) {
+                    char hex_str[3] = {(char)d1, (char)d2, '\0'};
+                    long byte_val = strtol(hex_str, NULL, 16);
+                    if (!sbuf_append_char(&sbuf, (char)byte_val)) { success = false; }
+                } else {
+                    fprintf(stderr, "Error: Invalid hex escape sequence \\x%c%c\n", d1, d2);
+                    success = false;
+                    // Put back non-hex chars if possible
+                    if (d2 != EOF) ungetc(d2, stream);
+                    if (d1 != EOF) ungetc(d1, stream);
+                }
+                break;
+            }
+            default:
+                simple_escape = false;
+                fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
+                success = false;
+                break;
+            }
+            if (simple_escape && success) {
+                if (!sbuf_append_char(&sbuf, char_to_append)) { success = false; }
+            }
+        } else {
+            // Handle Regular Character
+            if (!sbuf_append_char(&sbuf, (char)current_char)) { success = false; }
+        }
+    }  // End while(success)
+
+    sl_object *str_obj = SL_NIL;  // Use NIL as error indicator for now
+    if (success) {
+        if (!sbuf_append_char(&sbuf, '\0')) {  // Null terminate
+            success = false;
+            str_obj = SL_OUT_OF_MEMORY_ERROR;
+        } else {
+            sbuf.length--;  // Don't include null in Scheme string value
+            const char *string_to_make = (sbuf.buffer != NULL) ? sbuf.buffer : "";
+            str_obj = sl_make_string(string_to_make);
+            if (str_obj == SL_OUT_OF_MEMORY_ERROR) {
+                success = false;  // Mark as failure
+            }
+        }
+    }
+
+    sbuf_free(&sbuf);
+    return success ? str_obj : (str_obj == SL_OUT_OF_MEMORY_ERROR ? str_obj : SL_PARSE_ERROR);
+}
+
+// Parses a character literal from stream starting after #\ character
+static sl_object *parse_stream_character_literal(FILE *stream) {
+    int c1 = fgetc(stream);
+    if (c1 == EOF) {
+        fprintf(stderr, "Error: Unexpected EOF after #\\\n");
+        return SL_PARSE_ERROR;
+    }
+
+    // Buffer to read potential multi-character name like "newline" or "xHH"
+    char name_buf[10];  // Max length for "newline" + safety
+    name_buf[0] = (char)c1;
+    size_t name_len = 1;
+
+    // Read subsequent characters if they are not delimiters
+    while (name_len < sizeof(name_buf) - 1) {
+        int next_c = peek_char(stream);
+        if (is_stream_delimiter(next_c)) {
+            break;  // End of character name/code
+        }
+        name_buf[name_len++] = (char)fgetc(stream);  // Consume the char
+    }
+    name_buf[name_len] = '\0';
+
+    // Check named characters
+    if (strcmp(name_buf, "newline") == 0) return sl_make_char('\n');
+    if (strcmp(name_buf, "space") == 0) return sl_make_char(' ');
+    if (strcmp(name_buf, "tab") == 0) return sl_make_char('\t');
+    // Add others...
+
+    // Check hex escape #\xHH
+    if (name_buf[0] == 'x' && name_len > 1) {
+        long char_code = strtol(name_buf + 1, NULL, 16);  // Parse hex part
+        // Basic validation
+        if (char_code >= 0 && char_code <= 0x10FFFF && !(char_code >= 0xD800 && char_code <= 0xDFFF)) {
+            return sl_make_char((uint32_t)char_code);
+        } else {
+            fprintf(stderr, "Error: Invalid hex character code #\\%s\n", name_buf);
+            return SL_PARSE_ERROR;
+        }
+    }
+
+    // If only one character was read, treat it as a literal character
+    if (name_len == 1) {
+        // Need to handle UTF-8 if c1 is the start of a multi-byte sequence.
+        // For simplicity now, assume ASCII or single byte from UTF-8.
+        // A full solution would involve putting c1 back and using a UTF-8 decoder.
+        return sl_make_char((uint32_t)(unsigned char)c1);
+    }
+
+    // If none of the above matched
+    fprintf(stderr, "Error: Unknown character literal #\\%s\n", name_buf);
+    return SL_PARSE_ERROR;
+}
+
+// --- Public Parsing Function (Stream) ---
+// This is the top-level function called by sl_builtin_read
+sl_object *sl_parse_stream(FILE *stream) {
+    if (!stream) {
+        return SL_NIL;  // Or error?
+    }
+    return parse_stream_expression(stream);
+}
+
 // --- Public Parsing Function (String) ---
 sl_object *sl_parse_string(const char *input, const char **end_ptr) {
     if (!input) {
@@ -772,6 +1220,7 @@ sl_object *sl_parse_string(const char *input, const char **end_ptr) {
     return result;  // Can be SL_NIL or an error object on failure
 }
 
+/* obsoleted:
 // TODO: Implement robust stream parsing handling EOF, errors, etc.
 sl_object *sl_parse_stream(FILE *stream) {
     // Very basic implementation: read into a buffer first.
@@ -848,6 +1297,7 @@ sl_object *sl_parse_stream(FILE *stream) {
 
     return result;
 }
+*/
 
 // --- Public Write Functions ---
 

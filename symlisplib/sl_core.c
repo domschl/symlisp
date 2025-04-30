@@ -40,11 +40,10 @@ static size_t root_capacity = 0;
 sl_object *SL_TRUE = NULL;
 sl_object *SL_FALSE = NULL;
 sl_object *SL_NIL = NULL;
-sl_object *SL_EOF_OBJECT = NULL;
 
 sl_object sl_oom_error_obj = {SL_TYPE_ERROR, .data.error_str = "Out of Memory"};
 sl_object *SL_OUT_OF_MEMORY_ERROR = &sl_oom_error_obj;
-
+sl_object *SL_EOF_OBJECT = NULL;  // <<< ADDED
 sl_object sl_parse_error_obj = {SL_TYPE_ERROR, .data.error_str = "Parse Error"};
 sl_object *SL_PARSE_ERROR = &sl_parse_error_obj;
 
@@ -124,6 +123,8 @@ const char *sl_type_name(sl_object_type type) {
         return "error";
     case SL_TYPE_CHAR:
         return "char";
+    case SL_TYPE_EOF:         // <<< ADDED
+        return "eof-object";  // <<< ADDED
     default:
         return "unknown";
     }
@@ -372,6 +373,18 @@ void sl_mem_init(size_t first_chunk_size) {
     SL_FALSE->next = NULL;
     SL_FALSE->data.boolean = false;
 
+    // EOF Object <<< ADDED BLOCK
+    SL_EOF_OBJECT = (sl_object *)malloc(sizeof(sl_object));
+    if (!SL_EOF_OBJECT) {
+        perror("Failed to allocate EOF_OBJECT");
+        exit(EXIT_FAILURE);
+    }
+    SL_EOF_OBJECT->type = SL_TYPE_EOF;  // Need to add SL_TYPE_EOF to enum
+    SL_EOF_OBJECT->marked = false;      // Always reachable
+    SL_EOF_OBJECT->next = NULL;
+    memset(&SL_EOF_OBJECT->data, 0, sizeof(SL_EOF_OBJECT->data));
+    // --- END ADDED BLOCK ---
+
     // Initialize global symbol table (global env created in main)
     // sl_global_env = sl_env_create(SL_NIL); // <<< REMOVE THIS LINE
     sl_symbol_table = SL_NIL;
@@ -444,6 +457,8 @@ void sl_mem_shutdown() {
     SL_TRUE = NULL;
     free(SL_FALSE);
     SL_FALSE = NULL;
+    free(SL_EOF_OBJECT);   // <<< ADDED
+    SL_EOF_OBJECT = NULL;  // <<< ADDED
 
     // TODO: Cleanup GMP statics like min_int64_z if used in fits_int64
 }
@@ -1236,7 +1251,8 @@ char *sl_object_to_string(sl_object *obj) {
         }
         // <<< Implicit break/return was missing here >>>
         // No break needed after return
-
+    case SL_TYPE_EOF:
+        return strdup("#<eof>");
     case SL_TYPE_ENV:
         return strdup("#<environment>");
     case SL_TYPE_ERROR:

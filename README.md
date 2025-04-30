@@ -36,7 +36,7 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] float approximation
 - [x] Predicate tester functions
 - [x] String functions
-- [ ] eval, write, read
+- [x] eval, write, read
 - [ ] Conversion between types
 - [x] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name.
 - [ ] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)

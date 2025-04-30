@@ -14,7 +14,7 @@
       (if passed
           #t
           (begin
-            (display "  ASSERTION FAILED\n")
+            (display "  ASSERTION FAILED:\n")
             (display "  Expected: ")
             (display expected)
             (display "\n  Got:      ")
@@ -52,6 +52,9 @@
           (set! test-passed #t))
         (begin
           (display "Test ") (display name) (display " failed\n")
+          (write "  Assertion: ")
+          (write assertion)
+          (newline)
           (set! tests-failed-count (+ tests-failed-count 1))
           (set! tests-all-passed #f)))
     

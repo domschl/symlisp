@@ -24,7 +24,8 @@ typedef enum {
     SL_TYPE_FUNCTION,
     SL_TYPE_ENV,
     SL_TYPE_ERROR,  // New type for error objects
-    SL_TYPE_CHAR
+    SL_TYPE_CHAR,
+    SL_TYPE_EOF,  // New type for EOF object
 } sl_object_type;
 
 // --- Number Representation ---
@@ -99,7 +100,9 @@ extern sl_object *sl_symbol_table;  // Interned symbol table (e.g., a list or ha
 extern sl_object *SL_NIL;
 extern sl_object *SL_TRUE;
 extern sl_object *SL_FALSE;
+extern sl_object *SL_EOF_OBJECT;           // <<< ADDED
 extern sl_object *SL_OUT_OF_MEMORY_ERROR;  // <<< ADDED
+extern sl_object *SL_PARSE_ERROR;
 
 // --- Helper macro for checking allocation result ---
 #define CHECK_ALLOC(obj_ptr)                                                         \

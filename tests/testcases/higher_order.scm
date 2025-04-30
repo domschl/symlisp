@@ -41,7 +41,26 @@
 (define-test-thunked "filter-simple"
   (lambda ()
     (assert-equal (filter odd? '(1 2 3 4 5)) '(1 3 5)))) ; Assuming odd? predicate;; filepath: /Users/dsc/Codeberg/SymLisp/tests/testcases/higher_order.scm
-;;; Tests for Higher-Order Functions
+
+(define-test-thunked "filter-empty-list"
+  (lambda ()
+    (assert-equal (filter odd? '()) '())))
+
+(define-test-thunked "filter-all-pass"
+  (lambda ()
+    (assert-equal (filter number? '(1 2 3 4)) '(1 2 3 4)))) ; Assuming number? predicate
+
+(define-test-thunked "filter-none-pass"
+  (lambda ()
+    (assert-equal (filter symbol? '(1 2 3 4)) '()))) ; Assuming symbol? predicate
+
+(define-test-thunked "filter-mixed-types"
+  (lambda ()
+    (assert-equal (filter pair? '(a (b) c (d e) f)) '((b) (d e))))) ; Assuming pair? predicate
+
+(define-test-thunked "filter-keep-order"
+  (lambda ()
+    (assert-equal (filter (lambda (x) (> x 3)) '(5 1 4 2 6 3)) '(5 4 6))))
 
 ;; --- MAP ---
 

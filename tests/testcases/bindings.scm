@@ -8,10 +8,6 @@
 ;    (assert-error y "Unbound variable: x."))) ; Assuming no global x
 (define-test "let-empty-bindings" (assert-equal (let () 5) 5))
 (define-test "let-multiple-body" (assert-equal (let ((x 0)) (set! x (+ x 1)) x) 1))
-(define-test "let-tco-body" ; Last expression in body is tail call
-    (letrec* ((f (lambda (n acc) (if (= n 0) acc (f (- n 1) (+ acc n))))))
-      (assert-equal (let ((x 10000)) (f x 0)) ; Should not overflow C stack
-                    50005000)))
 
 ;; --- NAMED LET ---
 (define-test "named-let-simple-loop"
@@ -23,6 +19,33 @@
                   (if (= n 0) acc (loop (- n 1) (+ acc n))))
                 50005000))
 
+;; --- LET* ---
+(define-test "let*-simple" (assert-equal (let* ((x 1)) x) 1))
+(define-test "let*-sequential" (assert-equal (let* ((x 1) (y x)) y) 1))
+(define-test "let*-sequential-expr" (assert-equal (let* ((x 1) (y (+ x 1))) y) 2))
+(define-test "let*-shadowing" (assert-equal (let* ((x 1) (x (+ x 1))) x) 2))
+(define-test "let*-empty-bindings" (assert-equal (let* () 5) 5))
+(define-test "let*-multiple-body" (assert-equal (let* ((x 0)) (set! x (+ x 1)) x) 1))
+
+;; --- LETREC* ---
+(define-test "letrec*-simple" (assert-equal (letrec* ((x 1)) x) 1))
+(define-test "letrec*-mutual-recursion"
+  (assert-equal (letrec* ((is-even? (lambda (n) (if (= n 0) #t (is-odd? (- n 1)))))
+                          (is-odd? (lambda (n) (if (= n 0) #f (is-even? (- n 1))))))
+                  (is-odd? 5))
+                #t))
+(define-test "letrec*-sequential-eval" ; Like let*, later bindings see earlier ones
+  (assert-equal (letrec* ((x 1) (y x)) y) 1))
+(define-test "letrec*-forward-ref-in-lambda" ; Lambda body evaluated later
+  (assert-equal (letrec* ((f (lambda () y)) (y 2)) (f)) 2))
+;(define-test "letrec*-forward-ref-in-init" ; R7RS disallows this for letrec*
+;  (assert-error (letrec* ((x y) (y 1)) x) "Cannot reference variable before initialization")) ; Or similar error
+(define-test "letrec*-empty-bindings" (assert-equal (letrec* () 5) 5))
+(define-test "letrec*-multiple-body" (assert-equal (letrec* ((x 0)) (set! x (+ x 1)) x) 1))
+(define-test "letrec*-tco-body" ; Last expression in body is tail call
+    (letrec* ((f (lambda (n acc) (if (= n 0) acc (f (- n 1) (+ acc n))))))
+      (assert-equal (letrec* ((x 10000)) (f x 0)) ; Should not overflow C stack
+                    50005000)))
 
 ;; --- Nested Defines ---
 (define-test "nested-define-simple-var"

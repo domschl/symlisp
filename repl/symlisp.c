@@ -82,21 +82,30 @@ void run_repl() {
         char *line = readline(prompt);
         if (!line) break;  // Ctrl+D
 
+        // --- ADDED: Strip comment from the line ---
+        char *comment_start = NULL;
+        bool in_string_repl = false;  // Use a different name
+        for (char *p = line; *p; ++p) {
+            if (*p == '"') {
+                in_string_repl = !in_string_repl;
+            } else if (*p == '\\' && p[1] != '\0') {
+                // Simple escape handling: skip the next character
+                p++;
+            } else if (*p == ';' && !in_string_repl) {
+                comment_start = p;
+                break;  // Found the start of a comment
+            }
+        }
+        if (comment_start) {
+            *comment_start = '\0';  // Truncate the line string here
+        }
+        // --- END ADDED ---
+
         // Handle empty line
         if (strlen(line) == 0) {
             free(line);
             continue;
         }
-
-        // Handle comments (simple version: only if ';' is first non-space char)
-        const char *temp_line = line;
-        while (isspace(*temp_line))
-            temp_line++;
-        if (*temp_line == ';') {
-            free(line);
-            continue;
-        }
-        // More robust comment handling (anywhere on line) could be added here if needed
 
         // Resize buffer if needed
         size_t current_len = strlen(buffer);

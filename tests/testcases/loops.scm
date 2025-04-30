@@ -5,8 +5,8 @@
     (assert-equal
       (do ((i 0 (+ i 1))
            (sum 0 (+ sum i)))
-          ((>= i 5) sum)) ; Stop when i >= 5, return sum
-      10))) ; 0+1+2+3+4 = 10
+          ((>= i 5) sum))
+      10)))
 
 (define-test-thunked "do-with-commands"
   (lambda ()

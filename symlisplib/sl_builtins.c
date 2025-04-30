@@ -1961,7 +1961,7 @@ void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_p
 // Helper to append an item to a list being built (handles GC rooting)
 // Returns the new head on success, or NULL on OOM error or internal error.
 // Takes pointers to the head and tail roots.
-sl_object *append_to_list(sl_object **head_root, sl_object **tail_root, sl_object *item) {
+sl_object *append_to_list_bad(sl_object **head_root, sl_object **tail_root, sl_object *item) {
     // Item is assumed to be rooted by the caller if necessary before calling append_to_list
     sl_object *new_pair = sl_make_pair(item, SL_NIL);
     if (!new_pair) return NULL;  // OOM
@@ -1983,6 +1983,41 @@ sl_object *append_to_list(sl_object **head_root, sl_object **tail_root, sl_objec
     }
     sl_gc_remove_root(&new_pair);  // Unroot new_pair (now reachable from head/tail roots)
     return *head_root;
+}
+
+// Helper to append an item to a list being built (handles GC rooting)
+// Returns the new head on success, or NULL on OOM error or internal error.
+// Takes pointers to the head root variable and the tail node root variable.
+// NOTE: The second argument's meaning has changed! It's now the address
+//       of the variable holding the pointer to the current tail *node*.
+sl_object *append_to_list(sl_object **head_root_var, sl_object **tail_node_root_var, sl_object *item) {
+    // Item is assumed to be rooted by the caller if necessary before calling append_to_list
+    sl_object *new_node = sl_make_pair(item, SL_NIL);  // This is the new list node (pair)
+    if (!new_node) return NULL;                        // OOM
+
+    sl_gc_add_root(&new_node);  // Root the new node
+
+    if (*head_root_var == SL_NIL) {
+        // List was empty, new_node is both head and tail
+        *head_root_var = new_node;
+        *tail_node_root_var = new_node;  // The tail node is the new node
+    } else {
+        // Append to existing list
+        sl_object *current_tail_node = *tail_node_root_var;
+        // Ensure tail_node_root_var pointed to a valid pair before setting cdr
+        if (!sl_is_pair(current_tail_node)) {
+            fprintf(stderr, "[append_to_list] Internal Error: tail_node_root_var does not point to a pair.\n");
+            sl_gc_remove_root(&new_node);
+            return NULL;  // Internal error
+        }
+        // Modify the cdr of the *current* last node
+        sl_set_cdr(current_tail_node, new_node);
+
+        // Update the tail_node_root_var variable itself to point to the new last node.
+        *tail_node_root_var = new_node;
+    }
+    sl_gc_remove_root(&new_node);  // Unroot new_node (now reachable from head/tail roots)
+    return *head_root_var;         // Return the head of the list
 }
 
 // --- Control Primitives ---

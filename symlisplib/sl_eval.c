@@ -14,7 +14,6 @@
 
 // --- Forward Declarations ---
 sl_object *sl_eval_list(sl_object *list, sl_object *env);
-sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_object **env_ptr);
 
 // static sl_object *eval_sequence(sl_object *seq, sl_object *env);  // Helper for begin/body logic
 //  Renamed eval_sequence to be more specific
@@ -120,6 +119,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
                 var_sym = sl_car(target);
                 sl_object *params = sl_cdr(target);
                 sl_object *body = value_expr_or_body;
+
                 value_to_set = sl_make_closure(params, body, env);
                 CHECK_ALLOC_GOTO(value_to_set, cleanup_sequence_eval, result);
             } else {  // Variable define
@@ -170,12 +170,22 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
 
         // Check for tail call position
         if (next_node == SL_NIL) {
-            // Check if the caller is sl_eval (indicated by non-NULL obj_ptr/env_ptr?)
-            // Let's rely on the caller (sl_eval) to check the return value.
-            // Modify caller's obj and env pointers for TCO jump
-            *obj_ptr = expr_to_eval;
-            *env_ptr = env;
-            result = SL_CONTINUE_EVAL;   // Signal TCO jump
+            // --- ADDED CHECK for valid TCO pointers ---
+            if (obj_ptr && env_ptr) {
+                // Caller can handle TCO, modify pointers and signal
+                *obj_ptr = expr_to_eval;
+                *env_ptr = env;             // Use current env for tail call
+                result = SL_CONTINUE_EVAL;  // Signal TCO jump
+            } else {
+                // Caller cannot handle TCO (e.g., called from apply builtin),
+                // so evaluate the tail expression directly here.
+                // Need to root expr_to_eval before calling sl_eval
+                sl_gc_add_root(&expr_to_eval);
+                result = sl_eval(expr_to_eval, env);  // Evaluate final expression
+                sl_gc_remove_root(&expr_to_eval);
+                // result now holds the final value or an error
+            }
+            // --- END ADDED CHECK ---
             goto cleanup_sequence_body;  // Don't evaluate here
         } else {
             // Not the last expression, evaluate normally
@@ -1272,34 +1282,66 @@ sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_obje
         CHECK_ALLOC_GOTO(call_env, cleanup_apply_closure, result);
         sl_gc_add_root(&call_env);
 
-        // --- Bind arguments to parameters --- <<< TODO: Needs update for variadics
-        sl_object *p = params;
-        sl_object *a = args;
+        // --- REVISED Binding Logic for Variadics ---
+        sl_object *p = params;  // Current parameter specifier
+        sl_object *a = args;    // Current argument list node
         bool bind_ok = true;
-        while (p != SL_NIL && a != SL_NIL) {
-            // Check param is symbol
-            if (!sl_is_symbol(sl_car(p))) {
-                result = sl_make_errorf("Apply: Parameter list contains non-symbol");
-                bind_ok = false;
-                break;
+        sl_gc_add_root(&p);  // Root traversal pointers
+        sl_gc_add_root(&a);
+
+        if (sl_is_pair(p)) {  // Case 1 & 2: Proper or dotted list parameters (e.g., (a b) or (a b . rest))
+            while (sl_is_pair(p) && sl_is_pair(a)) {
+                // Bind one required parameter
+                sl_object *param_sym = sl_car(p);
+                if (!sl_is_symbol(param_sym)) {
+                    result = sl_make_errorf("Apply: Parameter list contains non-symbol");
+                    bind_ok = false;
+                    break;
+                }
+                sl_env_define(call_env, param_sym, sl_car(a));
+                // Check OOM?
+                p = sl_cdr(p);
+                a = sl_cdr(a);
             }
-            // Check for improper lists during binding
-            if (!sl_is_pair(p) || !sl_is_pair(a)) {
-                result = sl_make_errorf("Apply: Internal error during binding (improper lists)");
+
+            if (!bind_ok) goto binding_done;  // Error occurred in loop
+
+            if (sl_is_symbol(p)) {  // Case 2: Dotted list (e.g., (a b . rest)) - p is now the 'rest' symbol
+                sl_object *rest_sym = p;
+                // 'a' now points to the list node containing the first rest argument, or NIL if none.
+                // The rest arguments are already evaluated and form a proper list.
+                sl_env_define(call_env, rest_sym, a);  // Bind rest symbol to the remaining args list
+                // Check OOM?
+                // Arity check: Already consumed required args. Any number of rest args (>=0) is fine.
+            } else if (p == SL_NIL && a == SL_NIL) {  // Case 1: Proper list, exact match
+                // Correct number of arguments provided. Binding complete.
+            } else {  // Case 1: Proper list, mismatch
+                result = sl_make_errorf("Apply: Mismatched argument count (expected %s, got %s)",
+                                        sl_is_nil(p) ? "fewer" : "more",
+                                        sl_is_nil(a) ? "fewer" : "more");
                 bind_ok = false;
-                break;
             }
-            sl_env_define(call_env, sl_car(p), sl_car(a));
-            // Check OOM from define?
-            p = sl_cdr(p);
-            a = sl_cdr(a);
-        }
-        // Check for mismatched argument counts
-        if (bind_ok && (p != SL_NIL || a != SL_NIL)) {
-            result = sl_make_errorf("Apply: Mismatched argument count");  // <<< TODO: Update for variadics
+        } else if (sl_is_symbol(p)) {  // Case 3: Single symbol parameter (e.g., (lambda rest ...))
+            sl_object *rest_sym = p;
+            // Bind the symbol to the entire list of arguments
+            sl_env_define(call_env, rest_sym, args);  // 'args' is the complete list
+            // Check OOM?
+            // Any number of arguments (>=0) is fine.
+        } else if (p == SL_NIL) {  // Case: (lambda () ...)
+            if (a != SL_NIL) {     // Provided arguments but expected none
+                result = sl_make_errorf("Apply: Mismatched argument count (expected 0)");
+                bind_ok = false;
+            }
+            // Else: p is NIL and a is NIL, correct arity (0). Binding complete.
+        } else {  // Invalid parameter specification (should ideally be caught at lambda creation)
+            result = sl_make_errorf("Apply: Invalid parameter specification object");
             bind_ok = false;
         }
-        // --- End Binding ---
+
+    binding_done:
+        sl_gc_remove_root(&p);  // Unroot traversal pointers
+        sl_gc_remove_root(&a);
+        // --- End REVISED Binding Logic ---
 
         if (bind_ok) {
             // --- Evaluate the body sequence using the helper ---

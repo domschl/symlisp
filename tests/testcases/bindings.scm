@@ -86,3 +86,84 @@
     (define (sum n acc)
       (if (= n 0) acc (sum (- n 1) (+ n acc))))
     (assert-equal (sum 10000 0) 50005000))) ; Should not overflow C stack
+
+;; --- Variadic Functions / Lambdas ---
+
+(define-test "lambda-variadic-dot"
+  (let ((f (lambda (a b . rest) (list a b rest))))
+    (assert-equal (f 1 2) '(1 2 ()))
+    (assert-equal (f 1 2 3) '(1 2 (3)))
+    (assert-equal (f 1 2 3 4 5) '(1 2 (3 4 5)))))
+
+;(define-test "lambda-variadic-dot-arity-fail" ; Need at least 2 args
+;  (let ((f (lambda (a b . rest) rest)))
+;    (assert-error (f 1) "Apply: Mismatched argument count")))
+
+(define-test "lambda-variadic-symbol"
+  (let ((f (lambda args args))) ; Collect all args into 'args'
+    (assert-equal (f) '())
+    (assert-equal (f 1) '(1))
+    (assert-equal (f 1 2 3) '(1 2 3))))
+
+(define-test "lambda-variadic-zero-args"
+  (let ((f (lambda () 0)))
+    (assert-equal (f) 0)))
+;    (assert-error (f 1) "Apply: Mismatched argument count")))
+
+(define-test-thunked "define-variadic-dot"
+  (lambda ()
+  (define (my-list a . items) (cons a items))
+  (assert-equal (my-list 1) '(1)) ; items is ()
+  (assert-equal (my-list 1 2 3) '(1 2 3)))) ; items is (2 3)
+
+(define-test-thunked "define-variadic-symbol"
+  (lambda ()
+  (define (sum-all nums) (apply + nums)) ; Assumes apply and + work
+  (assert-equal (sum-all '(1 2 3 4)) 10))) ; Note: This tests passing a list
+
+(define-test-thunked "apply-with-variadic" ; Test apply on a variadic lambda
+  (lambda ()
+  (let ((f (lambda (a . rest) (list a rest))))
+    (assert-equal (apply f '(1 2 3)) '(1 (2 3))))))
+
+;; Check interaction with builtins (assuming + is variadic)
+(define-test-thunked "builtin-variadic-plus"
+  (lambda ()
+  (assert-equal (+) 0)
+  (assert-equal (+ 1) 1)
+  (assert-equal (+ 1 2 3 4 5) 15)))
+
+;; Check interaction with builtins (assuming list is variadic)
+(define-test-thunked "builtin-variadic-list"
+  (lambda ()
+  (assert-equal (list) '())
+  (assert-equal (list 1) '(1))
+  (assert-equal (list 1 2 3) '(1 2 3))))
+
+;; --- More Apply Tests ---
+
+(define-test-thunked "apply-no-intermediate-args"
+  (lambda ()
+    (assert-equal (apply + '(1 2 3 4)) 10)))
+
+(define-test-thunked "apply-with-intermediate-args"
+  (lambda ()
+    (assert-equal (apply + 1 2 '(3 4 5)) 15)))
+
+(define-test-thunked "apply-with-empty-list"
+  (lambda ()
+    (assert-equal (apply + 1 2 '()) 3)))
+
+(define-test-thunked "apply-only-proc-and-empty-list"
+  (lambda ()
+    (assert-equal (apply + '()) 0)))
+
+(define-test-thunked "apply-on-user-lambda"
+  (lambda ()
+    (let ((add (lambda (x y) (+ x y))))
+      (assert-equal (apply add '(3 4)) 7))))
+
+(define-test-thunked "apply-on-user-lambda-intermediate"
+  (lambda ()
+    (let ((add3 (lambda (x y z) (+ x y z))))
+      (assert-equal (apply add3 1 '(2 3)) 6))))

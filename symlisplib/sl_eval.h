@@ -7,6 +7,7 @@
 
 // Evaluates a single S-expression in the given environment.
 sl_object *sl_eval(sl_object *obj, sl_object *env);
+sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_object **env_ptr);
 
 // Parses and evaluates all S-expressions from the given null-terminated string
 // in the specified environment.

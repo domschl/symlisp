@@ -66,3 +66,33 @@
     
     ;; Return the test result
     test-passed))
+
+(define define-test-thunked
+  (lambda (name test-thunk) ; <<< Changed second arg to test-thunk
+    (set! tests-run-count (+ tests-run-count 1))
+
+    ;(display "Running test: ") (display name) (display "\n")
+
+    ;; --- Evaluate the test thunk ---
+    (define test-passed (test-thunk)) ; <<< Evaluate the lambda
+    ;; -----------------------------
+
+    (define result "FAILED")
+
+    ;; Update global counters based on result
+    (if (eq? test-passed #t) ; <<< Check the *result* of the thunk
+        (begin
+          ;(display "Test passed\n")
+          (set! tests-passed-count (+ tests-passed-count 1))
+          (set! result "PASSED"))
+        (begin
+          (display "Test ") (display name) (display " failed\n")
+          ;; No need to display assertion here, assert-equal already did
+          (set! tests-failed-count (+ tests-failed-count 1))
+          (set! tests-all-passed #f)))
+
+    ;(display "Test '") (display name) (display "' ") (display result) (display "\n")
+
+    ;; Return the test result
+    test-passed))
+    

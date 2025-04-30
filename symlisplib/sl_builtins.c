@@ -1829,6 +1829,141 @@ void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_p
     sl_gc_remove_root(&env);  // Unroot env
 }
 
+// Helper to append an item to a list being built (handles GC rooting)
+// Returns the new head on success, or NULL on OOM error or internal error.
+// Takes pointers to the head and tail roots.
+static sl_object *append_to_list(sl_object **head_root, sl_object **tail_root, sl_object *item) {
+    // Item is assumed to be rooted by the caller if necessary before calling append_to_list
+    sl_object *new_pair = sl_make_pair(item, SL_NIL);
+    if (!new_pair) return NULL;  // OOM
+
+    sl_gc_add_root(&new_pair);  // Root the new pair
+
+    if (*head_root == SL_NIL) {
+        *head_root = new_pair;
+        *tail_root = new_pair;
+    } else {
+        // Ensure tail_root points to a valid pair before setting cdr
+        if (!sl_is_pair(*tail_root)) {
+            sl_gc_remove_root(&new_pair);
+            return NULL;  // Internal error
+        }
+        // TODO: Ensure sl_set_cdr exists and is GC-safe if needed
+        sl_set_cdr(*tail_root, new_pair);
+        *tail_root = new_pair;
+    }
+    sl_gc_remove_root(&new_pair);  // Unroot new_pair (now reachable from head/tail roots)
+    return *head_root;
+}
+
+// --- Control Primitives ---
+
+sl_object *sl_builtin_apply(sl_object *args) {
+    sl_object *proc = SL_NIL;
+    sl_object *final_args_head = SL_NIL;  // Head of the final list to pass to proc
+    sl_object *final_args_tail = SL_NIL;  // Tail for efficient appending
+    sl_object *current_arg_node = SL_NIL;
+    sl_object *last_arg_node = SL_NIL;
+    sl_object *last_arg_val = SL_NIL;
+    sl_object *result = SL_NIL;
+
+    // Root everything that needs protection across allocations/calls
+    sl_gc_add_root(&args);
+    sl_gc_add_root(&proc);
+    sl_gc_add_root(&final_args_head);
+    sl_gc_add_root(&final_args_tail);
+    sl_gc_add_root(&current_arg_node);
+    sl_gc_add_root(&last_arg_node);
+    sl_gc_add_root(&last_arg_val);
+    sl_gc_add_root(&result);
+
+    // 1. Check arity (at least 2 args: proc and list)
+    if (!sl_is_pair(args) || sl_cdr(args) == SL_NIL) {
+        result = sl_make_errorf("apply: Expected at least 2 arguments (function and list)");
+        goto cleanup_apply_builtin;
+    }
+
+    // 2. Extract proc
+    proc = sl_car(args);
+    if (!sl_is_function(proc)) {
+        result = sl_make_errorf("apply: First argument must be a function");
+        goto cleanup_apply_builtin;
+    }
+
+    // 3. Find the last argument node in the list passed to 'apply'
+    last_arg_node = args;
+    while (sl_is_pair(sl_cdr(last_arg_node))) {
+        last_arg_node = sl_cdr(last_arg_node);
+    }
+    // Now last_arg_node points to the pair containing the last argument for 'apply'
+
+    // 4. Extract and validate the last argument (must be a proper list)
+    last_arg_val = sl_car(last_arg_node);
+    if (!sl_is_list(last_arg_val)) {  // Checks for proper list (ends in NIL)
+        result = sl_make_errorf("apply: Last argument must be a proper list");
+        goto cleanup_apply_builtin;
+    }
+
+    // 5. Construct the final argument list (final_args_head) to pass to 'proc'
+    final_args_head = SL_NIL;  // Start empty
+    final_args_tail = SL_NIL;
+
+    // 5a. Add intermediate arguments (arg1 ... argN-1 from 'apply' call)
+    current_arg_node = sl_cdr(args);  // Start from the node containing arg1
+    while (current_arg_node != last_arg_node) {
+        if (!sl_is_pair(current_arg_node)) {  // Should not happen if args is proper list
+            result = sl_make_errorf("apply: Internal error - unexpected non-pair in arguments");
+            goto cleanup_apply_builtin;
+        }
+        sl_object *item = sl_car(current_arg_node);
+        sl_gc_add_root(&item);  // Root item before passing to helper
+        if (append_to_list(&final_args_head, &final_args_tail, item) == NULL) {
+            sl_gc_remove_root(&item);
+            result = sl_make_errorf("apply: Failed to build argument list (OOM or internal error)");
+            goto cleanup_apply_builtin;
+        }
+        sl_gc_remove_root(&item);  // Unroot item (now part of final_args_head)
+        current_arg_node = sl_cdr(current_arg_node);
+    }
+
+    // 5b. Append elements from the last argument list (last_arg_val)
+    current_arg_node = last_arg_val;  // Iterate through the list itself
+    while (current_arg_node != SL_NIL) {
+        if (!sl_is_pair(current_arg_node)) {  // Should not happen if last_arg_val is proper list
+            result = sl_make_errorf("apply: Internal error - unexpected non-pair in last argument list");
+            goto cleanup_apply_builtin;
+        }
+        sl_object *item = sl_car(current_arg_node);
+        sl_gc_add_root(&item);  // Root item before passing to helper
+        if (append_to_list(&final_args_head, &final_args_tail, item) == NULL) {
+            sl_gc_remove_root(&item);
+            result = sl_make_errorf("apply: Failed to build argument list (OOM or internal error)");
+            goto cleanup_apply_builtin;
+        }
+        sl_gc_remove_root(&item);  // Unroot item (now part of final_args_head)
+        current_arg_node = sl_cdr(current_arg_node);
+    }
+
+    // 6. Call sl_apply (internal C apply)
+    // Pass NULL for obj_ptr and env_ptr as this builtin cannot participate
+    // in the main eval loop's TCO mechanism directly. The call *to* proc
+    // can still be optimized internally by sl_apply if called from sl_eval.
+    result = sl_apply(proc, final_args_head, NULL, NULL);
+
+cleanup_apply_builtin:
+    // Unroot everything
+    sl_gc_remove_root(&result);
+    sl_gc_remove_root(&last_arg_val);
+    sl_gc_remove_root(&last_arg_node);
+    sl_gc_remove_root(&current_arg_node);
+    sl_gc_remove_root(&final_args_tail);
+    sl_gc_remove_root(&final_args_head);
+    sl_gc_remove_root(&proc);
+    sl_gc_remove_root(&args);
+
+    return result;
+}
+
 void sl_builtins_init(sl_object *global_env) {
     // Core functions
     define_builtin(global_env, "car", sl_builtin_car);
@@ -1882,6 +2017,7 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "eval", sl_builtin_eval);                                        // <<< ADDED
     define_builtin(global_env, "interaction-environment", sl_builtin_interaction_environment);  // <<< ADDED
     define_builtin(global_env, "environment", sl_builtin_environment);                          // <<< ADDED
+    define_builtin(global_env, "apply", sl_builtin_apply);
 
     sl_predicates_init(global_env);
     sl_strings_init(global_env);

@@ -41,7 +41,7 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Implement symbol interning in sl_make_symbol so that only one symbol object exists per unique name.
 - [x] Nested defines, let, let*, letrec*
 - [x] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
-- [ ] higher-order functions, map etc.
+- [x] higher-order functions, map, reduce, foldl, foldr, filter.
 - [ ] more loop stuff?
 - [ ] Macros: define-syntax, let-syntax
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)

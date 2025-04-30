@@ -166,6 +166,106 @@ static sl_object *sl_builtin_cons(sl_object *args) {
     return sl_make_pair(car_val, cdr_val);
 }
 
+// Helper function to reverse a list (used by cons*)
+// Assumes input is already validated as a proper list if necessary
+// Returns the reversed list or an error object
+static sl_object *reverse_list_internal(sl_object *list) {
+    sl_object *reversed = SL_NIL;
+    sl_object *current = list;
+    sl_object *temp_item = SL_NIL;
+
+    sl_gc_add_root(&list);  // Root input list
+    sl_gc_add_root(&reversed);
+    sl_gc_add_root(&current);
+    sl_gc_add_root(&temp_item);
+
+    while (sl_is_pair(current)) {
+        temp_item = sl_car(current);
+        sl_object *new_pair = sl_make_pair(temp_item, reversed);
+        if (!new_pair) {
+            reversed = SL_OUT_OF_MEMORY_ERROR;  // OOM
+            goto cleanup_reverse;
+        }
+        // No need to root new_pair explicitly if reversed is rooted
+        reversed = new_pair;
+        current = sl_cdr(current);
+    }
+
+    // Check if the original list was proper
+    if (current != SL_NIL) {
+        reversed = sl_make_errorf("Internal reverse: Input was not a proper list");
+        // Fall through to cleanup
+    }
+
+cleanup_reverse:
+    sl_gc_remove_root(&temp_item);
+    sl_gc_remove_root(&current);
+    sl_gc_remove_root(&reversed);  // Keep if it's the return value
+    sl_gc_remove_root(&list);
+    return reversed;
+}
+
+// (cons* obj1 obj2 ...) -> (cons obj1 (cons obj2 (... (cons objN-1 objN) ...)))
+// Requires at least one argument. If one arg, returns it.
+static sl_object *sl_builtin_cons_star(sl_object *args) {
+    sl_object *arity_check = check_arity_min("cons*", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *result = SL_NIL;
+    sl_object *reversed_args = SL_NIL;
+    sl_object *iter = SL_NIL;
+    sl_object *item = SL_NIL;
+
+    sl_gc_add_root(&args);
+    sl_gc_add_root(&result);
+    sl_gc_add_root(&reversed_args);
+    sl_gc_add_root(&iter);
+    sl_gc_add_root(&item);
+
+    // Handle 1-argument case
+    if (sl_cdr(args) == SL_NIL) {
+        result = sl_car(args);
+        goto cleanup_cons_star;
+    }
+
+    // Reverse the argument list to process from last to second
+    reversed_args = reverse_list_internal(args);
+    if (reversed_args == SL_OUT_OF_MEMORY_ERROR || sl_is_error(reversed_args)) {
+        result = reversed_args;  // Propagate error
+        goto cleanup_cons_star;
+    }
+    // reversed_args is now rooted
+
+    // Initialize result with the first element of reversed list (last original arg)
+    if (!sl_is_pair(reversed_args)) {  // Should not happen if arity >= 2
+        result = sl_make_errorf("cons*: Internal error after reversing arguments");
+        goto cleanup_cons_star;
+    }
+    result = sl_car(reversed_args);
+    iter = sl_cdr(reversed_args);
+
+    // Iterate through the rest of the reversed args (original args N-1 down to 1)
+    while (sl_is_pair(iter)) {
+        item = sl_car(iter);
+        sl_object *new_pair = sl_make_pair(item, result);
+        if (!new_pair) {
+            result = SL_OUT_OF_MEMORY_ERROR;
+            goto cleanup_cons_star;
+        }
+        result = new_pair;  // Update result (implicitly rooted via result root)
+        iter = sl_cdr(iter);
+    }
+    // No need to check iter != SL_NIL, reverse_list_internal ensures proper list
+
+cleanup_cons_star:
+    sl_gc_remove_root(&item);
+    sl_gc_remove_root(&iter);
+    sl_gc_remove_root(&reversed_args);
+    sl_gc_remove_root(&result);  // Keep if it's the return value
+    sl_gc_remove_root(&args);
+    return result;
+}
+
 // Helper to check if a number object represents an integer and get its value as mpz_t
 // Initializes 'out' - caller must clear 'out'
 // Returns true on success, false on failure (non-number, non-integer, or error)
@@ -1970,6 +2070,7 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "car", sl_builtin_car);
     define_builtin(global_env, "cdr", sl_builtin_cdr);
     define_builtin(global_env, "cons", sl_builtin_cons);
+    define_builtin(global_env, "cons*", sl_builtin_cons_star);   // <<< ADDED
     define_builtin(global_env, "list", sl_builtin_list);         // <<< ADDED
     define_builtin(global_env, "length", sl_builtin_length);     // <<< ADDED
     define_builtin(global_env, "reverse", sl_builtin_reverse);   // <<< ADDED

@@ -23,6 +23,11 @@
 (define-test "cons-onto-empty" (assert-equal (cons 1 '()) '(1)))
 (define-test "cons-make-dotted" (assert-equal (cons 1 2) '(1 . 2)))
 
+;; --- CONS* ---
+(define-test "cons*-single-arg" (assert-equal (cons* 1) 1))
+(define-test "cons*-two-args-proper" (assert-equal (cons* 1 2) '(1 . 2))) ; Note: R7RS says (cons* 1 2) -> (1 . 2)
+(define-test "cons*-two-args-list" (assert-equal (cons* 1 '(2 3)) '(1 2 3)))
+
 ;; --- LIST ---
 (define-test "list-numbers" (assert-equal (list 1 2 3) '(1 2 3)))
 (define-test "list-symbols" (assert-equal (list 'a 'b 'c) '(a b c)))

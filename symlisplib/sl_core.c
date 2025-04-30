@@ -46,6 +46,7 @@ sl_object *SL_OUT_OF_MEMORY_ERROR = &sl_oom_error_obj;
 sl_object *SL_EOF_OBJECT = NULL;  // <<< ADDED
 sl_object sl_parse_error_obj = {SL_TYPE_ERROR, .data.error_str = "Parse Error"};
 sl_object *SL_PARSE_ERROR = &sl_parse_error_obj;
+sl_object *SL_UNDEFINED = NULL;  // <<< ADDED
 
 // --- Global Environment & Symbol Table (Definitions) ---
 sl_object *sl_global_env = NULL;
@@ -125,6 +126,8 @@ const char *sl_type_name(sl_object_type type) {
         return "char";
     case SL_TYPE_EOF:         // <<< ADDED
         return "eof-object";  // <<< ADDED
+    case SL_TYPE_UNDEFINED:
+        return "undefined";  // <<< ADDED
     default:
         return "unknown";
     }
@@ -383,7 +386,16 @@ void sl_mem_init(size_t first_chunk_size) {
     SL_EOF_OBJECT->marked = false;      // Always reachable
     SL_EOF_OBJECT->next = NULL;
     memset(&SL_EOF_OBJECT->data, 0, sizeof(SL_EOF_OBJECT->data));
-    // --- END ADDED BLOCK ---
+
+    SL_UNDEFINED = (sl_object *)malloc(sizeof(sl_object));
+    if (!SL_UNDEFINED) {
+        perror("Failed to allocate UNDEFINED object");
+        exit(EXIT_FAILURE);
+    }
+    SL_UNDEFINED->type = SL_TYPE_UNDEFINED;
+    SL_UNDEFINED->marked = false;  // Always reachable
+    SL_UNDEFINED->next = NULL;
+    memset(&SL_UNDEFINED->data, 0, sizeof(SL_UNDEFINED->data));
 
     // Initialize global symbol table (global env created in main)
     // sl_global_env = sl_env_create(SL_NIL); // <<< REMOVE THIS LINE
@@ -459,6 +471,8 @@ void sl_mem_shutdown() {
     SL_FALSE = NULL;
     free(SL_EOF_OBJECT);   // <<< ADDED
     SL_EOF_OBJECT = NULL;  // <<< ADDED
+    free(SL_UNDEFINED);
+    SL_UNDEFINED = NULL;
 
     // TODO: Cleanup GMP statics like min_int64_z if used in fits_int64
 }
@@ -1146,6 +1160,9 @@ char *sl_object_to_string(sl_object *obj) {
     if (!obj) {
         return strdup("InternalError:NULL_Object");
     }
+    if (obj == SL_UNDEFINED) {          // <<< ADDED
+        return strdup("#<undefined>");  // <<< ADDED
+    }  // <<< ADDED
 
     switch (obj->type) {
     case SL_TYPE_NIL:
@@ -1257,6 +1274,8 @@ char *sl_object_to_string(sl_object *obj) {
         return strdup("#<environment>");
     case SL_TYPE_ERROR:
         return dynamic_sprintf("Error: %s", obj->data.error_str ? obj->data.error_str : "Unknown Error");
+    case SL_TYPE_UNDEFINED:
+        return strdup("#<undefined>");  // <<< ADDED (for completeness)
 
     default:
         return dynamic_sprintf("#<unknown_type:%d>", obj->type);

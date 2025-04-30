@@ -25,7 +25,8 @@ typedef enum {
     SL_TYPE_ENV,
     SL_TYPE_ERROR,  // New type for error objects
     SL_TYPE_CHAR,
-    SL_TYPE_EOF,  // New type for EOF object
+    SL_TYPE_EOF,       // New type for EOF object
+    SL_TYPE_UNDEFINED  // <<< ADDED: Placeholder for letrec*/define
 } sl_object_type;
 
 // --- Number Representation ---
@@ -103,6 +104,8 @@ extern sl_object *SL_FALSE;
 extern sl_object *SL_EOF_OBJECT;           // <<< ADDED
 extern sl_object *SL_OUT_OF_MEMORY_ERROR;  // <<< ADDED
 extern sl_object *SL_PARSE_ERROR;
+extern sl_object *SL_UNDEFINED;        // <<< ADDED
+#define SL_CONTINUE_EVAL SL_UNDEFINED  // <<< ADDED: Marker for TCO jump
 
 // --- Helper macro for checking allocation result ---
 #define CHECK_ALLOC(obj_ptr)                                                         \

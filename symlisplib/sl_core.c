@@ -676,6 +676,36 @@ sl_object *sl_make_string(const char *str) {
     return new_str;
 }
 
+/**
+ * @brief Creates a SymLisp string object from a non-null-terminated buffer segment.
+ * Allocates a temporary buffer, copies the segment, null-terminates it,
+ * creates the Scheme string (which copies the temp buffer), and frees the temp buffer.
+ *
+ * @param buffer Pointer to the start of the buffer segment.
+ * @param length The number of bytes to copy from the buffer.
+ * @return A new Scheme string object, or SL_OUT_OF_MEMORY_ERROR.
+ */
+sl_object *sl_make_string_from_len(const char *buffer, size_t length) {
+    // Allocate temporary buffer (+1 for null terminator)
+    char *temp_buffer = (char *)malloc(length + 1);
+    if (!temp_buffer) {
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+
+    // Copy the segment and null-terminate
+    memcpy(temp_buffer, buffer, length);
+    temp_buffer[length] = '\0';
+
+    // Create the Scheme string (sl_make_string copies temp_buffer)
+    sl_object *result = sl_make_string(temp_buffer);
+
+    // Free the temporary buffer
+    free(temp_buffer);
+
+    // Return the result (could be SL_OUT_OF_MEMORY_ERROR if sl_make_string failed)
+    return result;
+}
+
 // Create a character object
 sl_object *sl_make_char(uint32_t code_point) {
     sl_object *new_char = sl_allocate_object();

@@ -15,10 +15,10 @@
           #t
           (begin
             (display "  ASSERTION FAILED:\n")
-            (display "  Expected: ")
-            (write expected)
-            (display "\n  Got:      ")
+            (display "  Got:      ")
             (write actual)
+            (display "\n  Expected: ")
+            (write expected)
             (display "\n")
             #f)))))
 

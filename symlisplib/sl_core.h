@@ -161,8 +161,8 @@ sl_object *sl_make_errorf(const char *fmt, ...);
  * @param obj The object to convert.
  * @return char* Allocated string or NULL on failure.
  */
-char *sl_object_to_string(sl_object *obj);  // <<< ADDED
-
+char *sl_object_to_string(sl_object *obj);                              // <<< ADDED
+sl_object *sl_make_string_from_len(const char *buffer, size_t length);  // <<< ADDED
 // --- Trigger garbage collection ---
 // NOTE: GC sweep phase must call mpq_clear() on unreachable SL_TYPE_NUMBER objects
 //       where is_bignum is true before adding them to the free list.

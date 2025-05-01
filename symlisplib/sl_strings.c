@@ -1317,6 +1317,137 @@ sl_object *sl_builtin_char_downcase(sl_object *args) {
     return sl_make_char(output_cp);
 }
 
+// --- Tokenizer ---
+
+// --- Tokenizer Helper ---
+// Checks if a character can be part of an operator sequence
+static bool is_operator_char(char c) {
+    return (strchr("+-*/^=<>!", c) != NULL);
+}
+static bool is_symbol_start_char(char c) {
+    return isalpha((unsigned char)c) || c == '_';
+}
+static bool is_symbol_continue_char(char c) {
+    return isalnum((unsigned char)c) || c == '_';
+}
+// Helper to check if a character can be part of a number after the initial sign/digit/dot
+static bool is_number_continue_char(char c) {
+    return isdigit((unsigned char)c) || c == '.';  // Add 'e', 'E' if scientific notation needed
+}
+
+// (string->infix-tokens str) -> list of tokens (numbers, symbols)
+static sl_object *sl_builtin_string_to_infix_tokens(sl_object *args) {
+    // ... arity check, string check, GC roots setup ...
+    sl_object *arity_check = check_arity("string->infix-tokens", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    if (!sl_is_string(str_obj)) {
+        return sl_make_errorf("string->infix-tokens: Expected string argument, got %s", sl_type_name(str_obj->type));
+    }
+
+    const char *input = str_obj->data.string_val ? str_obj->data.string_val : "";
+    const char *p = input;
+    sl_object *token_list = SL_NIL;
+    sl_object *tail_node = SL_NIL;
+
+    sl_gc_add_root(&str_obj);
+    sl_gc_add_root(&token_list);
+    sl_gc_add_root(&tail_node);
+
+    while (*p != '\0') {
+        // 1. Skip whitespace
+        if (isspace((unsigned char)*p)) {
+            p++;
+            continue;
+        }
+
+        sl_object *token = NULL;
+        const char *token_start = p;
+
+        // 2. Parentheses and Comma -> Strings "(", ")", ","
+        if (*p == '(' || *p == ')' || *p == ',') {
+            char single_char_str[2] = {*p, '\0'};
+            // Use sl_make_string for null-terminated single char
+            token = sl_make_string(single_char_str);
+            if (!token) {
+                token_list = SL_OUT_OF_MEMORY_ERROR;
+                goto cleanup_tokenizer;
+            }
+            p++;
+        }
+        // 3. Number Literal -> String "123", ".45", "123.45"
+        else if (isdigit((unsigned char)*p) ||
+                 (*p == '.' && isdigit((unsigned char)*(p + 1)))) {
+            const char *num_start = p;
+            bool dot_seen = false;
+            while (isdigit((unsigned char)*p) || (*p == '.' && !dot_seen)) {
+                if (*p == '.') dot_seen = true;
+                p++;
+            }
+            size_t num_len = p - num_start;
+            // Use the new helper for non-null-terminated segment
+            token = sl_make_string_from_len(num_start, num_len);
+            if (!token) {
+                token_list = SL_OUT_OF_MEMORY_ERROR;
+                goto cleanup_tokenizer;
+            }
+        }
+        // 4. Operator -> String "+", "-", "*", "<="
+        else if (is_operator_char(*p)) {
+            const char *op_start = p;
+            while (is_operator_char(*p)) {
+                p++;
+            }
+            size_t op_len = p - op_start;
+            // Use the new helper for non-null-terminated segment
+            token = sl_make_string_from_len(op_start, op_len);
+            if (!token) {
+                token_list = SL_OUT_OF_MEMORY_ERROR;
+                goto cleanup_tokenizer;
+            }
+        }
+        // 5. Identifier/Symbol -> String "x", "myVar"
+        else if (is_symbol_start_char(*p)) {
+            const char *sym_start = p;
+            p++;
+            while (is_symbol_continue_char(*p)) {
+                p++;
+            }
+            size_t sym_len = p - sym_start;
+            // Use the new helper for non-null-terminated segment
+            token = sl_make_string_from_len(sym_start, sym_len);
+            if (!token) {
+                token_list = SL_OUT_OF_MEMORY_ERROR;
+                goto cleanup_tokenizer;
+            }
+        }
+        // 6. Unrecognized Character ...
+        else {
+            token_list = sl_make_errorf("string->infix-tokens: Unrecognized character '%c' (0x%02X)", *p, (unsigned char)*p);
+            goto cleanup_tokenizer;
+        }
+
+        // Append token (which is always a string now)
+        if (token) {
+            sl_gc_add_root(&token);
+            if (append_to_list(&token_list, &tail_node, token) == NULL) {
+                sl_gc_remove_root(&token);
+                token_list = SL_OUT_OF_MEMORY_ERROR;
+                goto cleanup_tokenizer;
+            }
+            sl_gc_remove_root(&token);
+        }
+    }  // end while
+
+cleanup_tokenizer:
+    // ... remove GC roots ...
+    sl_gc_remove_root(&tail_node);
+    sl_gc_remove_root(&token_list);
+    sl_gc_remove_root(&str_obj);
+    return token_list;
+}
+
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
@@ -1330,6 +1461,9 @@ void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string-join", sl_builtin_string_join);          // <<< ADDED
     define_builtin(global_env, "string-split", sl_builtin_string_split);        // <<< ADDED
     define_builtin(global_env, "string-tokenize", sl_builtin_string_tokenize);  // <<< ADDED
+
+    // Tokinizer
+    define_builtin(global_env, "string->infix-tokens", sl_builtin_string_to_infix_tokens);  // <<< ADDED
 
     // Conversions
     define_builtin(global_env, "number->string", sl_builtin_number_to_string);  // <<< ADDED

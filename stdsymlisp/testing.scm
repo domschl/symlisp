@@ -16,9 +16,9 @@
           (begin
             (display "  ASSERTION FAILED:\n")
             (display "  Expected: ")
-            (display expected)
+            (write expected)
             (display "\n  Got:      ")
-            (display actual)
+            (write actual)
             (display "\n")
             #f)))))
 

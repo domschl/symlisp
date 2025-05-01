@@ -1715,6 +1715,26 @@ static bool sl_write_recursive(sl_object *obj, sl_string_buffer *sbuf) {
         }
         return sbuf_append_char(sbuf, '"');
     }
+    case SL_TYPE_CHAR: {
+        uint32_t code_point = obj->data.code_point;
+        char temp_buf[16];  // For #\x... format
+
+        if (!sbuf_append_str(sbuf, "#\\")) return false;
+
+        switch (code_point) {
+        case '\n':
+            return sbuf_append_str(sbuf, "newline");
+        case ' ':
+            return sbuf_append_str(sbuf, "space");
+        case '\t':
+            return sbuf_append_str(sbuf, "tab");
+        // Add other named characters if desired (e.g., return, backspace)
+        default:
+            // Use hex format for others
+            snprintf(temp_buf, sizeof(temp_buf), "x%X", code_point);
+            return sbuf_append_str(sbuf, temp_buf);
+        }
+    }
     case SL_TYPE_NUMBER: {
         char num_buffer[256];  // Temporary buffer for number conversion
         if (obj->data.number.is_bignum) {
@@ -1749,7 +1769,9 @@ static bool sl_write_recursive(sl_object *obj, sl_string_buffer *sbuf) {
     case SL_TYPE_FUNCTION:
         if (obj->data.function.is_builtin) {
             // Maybe include name: snprintf(buf, size, "#<builtin:%s>", obj->data.function.def.builtin.name);
-            return sbuf_append_str(sbuf, "#<builtin>");
+            char buf[100];  // Buffer for builtin name
+            snprintf(buf, sizeof(buf), "#<builtin:%s>", obj->data.function.def.builtin.name ? obj->data.function.def.builtin.name : "???");
+            return sbuf_append_str(sbuf, buf);
         } else {
             return sbuf_append_str(sbuf, "#<procedure>");
         }
@@ -1839,6 +1861,25 @@ static bool sl_write_stream_recursive(sl_object *obj, FILE *stream) {
         }
         return fputc('"', stream) != EOF;
     }
+    case SL_TYPE_CHAR: {
+        uint32_t code_point = obj->data.code_point;
+
+        if (fprintf(stream, "#\\") < 0) return false;
+
+        switch (code_point) {
+        case '\n':
+            return fprintf(stream, "newline") >= 0;
+        case ' ':
+            return fprintf(stream, "space") >= 0;
+        case '\t':
+            return fprintf(stream, "tab") >= 0;
+        // Add other named characters if desired
+        default:
+            // Use hex format for others
+            return fprintf(stream, "x%X", code_point) >= 0;
+        }
+    }
+
     case SL_TYPE_NUMBER: {
         if (obj->data.number.is_bignum) {
             // Use mpq_out_str for direct stream output
@@ -1862,7 +1903,7 @@ static bool sl_write_stream_recursive(sl_object *obj, FILE *stream) {
         return sl_write_pair_stream_recursive(obj, stream);
     case SL_TYPE_FUNCTION:
         if (obj->data.function.is_builtin) {
-            return fprintf(stream, "#<builtin>") >= 0;
+            return fprintf(stream, "#<builtin:%s>", obj->data.function.def.builtin.name ? obj->data.function.def.builtin.name : "<unknown>") >= 0;
         } else {
             return fprintf(stream, "#<procedure>") >= 0;
         }

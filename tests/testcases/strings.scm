@@ -604,4 +604,71 @@
 
 ;(define-test string->symbol-error-arity-2
 ;  (assert-error? (string->symbol "a" "b")))
+
+;;; expr->string Tests
+
+(define-test "expr->string-number"
+  (assert-equal "123" (expr->string 123)))
+
+(define-test "expr->string-rational"
+  (assert-equal "3/4" (expr->string (/ 3 4))))
+
+(define-test "expr->string-string"
+  (assert-equal "\"hello world\"" (expr->string "hello world")))
+
+(define-test "expr->string-string-escapes"
+  (assert-equal "\"a \\\"quoted\\\" string \\\\\"" (expr->string "a \"quoted\" string \\")))
+
+(define-test "expr->string-symbol"
+  (assert-equal "my-symbol" (expr->string 'my-symbol)))
+
+(define-test "expr->string-bool-true"
+  (assert-equal "#t" (expr->string #t)))
+
+(define-test "expr->string-bool-false"
+  (assert-equal "#f" (expr->string #f)))
+
+(define-test "expr->string-nil"
+  (assert-equal "()" (expr->string '())))
+
+(define-test "expr->string-list"
+  (assert-equal "(1 2 \"three\" #t)" (expr->string '(1 2 "three" #t))))
+
+(define-test "expr->string-dotted-pair"
+  (assert-equal "(1 . 2)" (expr->string (cons 1 2))))
+
+(define-test "expr->string-nested-list"
+  (assert-equal "(a (b c) (d . e))" (expr->string '(a (b c) (d . e)))))
+
+(define-test "expr->string-char-simple"
+  ; Compare the string output with the expected string literal
+  (assert-equal  (expr->string #\a) "#\\x61"))
+
+(define-test "expr->string-char-space"
+  ; Compare the string output with the expected string literal
+  (assert-equal (expr->string #\space) "#\\space"))
+
+(define-test "expr->string-char-newline"
+  ; Compare the string output with the expected string literal
+  (assert-equal (expr->string #\newline) "#\\newline"))
+
+; Assuming ASCII/UTF-8 for hex representation
+(define-test "expr->string-char-hex"
+  ; Compare the string output with the expected string literal
+  (assert-equal (expr->string #\A) "#\\x41"))
+
+; Check a known builtin, adjust if your representation differs
+(define-test "expr->string-builtin"
+  ; Compare the string output with the expected string literal
+  (assert-equal (expr->string car) "#<builtin:car>"))
+
+; Check closure representation, adjust if your representation differs
+(define-test "expr->string-closure"
+  ; Compare the string output with the expected string literal
+  (assert-equal (expr->string (lambda (x) x)) "#<procedure>"))
+
+;(define-test "expr->string-error-arity-0"
+;  (assert-error? (expr->string)))
+
+
 ;;; --- END OF STRING TESTS ---

@@ -23,4 +23,29 @@ uint32_t sl_unicode_to_upper(uint32_t cp);
  */
 uint32_t sl_unicode_to_lower(uint32_t cp);
 
+/**
+ * @brief Checks if a Unicode code point is alphabetic (simplified).
+ */
+bool sl_unicode_is_alphabetic(uint32_t cp);
+
+/**
+ * @brief Checks if a Unicode code point is a decimal digit '0'-'9'.
+ */
+bool sl_unicode_is_numeric(uint32_t cp);
+
+/**
+ * @brief Checks if a Unicode code point is whitespace (ASCII + common Unicode).
+ */
+bool sl_unicode_is_whitespace(uint32_t cp);
+
+/**
+ * @brief Checks if a Unicode code point is uppercase (simplified).
+ */
+bool sl_unicode_is_uppercase(uint32_t cp);
+
+/**
+ * @brief Checks if a Unicode code point is lowercase (simplified).
+ */
+bool sl_unicode_is_lowercase(uint32_t cp);
+
 #endif  // sl_UNICODE_CASE_H

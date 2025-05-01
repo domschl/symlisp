@@ -920,5 +920,156 @@
 (define-test "char-downcase-lower-georgian"
   (assert-equal #\ჰ (char-downcase #\ჰ)))
 
+;;; string-ci=? Tests
+
+(define-test "string-ci=?-equal-same-case"
+  (assert-true (string-ci=? "hello" "hello")))
+
+(define-test "string-ci=?-equal-diff-case-ascii"
+  (assert-true (string-ci=? "Hello" "hELLo")))
+
+(define-test "string-ci=?-equal-diff-case-unicode"
+  (assert-true (string-ci=? "Γειά" "γειΆ"))) ; Greek
+
+(define-test "string-ci=?-equal-mixed"
+  (assert-true (string-ci=? "Test 123 Ω" "tEST 123 ω")))
+
+(define-test "string-ci=?-equal-empty"
+  (assert-true (string-ci=? "" "")))
+
+(define-test "string-ci=?-not-equal-content"
+  (assert-false (string-ci=? "hello" "hellx")))
+
+(define-test "string-ci=?-not-equal-length"
+  (assert-false (string-ci=? "hello" "helloo")))
+
+(define-test "string-ci=?-not-equal-empty"
+  (assert-false (string-ci=? "hello" "")))
+
+;(define-test "string-ci=?-error-arity-1"
+;  (assert-error? (string-ci=? "a")))
+
+;(define-test "string-ci=?-error-arity-3"
+;  (assert-error? (string-ci=? "a" "b" "c")))
+
+;(define-test "string-ci=?-error-type-1"
+;  (assert-error? (string-ci=? 1 "b")))
+
+;(define-test "string-ci=?-error-type-2"
+;  (assert-error? (string-ci=? "a" #\b)))
+
+
+;;; string-ci<? Tests
+
+(define-test "string-ci<?-less-ascii"
+  (assert-true (string-ci<? "abc" "abd")))
+
+(define-test "string-ci<?-less-diff-case"
+  (assert-true (string-ci<? "aBc" "Abd")))
+
+(define-test "string-ci<?-less-unicode"
+  (assert-true (string-ci<? "γειά" "ΓΕΙΒ"))) ; alpha < beta
+
+(define-test "string-ci<?-less-length"
+  (assert-true (string-ci<? "abc" "abcd")))
+
+(define-test "string-ci<?-not-less-equal"
+  (assert-false (string-ci<? "abc" "aBc")))
+
+(define-test "string-ci<?-not-less-greater"
+  (assert-false (string-ci<? "abd" "aBc")))
+
+(define-test "string-ci<?-not-less-length"
+  (assert-false (string-ci<? "abcd" "abc")))
+
+(define-test "string-ci<?-empty-vs-non-empty"
+  (assert-true (string-ci<? "" "a")))
+
+(define-test "string-ci<?-non-empty-vs-empty"
+  (assert-false (string-ci<? "a" "")))
+
+
+;;; string-ci>? Tests
+
+(define-test "string-ci>?-greater-ascii"
+  (assert-true (string-ci>? "abd" "abc")))
+
+(define-test "string-ci>?-greater-diff-case"
+  (assert-true (string-ci>? "Abd" "aBc")))
+
+(define-test "string-ci>?-greater-unicode"
+  (assert-true (string-ci>? "ΓΕΙΒ" "γειά"))) ; beta > alpha
+
+(define-test "string-ci>?-greater-length"
+  (assert-true (string-ci>? "abcd" "abc")))
+
+(define-test "string-ci>?-not-greater-equal"
+  (assert-false (string-ci>? "abc" "aBc")))
+
+(define-test "string-ci>?-not-greater-less"
+  (assert-false (string-ci>? "aBc" "Abd")))
+
+(define-test "string-ci>?-not-greater-length"
+  (assert-false (string-ci>? "abc" "abcd")))
+
+(define-test "string-ci>?-non-empty-vs-empty"
+  (assert-true (string-ci>? "a" "")))
+
+(define-test "string-ci>?-empty-vs-non-empty"
+  (assert-false (string-ci>? "" "a")))
+
+
+;;; string-ci<=? Tests
+
+(define-test "string-ci<=?-less-ascii"
+  (assert-true (string-ci<=? "abc" "abd")))
+
+(define-test "string-ci<=?-less-diff-case"
+  (assert-true (string-ci<=? "aBc" "Abd")))
+
+(define-test "string-ci<=?-equal-diff-case"
+  (assert-true (string-ci<=? "abc" "aBc")))
+
+(define-test "string-ci<=?-equal-unicode"
+  (assert-true (string-ci<=? "Γειά" "γειΆ")))
+
+(define-test "string-ci<=?-less-length"
+  (assert-true (string-ci<=? "abc" "abcd")))
+
+(define-test "string-ci<=?-not-less-greater"
+  (assert-false (string-ci<=? "abd" "aBc")))
+
+(define-test "string-ci<=?-empty-vs-empty"
+  (assert-true (string-ci<=? "" "")))
+
+(define-test "string-ci<=?-empty-vs-non-empty"
+  (assert-true (string-ci<=? "" "a")))
+
+
+;;; string-ci>=? Tests
+
+(define-test "string-ci>=?-greater-ascii"
+  (assert-true (string-ci>=? "abd" "abc")))
+
+(define-test "string-ci>=?-greater-diff-case"
+  (assert-true (string-ci>=? "Abd" "aBc")))
+
+(define-test "string-ci>=?-equal-diff-case"
+  (assert-true (string-ci>=? "abc" "aBc")))
+
+(define-test "string-ci>=?-equal-unicode"
+  (assert-true (string-ci>=? "Γειά" "γειΆ")))
+
+(define-test "string-ci>=?-greater-length"
+  (assert-true (string-ci>=? "abcd" "abc")))
+
+(define-test "string-ci>=?-not-greater-less"
+  (assert-false (string-ci>=? "aBc" "Abd")))
+
+(define-test "string-ci>=?-empty-vs-empty"
+  (assert-true (string-ci>=? "" "")))
+
+(define-test "string-ci>=?-non-empty-vs-empty"
+  (assert-true (string-ci>=? "a" "")))
 
 ;;; --- END OF STRING TESTS ---

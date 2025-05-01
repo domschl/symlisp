@@ -48,12 +48,11 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Conversion: expr<->string
 - [x] String case conversion functions (string-upcase, string-downcase).
 - [x] Character case conversion functions (char-upcase, char-downcase).
+- [x] Case-insensitive string comparison functions (string-ci=?, string-ci<?, etc.).
+- [x] Character predicates (char-alphabetic?, char-numeric?, char-whitespace?, etc.).
 
 Additional Ideas:
 
-- Case-insensitive string comparison functions (string-ci=?, string-ci<?, etc.).
-
-- Character predicates (char-alphabetic?, char-numeric?, char-whitespace?, etc.).
 - [ ] String and math stuff for symbolics preps: integer?, prime?, factorize, infix<->prefix
 - [ ] Macros: define-syntax, let-syntax
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)

@@ -538,31 +538,66 @@ static sl_object *parse_character_literal(const char **input) {
         return sl_make_char(0x20);  // Use code point for space
     } else if (strncmp(start, "tab", 3) == 0 && !isalnum((unsigned char)start[3])) {
         *input += 3;
-        return sl_make_char(0x09);  // Use code point for tab
+        return sl_make_char(0x09);                                                       // Use code point for tab
+    } else if (strncmp(start, "return", 6) == 0 && !isalnum((unsigned char)start[6])) {  // <<< ADDED return
+        *input += 6;
+        return sl_make_char(0x0D);                                                     // Carriage Return (CR)
+    } else if (strncmp(start, "page", 4) == 0 && !isalnum((unsigned char)start[4])) {  // <<< ADDED page
+        *input += 4;
+        return sl_make_char(0x0C);                                                      // Form Feed (FF)
+    } else if (strncmp(start, "alarm", 5) == 0 && !isalnum((unsigned char)start[5])) {  // <<< ADDED alarm
+        *input += 5;
+        return sl_make_char(0x07);                                                          // Bell (BEL)
+    } else if (strncmp(start, "backspace", 9) == 0 && !isalnum((unsigned char)start[9])) {  // <<< ADDED backspace
+        *input += 9;
+        return sl_make_char(0x08);                                                       // Backspace (BS)
+    } else if (strncmp(start, "delete", 6) == 0 && !isalnum((unsigned char)start[6])) {  // <<< ADDED delete
+        *input += 6;
+        return sl_make_char(0x7F);                                                       // Delete (DEL)
+    } else if (strncmp(start, "escape", 6) == 0 && !isalnum((unsigned char)start[6])) {  // <<< ADDED escape
+        *input += 6;
+        return sl_make_char(0x1B);                                                     // Escape (ESC)
+    } else if (strncmp(start, "null", 4) == 0 && !isalnum((unsigned char)start[4])) {  // <<< ADDED null
+        *input += 4;
+        return sl_make_char(0x00);                                                         // Null character
+    } else if (strncmp(start, "linefeed", 8) == 0 && !isalnum((unsigned char)start[8])) {  // <<< ADDED linefeed
+        *input += 8;
+        return sl_make_char(0x0A);                                                               // Line Feed (LF)
+    } else if (strncmp(start, "vertical-tab", 12) == 0 && !isalnum((unsigned char)start[12])) {  // <<< ADDED vertical-tab
+        *input += 12;
+        return sl_make_char(0x0B);  // Vertical Tab (VT)
     }
-    // TODO: Add other named characters (#\return, #\alarm etc.)
-    // TODO: Add #\uXXXX and #\UXXXXXXXX parsing
-    // TODO: Add direct UTF-8 character parsing (e.g., #\é)
 
-    // Check for hex escape #\xHH
+    // --- Check for hex escape #\xHHHH... ---
     if (start[0] == 'x' && isxdigit((unsigned char)start[1])) {
-        char hex_str[3] = {0};
-        hex_str[0] = start[1];
-        if (isxdigit((unsigned char)start[2])) {  // Two hex digits
-            hex_str[1] = start[2];
-            *input += 3;  // Consumed xHH
-        } else {          // Only one hex digit
-            *input += 2;  // Consumed xH
+        const char *hex_start = start + 1;
+        const char *hex_end = hex_start;
+        // Read up to 6 hex digits (max for U+10FFFF)
+        while (isxdigit((unsigned char)*hex_end) && (hex_end - hex_start) < 6) {
+            hex_end++;
         }
-        long char_code = strtol(hex_str, NULL, 16);
-        // Basic check for valid Unicode range (up to 0x10FFFF)
-        if (char_code >= 0 && char_code <= 0x10FFFF &&
-            !(char_code >= 0xD800 && char_code <= 0xDFFF)) {  // Exclude surrogates
-            return sl_make_char((uint32_t)char_code);
-        } else {
-            fprintf(stderr, "Error: Invalid hex character code #\\x%s\n", hex_str);  // <<< REPLACE
-            return SL_NIL;                                                           // Indicate parse error
+
+        if (hex_end > hex_start) {  // Found at least one hex digit
+            char hex_str[7];        // 6 digits + null
+            size_t hex_len = hex_end - hex_start;
+            memcpy(hex_str, hex_start, hex_len);
+            hex_str[hex_len] = '\0';
+
+            errno = 0;  // Reset errno for strtol
+            long char_code = strtol(hex_str, NULL, 16);
+
+            // Validate code point range and exclude surrogates
+            if (errno == 0 && char_code >= 0 && char_code <= 0x10FFFF &&
+                !(char_code >= 0xD800 && char_code <= 0xDFFF)) {
+                *input = hex_end;  // Consume 'x' + hex digits
+                return sl_make_char((uint32_t)char_code);
+            } else {
+                fprintf(stderr, "Error: Invalid hex character code #\\x%s\n", hex_str);
+                *input = hex_end;       // Consume the invalid sequence
+                return SL_PARSE_ERROR;  // Use dedicated error object
+            }
         }
+        // If 'x' is not followed by hex digits, fall through to single char parsing
     }
 
     // Otherwise, it must be a single ASCII character literal for now

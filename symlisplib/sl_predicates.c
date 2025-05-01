@@ -3,6 +3,7 @@
 #include "sl_predicates.h"
 #include "sl_builtins.h"  // For check_arity, define_builtin
 #include "sl_core.h"
+#include "sl_unicode_case.h"
 
 // --- Type Predicates ---
 
@@ -158,7 +159,42 @@ static sl_object *sl_predicate_evenp(sl_object *args) {
     }
     return is_even ? SL_TRUE : SL_FALSE;
 }
-// ...
+
+// --- Character Predicate Helper ---
+static sl_object *char_predicate(const char *name, sl_object *args, bool (*pred_func)(uint32_t)) {
+    sl_object *arity_check = check_arity(name, args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *char_obj = sl_car(args);
+    if (!sl_is_char(char_obj)) {
+        return sl_make_errorf("%s: argument must be a character, got %s", name, sl_type_name(char_obj->type));
+    }
+
+    uint32_t cp = char_obj->data.code_point;
+    return pred_func(cp) ? SL_TRUE : SL_FALSE;
+}
+
+// --- Builtin Predicates ---
+
+sl_object *sl_builtin_char_alphabetic(sl_object *args) {
+    return char_predicate("char-alphabetic?", args, sl_unicode_is_alphabetic);
+}
+
+sl_object *sl_builtin_char_numeric(sl_object *args) {
+    return char_predicate("char-numeric?", args, sl_unicode_is_numeric);
+}
+
+sl_object *sl_builtin_char_whitespace(sl_object *args) {
+    return char_predicate("char-whitespace?", args, sl_unicode_is_whitespace);
+}
+
+sl_object *sl_builtin_char_upper_case(sl_object *args) {
+    return char_predicate("char-upper-case?", args, sl_unicode_is_uppercase);
+}
+
+sl_object *sl_builtin_char_lower_case(sl_object *args) {
+    return char_predicate("char-lower-case?", args, sl_unicode_is_lowercase);
+}
 
 // --- Initialization ---
 
@@ -178,6 +214,10 @@ void sl_predicates_init(sl_object *global_env) {
     // Numeric Predicates
     define_builtin(global_env, "odd?", sl_predicate_oddp);
     define_builtin(global_env, "even?", sl_predicate_evenp);
-
-    // Add other predicate groups here later (Equivalence, Numeric)
+    // Character Predicates
+    define_builtin(global_env, "char-alphabetic?", sl_builtin_char_alphabetic);
+    define_builtin(global_env, "char-numeric?", sl_builtin_char_numeric);
+    define_builtin(global_env, "char-whitespace?", sl_builtin_char_whitespace);
+    define_builtin(global_env, "char-upper-case?", sl_builtin_char_upper_case);
+    define_builtin(global_env, "char-lower-case?", sl_builtin_char_lower_case);
 }

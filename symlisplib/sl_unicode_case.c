@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "sl_unicode_case.h"
 
 // --- Case Mapping Logic (Simplified) ---
@@ -87,4 +88,80 @@ uint32_t sl_unicode_to_lower(uint32_t cp) {
     if (cp >= 0x1C90 && cp <= 0x1CBA) return cp - (0x1C90 - 0x10D0);
 
     return cp;  // No mapping found
+}
+
+bool sl_unicode_is_alphabetic(uint32_t cp) {
+    // Basic Latin
+    if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z')) return true;
+    // Latin-1 Supplement Letters (excluding multiplication/division signs)
+    if ((cp >= 0xC0 && cp <= 0xD6) || (cp >= 0xD8 && cp <= 0xF6) || (cp >= 0xF8 && cp <= 0xFF)) return true;
+    // Latin Extended-A & B (Common ranges)
+    if (cp >= 0x100 && cp <= 0x24F) return true;
+    // Greek and Coptic
+    if (cp >= 0x370 && cp <= 0x3FF) return true;
+    // Cyrillic
+    if (cp >= 0x400 && cp <= 0x4FF) return true;
+    // Armenian
+    if (cp >= 0x530 && cp <= 0x58F) return true;
+    // Georgian (Mkhedruli and Mtavruli)
+    if ((cp >= 0x10A0 && cp <= 0x10FF) || (cp >= 0x1C90 && cp <= 0x1CBF)) return true;
+    // Add other script ranges as needed...
+    return false;
+}
+
+bool sl_unicode_is_numeric(uint32_t cp) {
+    // Only handles standard ASCII digits 0-9
+    return (cp >= '0' && cp <= '9');
+}
+
+bool sl_unicode_is_whitespace(uint32_t cp) {
+    // Standard ASCII whitespace
+    if (cp == ' ' || cp == '\t' || cp == '\n' || cp == '\r' || cp == '\f' || cp == '\v') {
+        return true;
+    }
+    // Common Unicode spaces (like non-breaking space, etc.)
+    if (cp == 0xA0 || (cp >= 0x2000 && cp <= 0x200A) || cp == 0x2028 || cp == 0x2029 || cp == 0x202F || cp == 0x3000) {
+        return true;
+    }
+    return false;
+}
+
+bool sl_unicode_is_uppercase(uint32_t cp) {
+    // Basic Latin
+    if (cp >= 'A' && cp <= 'Z') return true;
+    // Latin-1 Supplement Uppercase
+    if ((cp >= 0xC0 && cp <= 0xD6) || (cp >= 0xD8 && cp <= 0xDE)) return true;
+    // Latin Extended-A (Even code points are often uppercase)
+    if (cp >= 0x100 && cp <= 0x17E && (cp % 2 == 0)) return true;
+    // Greek Uppercase (Basic + Extended with tonos)
+    if ((cp >= 0x391 && cp <= 0x3A1) || (cp >= 0x3A3 && cp <= 0x3AB)) return true;
+    if (cp == 0x386 || cp == 0x388 || cp == 0x389 || cp == 0x38A || cp == 0x38C || cp == 0x38E || cp == 0x38F) return true;
+    // Cyrillic Uppercase
+    if ((cp >= 0x400 && cp <= 0x42F) || cp == 0x401) return true;  // Includes Ё
+    // Armenian Uppercase
+    if (cp >= 0x531 && cp <= 0x556) return true;
+    // Georgian Mtavruli (Uppercase)
+    if (cp >= 0x1C90 && cp <= 0x1CBA) return true;
+    // Add other script ranges...
+    return false;
+}
+
+bool sl_unicode_is_lowercase(uint32_t cp) {
+    // Basic Latin
+    if (cp >= 'a' && cp <= 'z') return true;
+    // Latin-1 Supplement Lowercase
+    if ((cp >= 0xE0 && cp <= 0xF6) || (cp >= 0xF8 && cp <= 0xFF)) return true;
+    // Latin Extended-A (Odd code points are often lowercase)
+    if (cp >= 0x101 && cp <= 0x17F && (cp % 2 != 0)) return true;
+    // Greek Lowercase (Basic + Extended with tonos)
+    if ((cp >= 0x3B1 && cp <= 0x3C1) || (cp >= 0x3C3 && cp <= 0x3CB) || cp == 0x3C2) return true;  // Includes final sigma
+    if (cp == 0x3AC || cp == 0x3AD || cp == 0x3AE || cp == 0x3AF || cp == 0x3CC || cp == 0x3CD || cp == 0x3CE) return true;
+    // Cyrillic Lowercase
+    if ((cp >= 0x430 && cp <= 0x44F) || cp == 0x451) return true;  // Includes ё
+    // Armenian Lowercase
+    if (cp >= 0x561 && cp <= 0x587) return true;  // Includes և U+0587
+    // Georgian Mkhedruli (Lowercase)
+    if (cp >= 0x10D0 && cp <= 0x10FA) return true;
+    // Add other script ranges...
+    return false;
 }

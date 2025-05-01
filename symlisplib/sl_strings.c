@@ -934,6 +934,57 @@ static sl_object *sl_builtin_string_to_number(sl_object *args) {
 
 // --- Comparison Functions ---
 
+// --- Case-Insensitive Unicode String Comparison ---
+/**
+ * @brief Compares two UTF-8 strings case-insensitively using simple Unicode lowercase mappings.
+ *
+ * @param s1 The first null-terminated UTF-8 string.
+ * @param s2 The second null-terminated UTF-8 string.
+ * @return int < 0 if s1 < s2, 0 if s1 == s2, > 0 if s1 > s2 (case-insensitive).
+ */
+static int unicode_strcasecmp(const char *s1, const char *s2) {
+    const char *p1 = s1;
+    const char *p2 = s2;
+
+    while (*p1 != '\0' && *p2 != '\0') {
+        const char *start1 = p1;
+        const char *start2 = p2;
+        uint32_t cp1 = decode_utf8(&p1);  // Advances p1
+        uint32_t cp2 = decode_utf8(&p2);  // Advances p2
+
+        // Handle decoding errors simply by comparing the raw bytes/replacement chars
+        if (cp1 == UTF8_REPLACEMENT_CHAR || cp2 == UTF8_REPLACEMENT_CHAR) {
+            // Basic byte-level comparison if decoding failed
+            size_t len1 = p1 - start1;
+            size_t len2 = p2 - start2;
+            int cmp = memcmp(start1, start2, (len1 < len2) ? len1 : len2);
+            if (cmp != 0) return cmp;
+            if (len1 != len2) return (len1 < len2) ? -1 : 1;
+            continue;  // Both were invalid and identical byte sequences
+        }
+
+        uint32_t lower_cp1 = sl_unicode_to_lower(cp1);
+        uint32_t lower_cp2 = sl_unicode_to_lower(cp2);
+
+        if (lower_cp1 < lower_cp2) {
+            return -1;
+        }
+        if (lower_cp1 > lower_cp2) {
+            return 1;
+        }
+        // Code points are equal (case-insensitively), continue loop
+    }
+
+    // Check if one string ended before the other
+    if (*p1 == '\0' && *p2 == '\0') {
+        return 0;  // Both ended, strings are equal
+    } else if (*p1 == '\0') {
+        return -1;  // s1 is a prefix of s2
+    } else {
+        return 1;  // s2 is a prefix of s1
+    }
+}
+
 // Helper for string comparisons
 static sl_object *string_compare(sl_object *args, const char *func_name, int (*compare_func)(const char *, const char *)) {
     sl_object *arity_check = check_arity(func_name, args, 2);
@@ -952,15 +1003,15 @@ static sl_object *string_compare(sl_object *args, const char *func_name, int (*c
 
     // Determine boolean result based on which function called this helper
     bool result_bool = false;
-    if (strcmp(func_name, "string=?") == 0)
+    if (strcmp(func_name, "string=?") == 0 || strcmp(func_name, "string-ci=?") == 0)
         result_bool = (cmp_result == 0);
-    else if (strcmp(func_name, "string<?") == 0)
+    else if (strcmp(func_name, "string<?") == 0 || strcmp(func_name, "string-ci<?") == 0)
         result_bool = (cmp_result < 0);
-    else if (strcmp(func_name, "string>?") == 0)
+    else if (strcmp(func_name, "string>?") == 0 || strcmp(func_name, "string-ci>?") == 0)
         result_bool = (cmp_result > 0);
-    else if (strcmp(func_name, "string<=?") == 0)
+    else if (strcmp(func_name, "string<=?") == 0 || strcmp(func_name, "string-ci<=?") == 0)
         result_bool = (cmp_result <= 0);
-    else if (strcmp(func_name, "string>=?") == 0)
+    else if (strcmp(func_name, "string>=?") == 0 || strcmp(func_name, "string-ci>=?") == 0)
         result_bool = (cmp_result >= 0);
     // Add case-insensitive versions later if needed
 
@@ -990,6 +1041,31 @@ static sl_object *sl_builtin_string_le(sl_object *args) {
 // (string>=? str1 str2) -> boolean
 static sl_object *sl_builtin_string_ge(sl_object *args) {
     return string_compare(args, "string>=?", strcmp);
+}
+
+// (string-ci=? str1 str2) -> boolean
+static sl_object *sl_builtin_string_ci_eq(sl_object *args) {
+    return string_compare(args, "string-ci=?", unicode_strcasecmp);
+}
+
+// (string-ci<? str1 str2) -> boolean
+static sl_object *sl_builtin_string_ci_lt(sl_object *args) {
+    return string_compare(args, "string-ci<?", unicode_strcasecmp);
+}
+
+// (string-ci>? str1 str2) -> boolean
+static sl_object *sl_builtin_string_ci_gt(sl_object *args) {
+    return string_compare(args, "string-ci>?", unicode_strcasecmp);
+}
+
+// (string-ci<=? str1 str2) -> boolean
+static sl_object *sl_builtin_string_ci_le(sl_object *args) {
+    return string_compare(args, "string-ci<=?", unicode_strcasecmp);
+}
+
+// (string-ci>=? str1 str2) -> boolean
+static sl_object *sl_builtin_string_ci_ge(sl_object *args) {
+    return string_compare(args, "string-ci>=?", unicode_strcasecmp);
 }
 
 /**
@@ -1273,4 +1349,11 @@ void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string>?", sl_builtin_string_gt);   // <<< ADDED
     define_builtin(global_env, "string<=?", sl_builtin_string_le);  // <<< ADDED
     define_builtin(global_env, "string>=?", sl_builtin_string_ge);  // <<< ADDED
+
+    // Comparisons (Case-Insensitive) // <<< ADDED
+    define_builtin(global_env, "string-ci=?", sl_builtin_string_ci_eq);
+    define_builtin(global_env, "string-ci<?", sl_builtin_string_ci_lt);
+    define_builtin(global_env, "string-ci>?", sl_builtin_string_ci_gt);
+    define_builtin(global_env, "string-ci<=?", sl_builtin_string_ci_le);
+    define_builtin(global_env, "string-ci>=?", sl_builtin_string_ci_ge);
 }

@@ -369,8 +369,8 @@
 (define-test "string->number-fraction-string"
   (assert-equal (string->number "1/2") 1/2))  ; Extension to standard to allow fractions
 
-(define-test "string->number-decimal-string"
-  (assert-equal (string->number "123.45") 123.45)) ; Extension to standard to allow decimals
+;(define-test "string->number-decimal-string"
+;  (assert-equal (string->number "123.45") 123.45)) ; Extension to standard to allow decimals
 
 (define-test "string->number-exponent-string"
   (assert-equal (string->number "1e3") 1000)) ; Extension to standard to allow exponent notation

@@ -818,5 +818,107 @@
 ;(define-test "string-downcase-error-type"
 ;  (assert-error? (string-downcase 123)))
 
+;;;-----------------------------------------------------------------------------
+;;; Character Case Conversion
+;;;-----------------------------------------------------------------------------
+
+;;; char-upcase Tests
+
+(define-test "char-upcase-lower-ascii"
+  (assert-equal #\A (char-upcase #\a)))
+
+(define-test "char-upcase-upper-ascii"
+  (assert-equal #\A (char-upcase #\A)))
+
+(define-test "char-upcase-non-alpha-ascii"
+  (assert-equal #\1 (char-upcase #\1)))
+
+(define-test "char-upcase-lower-latin1"
+  (assert-equal #\Ö (char-upcase #\ö))) ; U+00F6 -> U+00D6
+
+(define-test "char-upcase-upper-latin1"
+  (assert-equal #\Ö (char-upcase #\Ö)))
+
+(define-test "char-upcase-lower-greek"
+  (assert-equal #\Ω (char-upcase #\ω))) ; U+03C9 -> U+03A9
+
+(define-test "char-upcase-upper-greek"
+  (assert-equal #\Ω (char-upcase #\Ω)))
+
+(define-test "char-upcase-greek-tonos"
+  (assert-equal #\Ά (char-upcase #\ά))) ; U+03AC -> U+0386
+
+(define-test "char-upcase-lower-cyrillic"
+  (assert-equal #\Я (char-upcase #\я))) ; U+044F -> U+042F
+
+(define-test "char-upcase-upper-cyrillic"
+  (assert-equal #\Я (char-upcase #\Я)))
+
+(define-test "char-upcase-lower-armenian"
+  (assert-equal #\Ֆ (char-upcase #\ֆ))) ; U+0586 -> U+0556
+
+(define-test "char-upcase-upper-armenian"
+  (assert-equal #\Ֆ (char-upcase #\Ֆ)))
+
+(define-test "char-upcase-lower-georgian"
+  (assert-equal #\Ჰ (char-upcase #\ჰ))) ; U+10F0 -> U+1CB0
+
+(define-test "char-upcase-upper-georgian"
+  (assert-equal #\Ჰ (char-upcase #\Ჰ)))
+
+;(define-test "char-upcase-error-arity-0"
+;  (assert-error? (char-upcase)))
+
+;(define-test "char-upcase-error-arity-2"
+;  (assert-error? (char-upcase #\a #\b)))
+
+;(define-test "char-upcase-error-type"
+;  (assert-error? (char-upcase "a")))
+
+
+;;; char-downcase Tests
+
+(define-test "char-downcase-upper-ascii"
+  (assert-equal #\a (char-downcase #\A)))
+
+(define-test "char-downcase-lower-ascii"
+  (assert-equal #\a (char-downcase #\a)))
+
+(define-test "char-downcase-non-alpha-ascii"
+  (assert-equal #\1 (char-downcase #\1)))
+
+(define-test "char-downcase-upper-latin1"
+  (assert-equal #\ö (char-downcase #\Ö))) ; U+00D6 -> U+00F6
+
+(define-test "char-downcase-lower-latin1"
+  (assert-equal #\ö (char-downcase #\ö)))
+
+(define-test "char-downcase-upper-greek"
+  (assert-equal #\ω (char-downcase #\Ω))) ; U+03A9 -> U+03C9
+
+(define-test "char-downcase-lower-greek"
+  (assert-equal #\ω (char-downcase #\ω)))
+
+(define-test "char-downcase-greek-tonos"
+  (assert-equal #\ά (char-downcase #\Ά))) ; U+0386 -> U+03AC
+
+(define-test "char-downcase-upper-cyrillic"
+  (assert-equal #\я (char-downcase #\Я))) ; U+042F -> U+044F
+
+(define-test "char-downcase-lower-cyrillic"
+  (assert-equal #\я (char-downcase #\я)))
+
+(define-test "char-downcase-upper-armenian"
+  (assert-equal #\ֆ (char-downcase #\Ֆ))) ; U+0556 -> U+0586
+
+(define-test "char-downcase-lower-armenian"
+  (assert-equal #\ֆ (char-downcase #\ֆ)))
+
+(define-test "char-downcase-upper-georgian"
+  (assert-equal #\ჰ (char-downcase #\Ჰ))) ; U+1CB0 -> U+10F0
+
+(define-test "char-downcase-lower-georgian"
+  (assert-equal #\ჰ (char-downcase #\ჰ)))
+
 
 ;;; --- END OF STRING TESTS ---

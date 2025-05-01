@@ -1195,6 +1195,52 @@ sl_object *sl_builtin_string_downcase(sl_object *args) {
     return string_case_convert("string-downcase", args, sl_unicode_to_lower);
 }
 
+/**
+ * @brief Builtin function (char-upcase char)
+ * Converts a character to its uppercase equivalent using simple Unicode mappings.
+ * @param args A list containing the character object.
+ * @return The uppercase character object, or the original character if no mapping exists,
+ *         or an error object.
+ */
+sl_object *sl_builtin_char_upcase(sl_object *args) {
+    sl_object *arity_check = check_arity("char-upcase", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *char_obj = sl_car(args);
+    if (!sl_is_char(char_obj)) {
+        return sl_make_errorf("char-upcase: argument must be a character, got %s", sl_type_name(char_obj->type));
+    }
+
+    uint32_t input_cp = char_obj->data.code_point;
+    uint32_t output_cp = sl_unicode_to_upper(input_cp);
+
+    // sl_make_char handles potential allocation errors
+    return sl_make_char(output_cp);
+}
+
+/**
+ * @brief Builtin function (char-downcase char)
+ * Converts a character to its lowercase equivalent using simple Unicode mappings.
+ * @param args A list containing the character object.
+ * @return The lowercase character object, or the original character if no mapping exists,
+ *         or an error object.
+ */
+sl_object *sl_builtin_char_downcase(sl_object *args) {
+    sl_object *arity_check = check_arity("char-downcase", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *char_obj = sl_car(args);
+    if (!sl_is_char(char_obj)) {
+        return sl_make_errorf("char-downcase: argument must be a character, got %s", sl_type_name(char_obj->type));
+    }
+
+    uint32_t input_cp = char_obj->data.code_point;
+    uint32_t output_cp = sl_unicode_to_lower(input_cp);
+
+    // sl_make_char handles potential allocation errors
+    return sl_make_char(output_cp);
+}
+
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
@@ -1218,6 +1264,8 @@ void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string->expr", sl_builtin_string_to_expr);      // <<< ADDED
     define_builtin(global_env, "string-upcase", sl_builtin_string_upcase);      // <<< ADDED
     define_builtin(global_env, "string-downcase", sl_builtin_string_downcase);  // <<< ADDED
+    define_builtin(global_env, "char-upcase", sl_builtin_char_upcase);          // <<< ADDED
+    define_builtin(global_env, "char-downcase", sl_builtin_char_downcase);      // <<< ADDED
 
     // Comparisons
     define_builtin(global_env, "string=?", sl_builtin_string_eq);   // <<< ADDED

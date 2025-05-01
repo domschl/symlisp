@@ -1165,6 +1165,99 @@ static sl_object *sl_builtin_exact_integer_sqrt(sl_object *args) {
     return result_obj;
 }
 
+// Helper function to add a factor (as mpz_t) to the list being built
+static bool add_factor_z(sl_object **head_root, sl_object **tail_root, mpz_t factor_z) {
+    sl_object *factor_obj = sl_make_number_from_mpz(factor_z);              // Creates number object
+    if (!factor_obj || factor_obj == SL_OUT_OF_MEMORY_ERROR) return false;  // Allocation failed
+
+    sl_gc_add_root(&factor_obj);  // Protect the new factor object
+    // append_to_list returns NULL on error (OOM or internal)
+    bool success = (append_to_list(head_root, tail_root, factor_obj) != NULL);
+    sl_gc_remove_root(&factor_obj);  // Unroot (now reachable via list roots)
+    return success;
+}
+
+// Helper function to add a factor (as unsigned long) to the list being built
+static bool add_factor_ui(sl_object **head_root, sl_object **tail_root, unsigned long factor_ui) {
+    sl_object *factor_obj = sl_make_number_si((int64_t)factor_ui, 1);       // Creates number object
+    if (!factor_obj || factor_obj == SL_OUT_OF_MEMORY_ERROR) return false;  // Allocation failed
+
+    sl_gc_add_root(&factor_obj);  // Protect the new factor object
+    // append_to_list returns NULL on error (OOM or internal)
+    bool success = (append_to_list(head_root, tail_root, factor_obj) != NULL);
+    sl_gc_remove_root(&factor_obj);  // Unroot (now reachable via list roots)
+    return success;
+}
+
+// (prime-factors n) -> Returns a list of prime factors of integer n
+static sl_object *sl_builtin_prime_factors(sl_object *args) {
+    sl_object *arity_check = check_arity("prime-factors", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *n_obj = sl_car(args);
+    sl_object *result_list = SL_NIL;
+    sl_object *tail_node = SL_NIL;  // Tracks the last node for append_to_list
+
+    mpz_t n_z, factor_z, limit_z;  // Use mpz_t for the number and potential large factors/limit
+    mpz_inits(n_z, factor_z, limit_z, NULL);
+
+    sl_gc_add_root(&n_obj);  // Protect input
+    sl_gc_add_root(&result_list);
+    sl_gc_add_root(&tail_node);
+
+    // 1. Get integer value and check type
+    if (!get_number_as_mpz(n_obj, n_z, "prime-factors")) {
+        // Error: not an integer (get_number_as_mpz checks this)
+        result_list = sl_make_errorf("prime-factors: Argument must be an integer.");
+        goto cleanup_prime_factors;
+    }
+
+    // 2. Handle sign and edge cases (0, 1, -1)
+    mpz_abs(n_z, n_z);              // Work with absolute value
+    if (mpz_cmp_ui(n_z, 1) <= 0) {  // If n is 0 or 1
+        result_list = SL_NIL;       // Return empty list
+        goto cleanup_prime_factors;
+    }
+
+    // 3. Trial division by 2
+    while (mpz_even_p(n_z)) {
+        if (!add_factor_ui(&result_list, &tail_node, 2)) goto oom_prime_factors;
+        mpz_divexact_ui(n_z, n_z, 2);  // n = n / 2
+    }
+
+    // 4. Trial division by odd numbers starting from 3
+    // Calculate limit = floor(sqrt(n))
+    mpz_sqrt(limit_z, n_z);
+    mpz_set_ui(factor_z, 3);  // Start checking with factor 3
+
+    while (mpz_cmp(factor_z, limit_z) <= 0) {  // While factor <= sqrt(n)
+        if (mpz_divisible_p(n_z, factor_z)) {  // Check divisibility
+            if (!add_factor_z(&result_list, &tail_node, factor_z)) goto oom_prime_factors;
+            mpz_divexact(n_z, n_z, factor_z);  // n = n / factor
+            mpz_sqrt(limit_z, n_z);            // Recalculate sqrt(n) as n has changed
+        } else {
+            mpz_add_ui(factor_z, factor_z, 2);  // Go to the next odd number
+        }
+    }
+
+    // 5. If n is still > 1, the remaining n is prime
+    if (mpz_cmp_ui(n_z, 1) > 0) {
+        if (!add_factor_z(&result_list, &tail_node, n_z)) goto oom_prime_factors;
+    }
+
+    goto cleanup_prime_factors;  // Success path
+
+oom_prime_factors:
+    result_list = SL_OUT_OF_MEMORY_ERROR;  // Signal OOM
+
+cleanup_prime_factors:
+    mpz_clears(n_z, factor_z, limit_z, NULL);
+    sl_gc_remove_root(&tail_node);
+    sl_gc_remove_root(&result_list);  // Keep if it's the return value
+    sl_gc_remove_root(&n_obj);
+    return result_list;
+}
+
 #define DEFAULT_FLOAT_PRECISION 10  // Default decimal places if not specified
 
 // (float num [precision]) -> Returns string representation of num to precision decimal places.
@@ -2162,6 +2255,7 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "expt", sl_builtin_expt);                              // <<< ADDED
     define_builtin(global_env, "square", sl_builtin_square);                          // <<< ADDED
     define_builtin(global_env, "exact-integer-sqrt", sl_builtin_exact_integer_sqrt);  // <<< ADDED
+    define_builtin(global_env, "prime-factors", sl_builtin_prime_factors);            // <<< ADDED
     define_builtin(global_env, "float", sl_builtin_float);                            // <<< ADDED
 
     // Comparison

@@ -43,6 +43,8 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
 - [x] higher-order functions, map, reduce, foldl, foldr, filter.
 - [x] the `do` loop.
+- [ ] Conversion
+- [ ] String and math stuff for symbolics preps
 - [ ] Macros: define-syntax, let-syntax
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
 - [ ] Check against r7rs

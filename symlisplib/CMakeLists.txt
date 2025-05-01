@@ -11,6 +11,7 @@ add_library(symlisplib STATIC
     sl_predicates.c
     sl_strings.c
     sl_higher_order.c
+    sl_unicode_case.c
 )
 
 # Make the header files in the current directory available

@@ -4,6 +4,24 @@
 #include "sl_core.h"
 #include <stdio.h>  // For FILE*
 
+typedef struct {
+    char *buffer;
+    size_t length;
+    size_t capacity;
+} sl_string_buffer;
+
+// Initializes a string buffer
+void sbuf_init(sl_string_buffer *sbuf);
+// Frees the memory used by a string buffer
+void sbuf_free(sl_string_buffer *sbuf);
+// Ensures buffer has enough capacity, reallocating if necessary
+bool sbuf_ensure_capacity(sl_string_buffer *sbuf, size_t additional_needed);
+// Appends a character to the buffer
+bool sbuf_append_char(sl_string_buffer *sbuf, char c);
+// Add a helper to append multiple bytes if needed
+bool sbuf_append_bytes(sl_string_buffer *sbuf, const char *bytes, size_t len);
+// Appends a null-terminated string to the buffer
+bool sbuf_append_str(sl_string_buffer *sbuf, const char *str);
 /**
  * @brief Parses a Scheme expression from a null-terminated string.
  *

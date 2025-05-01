@@ -13,27 +13,21 @@
 
 // --- Buffer Management ---
 
-typedef struct {
-    char *buffer;
-    size_t length;
-    size_t capacity;
-} sl_string_buffer;
-
 // Initializes a string buffer
-static void sbuf_init(sl_string_buffer *sbuf) {
+void sbuf_init(sl_string_buffer *sbuf) {
     sbuf->buffer = NULL;
     sbuf->length = 0;
     sbuf->capacity = 0;
 }
 
 // Frees the memory used by a string buffer
-static void sbuf_free(sl_string_buffer *sbuf) {
+void sbuf_free(sl_string_buffer *sbuf) {
     free(sbuf->buffer);
     sbuf_init(sbuf);  // Reset
 }
 
 // Ensures buffer has enough capacity, reallocating if necessary
-static bool sbuf_ensure_capacity(sl_string_buffer *sbuf, size_t additional_needed) {
+bool sbuf_ensure_capacity(sl_string_buffer *sbuf, size_t additional_needed) {
     if (sbuf->length + additional_needed + 1 > sbuf->capacity) {
         size_t new_capacity = (sbuf->capacity == 0) ? 64 : sbuf->capacity * 2;
         while (new_capacity < sbuf->length + additional_needed + 1) {
@@ -51,7 +45,7 @@ static bool sbuf_ensure_capacity(sl_string_buffer *sbuf, size_t additional_neede
 }
 
 // Appends a character to the buffer
-static bool sbuf_append_char(sl_string_buffer *sbuf, char c) {
+bool sbuf_append_char(sl_string_buffer *sbuf, char c) {
     if (!sbuf_ensure_capacity(sbuf, 1)) return false;
     sbuf->buffer[sbuf->length++] = c;
     sbuf->buffer[sbuf->length] = '\0';  // Keep null-terminated
@@ -59,7 +53,7 @@ static bool sbuf_append_char(sl_string_buffer *sbuf, char c) {
 }
 
 // Add a helper to append multiple bytes if needed
-static bool sbuf_append_bytes(sl_string_buffer *sbuf, const char *bytes, size_t len) {
+bool sbuf_append_bytes(sl_string_buffer *sbuf, const char *bytes, size_t len) {
     // Implementation depends on your sl_string_buffer details
     // Ensure buffer has space, realloc if needed, then memcpy
     // Return true on success, false on memory allocation failure
@@ -80,7 +74,7 @@ static bool sbuf_append_bytes(sl_string_buffer *sbuf, const char *bytes, size_t 
 }
 
 // Appends a null-terminated string to the buffer
-static bool sbuf_append_str(sl_string_buffer *sbuf, const char *str) {
+bool sbuf_append_str(sl_string_buffer *sbuf, const char *str) {
     if (!str) return true;  // Nothing to append
     size_t len = strlen(str);
     if (!sbuf_ensure_capacity(sbuf, len)) return false;

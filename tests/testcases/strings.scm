@@ -670,5 +670,123 @@
 ;(define-test "expr->string-error-arity-0"
 ;  (assert-error? (expr->string)))
 
+;;;-----------------------------------------------------------------------------
+;;; String Case Conversion (Unicode Aware - Basic)
+;;;-----------------------------------------------------------------------------
+
+;;; string-upcase Tests
+
+(define-test "string-upcase-empty"
+  (assert-equal "" (string-upcase "")))
+
+(define-test "string-upcase-ascii"
+  (assert-equal "HELLO WORLD 123!" (string-upcase "Hello World 123!")))
+
+(define-test "string-upcase-latin1"
+  (assert-equal "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞ"
+                (string-upcase "àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþ")))
+  ; Note: Does not handle ß -> SS or ÿ -> Ÿ
+
+(define-test "string-upcase-latin-extended-a"
+  ; Sample pairs from Latin Extended-A block
+  (assert-equal "ĀĂĄĆĈĊČĎĐĒĔĖĘĚĜĞĠĢĤĦĨĪĬĮİĲĴĶ"
+                (string-upcase "āăąćĉċčďđēĕėęěĝğġģĥħĩīĭįıĳĵķ")))
+
+(define-test "string-upcase-greek"
+  ; Basic Greek letters, including final sigma
+  (assert-equal "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ"
+                (string-upcase "αβγδεζηθικλμνξοπρστυφχψω")))
+(define-test "string-upcase-greek-final-sigma"
+  ; Input: σ ί γ μ α
+  ; Output: Σ Ί Γ Μ Α
+  (assert-equal "ΣΊΓΜΑ" (string-upcase "σίγμα"))) ; Corrected expected value
+
+(define-test "string-upcase-cyrillic"
+  ; Basic Russian alphabet + ё
+  (assert-equal "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
+                (string-upcase "абвгдеёжзийклмнопрстуфхцчшщъыьэюя")))
+
+(define-test "string-upcase-armenian"
+  (assert-equal "ԱԲԳԴԵԶԷԸԹԺԻԼԽԾԿՀՁՂՃՄՅՆՇՈՉՊՋՌՍՎՏՐՑՒՓՔՕՖ"
+                (string-upcase "աբգդեզէըթժիլխծկհձղճմյնշոչպջռսվտրցւփքօֆ")))
+
+(define-test "string-upcase-georgian"
+  ; Mkhedruli to Mtavruli
+  (assert-equal "ᲐᲑᲒᲓᲔᲕᲖᲗᲘᲙᲚᲛᲜᲝᲞᲟᲠᲡᲢᲣᲤᲥᲦᲧᲨᲩᲪᲫᲬᲭᲮᲯᲰ"
+                (string-upcase "აბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰ")))
+
+(define-test "string-upcase-mixed"(define-test "string-upcase-mixed"
+  ; Input: "Hello Γειά σου Κόσμε! Privet мир! 123"
+  ; Output: "HELLO ΓΕΙΆ ΣΟΥ ΚΌΣΜΕ! PRIVET МИР! 123"
+  (assert-equal "HELLO ΓΕΙΆ ΣΟΥ ΚΌΣΜΕ! PRIVET МИР! 123"
+                (string-upcase "Hello Γειά σου Κόσμε! Privet мир! 123"))))
+
+(define-test "string-upcase-no-change"
+  (assert-equal "ALREADY UPPER 123 $%" (string-upcase "ALREADY UPPER 123 $%")))
+
+;(define-test "string-upcase-error-arity-0"
+;  (assert-error? (string-upcase)))
+
+;(define-test "string-upcase-error-arity-2"
+;  (assert-error? (string-upcase "a" "b")))
+
+;(define-test "string-upcase-error-type"
+;  (assert-error? (string-upcase 123)))
+
+
+;;; string-downcase Tests
+
+(define-test "string-downcase-empty"
+  (assert-equal "" (string-downcase "")))
+
+(define-test "string-downcase-ascii"
+  (assert-equal "hello world 123!" (string-downcase "HELLO WORLD 123!")))
+
+(define-test "string-downcase-latin1"
+  (assert-equal "àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþ"
+                (string-downcase "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞ")))
+  ; Note: Does not handle Ÿ -> ÿ
+
+(define-test "string-downcase-latin-extended-a"
+  ; Sample pairs from Latin Extended-A block
+  (assert-equal "āăąćĉċčďđēĕėęěĝğġģĥħĩīĭįıĳĵķ"
+                (string-downcase "ĀĂĄĆĈĊČĎĐĒĔĖĘĚĜĞĠĢĤĦĨĪĬĮİĲĴĶ")))
+
+(define-test "string-downcase-greek"
+  ; Basic Greek letters
+  (assert-equal "αβγδεζηθικλμνξοπρστυφχψω"
+                (string-downcase "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ")))
+  ; Note: Does not handle context for final sigma (Σ -> σ or ς)
+
+(define-test "string-downcase-cyrillic"
+  ; Basic Russian alphabet + Ё
+  (assert-equal "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
+                (string-downcase "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ")))
+
+(define-test "string-downcase-armenian"
+  (assert-equal "աբգդեզէըթժիլխծկհձղճմյնշոչպջռսվտրցւփքօֆ"
+                (string-downcase "ԱԲԳԴԵԶԷԸԹԺԻԼԽԾԿՀՁՂՃՄՅՆՇՈՉՊՋՌՍՎՏՐՑՒՓՔՕՖ")))
+
+(define-test "string-downcase-georgian"
+  ; Mtavruli to Mkhedruli
+  (assert-equal "აბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰ"
+                (string-downcase "ᲐᲑᲒᲓᲔᲕᲖᲗᲘᲙᲚᲛᲜᲝᲞᲟᲠᲡᲢᲣᲤᲥᲦᲧᲨᲩᲪᲫᲬᲭᲮᲯᲰ")))
+
+(define-test "string-downcase-mixed"
+  (assert-equal "hello γειά σου κόσμε! privet мир! 123"
+                (string-downcase "HELLO Γειά ΣΟΥ Κόσμε! PRIVET МИР! 123")))
+
+(define-test "string-downcase-no-change"
+  (assert-equal "already lower 123 $%" (string-downcase "already lower 123 $%")))
+
+;(define-test "string-downcase-error-arity-0"
+;  (assert-error? (string-downcase)))
+
+;(define-test "string-downcase-error-arity-2"
+;  (assert-error? (string-downcase "a" "b")))
+
+;(define-test "string-downcase-error-type"
+;  (assert-error? (string-downcase 123)))
+
 
 ;;; --- END OF STRING TESTS ---

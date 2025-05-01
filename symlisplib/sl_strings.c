@@ -8,6 +8,7 @@
 #include "sl_core.h"
 #include "sl_parse.h"
 #include "sl_builtins.h"
+#include "sl_unicode_case.h"
 
 // --- String Functions ---
 
@@ -1036,6 +1037,83 @@ sl_object *sl_builtin_string_to_expr(sl_object *args) {
     return parsed_obj;
 }
 
+// --- Helper for case conversion ---
+static sl_object *string_case_convert(const char *name, sl_object *args, uint32_t (*converter)(uint32_t)) {
+    sl_object *arity_check = check_arity(name, args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    if (!sl_is_string(str_obj)) {
+        return sl_make_errorf("%s: argument must be a string, got %s", name, sl_type_name(str_obj->type));
+    }
+
+    const char *input_str = sl_string_value(str_obj);
+    if (!input_str) input_str = "";  // Handle potential NULL
+
+    sl_string_buffer sbuf;
+    sbuf_init(&sbuf);
+    const char *ptr = input_str;
+    char utf8_output_buffer[5];  // Max 4 bytes for UTF-8 + null terminator
+
+    while (*ptr != '\0') {
+        const char *start_ptr = ptr;
+        uint32_t cp = decode_utf8(&ptr);  // Advances ptr
+
+        if (cp == UTF8_REPLACEMENT_CHAR && ptr == start_ptr + 1) {
+            // Handle invalid UTF-8 byte - append replacement char or original byte?
+            // Let's append the original byte for now.
+            if (!sbuf_append_char(&sbuf, *start_ptr)) goto oom;
+        } else if (cp == UTF8_REPLACEMENT_CHAR) {
+            // Handle invalid multi-byte sequence - append replacement?
+            if (!sbuf_append_str(&sbuf, "\xEF\xBF\xBD")) goto oom;  // UTF-8 for U+FFFD
+        } else {
+            // Valid code point decoded
+            uint32_t converted_cp = converter(cp);
+            int len = encode_utf8(converted_cp, utf8_output_buffer);
+            if (len > 0) {
+                if (!sbuf_append_bytes(&sbuf, utf8_output_buffer, len)) goto oom;
+            } else {
+                // Encoding error? Should not happen for valid code points.
+                // Append replacement char
+                if (!sbuf_append_str(&sbuf, "\xEF\xBF\xBD")) goto oom;
+            }
+        }
+    }
+
+    // Null-terminate the result buffer
+    if (!sbuf_append_char(&sbuf, '\0')) goto oom;
+    sbuf.length--;  // Don't include null in Scheme string length
+
+    sl_object *result_str = sl_make_string(sbuf.buffer ? sbuf.buffer : "");
+    sbuf_free(&sbuf);
+
+    if (result_str == SL_OUT_OF_MEMORY_ERROR) {
+        // sl_make_string failed
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+    return result_str;
+
+oom:
+    sbuf_free(&sbuf);
+    return SL_OUT_OF_MEMORY_ERROR;
+}
+
+/**
+ * @brief Builtin function (string-upcase string)
+ * Converts a string to uppercase using simple Unicode mappings.
+ */
+sl_object *sl_builtin_string_upcase(sl_object *args) {
+    return string_case_convert("string-upcase", args, sl_unicode_to_upper);
+}
+
+/**
+ * @brief Builtin function (string-downcase string)
+ * Converts a string to lowercase using simple Unicode mappings.
+ */
+sl_object *sl_builtin_string_downcase(sl_object *args) {
+    return string_case_convert("string-downcase", args, sl_unicode_to_lower);
+}
+
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
@@ -1054,8 +1132,10 @@ void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string->number", sl_builtin_string_to_number);  // <<< ADDED
     define_builtin(global_env, "symbol->string", sl_builtin_symbol_to_string);
     define_builtin(global_env, "string->symbol", sl_builtin_string_to_symbol);
-    define_builtin(global_env, "expr->string", sl_builtin_expr_to_string);  // <<< ADDED
-    define_builtin(global_env, "string->expr", sl_builtin_string_to_expr);  // <<< ADDED
+    define_builtin(global_env, "expr->string", sl_builtin_expr_to_string);      // <<< ADDED
+    define_builtin(global_env, "string->expr", sl_builtin_string_to_expr);      // <<< ADDED
+    define_builtin(global_env, "string-upcase", sl_builtin_string_upcase);      // <<< ADDED
+    define_builtin(global_env, "string-downcase", sl_builtin_string_downcase);  // <<< ADDED
 
     // Comparisons
     define_builtin(global_env, "string=?", sl_builtin_string_eq);   // <<< ADDED

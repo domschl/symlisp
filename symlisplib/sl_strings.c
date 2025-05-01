@@ -12,6 +12,87 @@
 
 // --- String Functions ---
 
+/**
+ * @brief Builtin function (string char ...)
+ * Creates a new string whose characters are the arguments.
+ * @param args A list containing zero or more character arguments.
+ * @return A new string object, or an error object.
+ */
+sl_object *sl_builtin_string(sl_object *args) {
+    // Use realloc approach for building the string buffer
+    char *buffer = NULL;
+    size_t capacity = 0;
+    size_t length = 0;
+    sl_object *current = args;
+    sl_gc_add_root(&current);  // Protect argument list iterator
+
+    while (sl_is_pair(current)) {
+        sl_object *char_obj = sl_car(current);
+        if (!sl_is_char(char_obj)) {
+            free(buffer);
+            sl_gc_remove_root(&current);
+            return sl_make_errorf("string: Expected a character argument, got %s", sl_type_name(char_obj ? char_obj->type : -1));
+        }
+
+        uint32_t cp = char_obj->data.code_point;
+        char utf8_bytes[5];
+        size_t bytes_written = encode_utf8(cp, utf8_bytes);
+
+        // Ensure buffer has enough space (+1 for null terminator)
+        if (length + bytes_written + 1 > capacity) {
+            size_t new_capacity = capacity == 0 ? 16 : capacity * 2;
+            if (new_capacity < length + bytes_written + 1) {
+                new_capacity = length + bytes_written + 1;
+            }
+            // Use standard realloc
+            char *new_buffer = realloc(buffer, new_capacity);
+            if (!new_buffer) {
+                free(buffer);
+                sl_gc_remove_root(&current);
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+            buffer = new_buffer;
+            capacity = new_capacity;
+        }
+
+        // Append encoded bytes
+        memcpy(buffer + length, utf8_bytes, bytes_written);
+        length += bytes_written;
+
+        current = sl_cdr(current);
+    }
+
+    // Check if args was a proper list (ends in NIL)
+    if (!sl_is_nil(current)) {
+        free(buffer);
+        sl_gc_remove_root(&current);
+        return sl_make_errorf("string: Internal error - improper argument list");
+    }
+
+    sl_gc_remove_root(&current);
+
+    // Finalize buffer
+    if (!buffer) {  // Handle zero arguments case
+        buffer = malloc(1);
+        if (!buffer) return SL_OUT_OF_MEMORY_ERROR;
+        capacity = 1;
+    } else if (length + 1 > capacity) {
+        char *new_buffer = realloc(buffer, length + 1);
+        if (!new_buffer) {
+            free(buffer);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        buffer = new_buffer;
+    }
+    buffer[length] = '\0';
+
+    // Create string object
+    sl_object *result = sl_make_string(buffer);
+    free(buffer);
+
+    return result;
+}
+
 // (string-length string) -> integer (number of Unicode code points)
 static sl_object *sl_builtin_string_length(sl_object *args) {
     sl_object *arity_check = check_arity("string-length", args, 1);
@@ -1117,6 +1198,7 @@ sl_object *sl_builtin_string_downcase(sl_object *args) {
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
+    define_builtin(global_env, "string", sl_builtin_string);  // <<< ADDED
     define_builtin(global_env, "string-length", sl_builtin_string_length);
     define_builtin(global_env, "string-ref", sl_builtin_string_ref);
     define_builtin(global_env, "string-append", sl_builtin_string_append);      // <<< ADDED

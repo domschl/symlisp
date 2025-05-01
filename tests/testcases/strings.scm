@@ -1,4 +1,34 @@
+
 ;; Tests for String Functions
+
+;;;-----------------------------------------------------------------------------
+;;; String Constructor
+;;;-----------------------------------------------------------------------------
+
+(define-test "string-constructor-empty"
+  (assert-equal "" (string)))
+
+(define-test "string-constructor-single-ascii"
+  (assert-equal "a" (string #\a)))
+
+(define-test "string-constructor-multiple-ascii"
+  (assert-equal "abc" (string #\a #\b #\c)))
+
+(define-test "string-constructor-single-unicode"
+  (assert-equal "λ" (string #\λ))) ; U+03BB
+
+(define-test "string-constructor-multiple-unicode"
+  (assert-equal "Γειά" (string #\Γ #\ε #\ι #\ά))) ; U+0393 U+03B5 U+03B9 U+03AC
+
+(define-test "string-constructor-mixed"
+  (assert-equal "Hello λ!" (string #\H #\e #\l #\l #\o #\space #\λ #\!)))
+
+(define-test "list-and-back"
+  (assert-equal (apply string (string->list "asdf")) "asdf"))
+
+;(define-test "string-constructor-error-type"
+;  (assert-error? (string #\a 1 #\c)))
+
 
 ;; --- string-length ---
 

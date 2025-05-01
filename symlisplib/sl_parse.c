@@ -233,57 +233,123 @@ static sl_object *read_atom(FILE *stream) {
 // Caller MUST initialize result_q before calling.
 bool parse_rational_from_string(const char *start, int base, mpq_t result_q, const char **end_ptr) {
     const char *ptr = start;
-    bool negative = false;
+    // bool negative = false;
     bool success = false;
 
-    // 1. Handle Sign
+    // 1. Handle Sign (just to find num_start)
     if (*ptr == '+') {
         ptr++;
     } else if (*ptr == '-') {
-        negative = true;
         ptr++;
     }
-    const char *num_start = ptr;  // Start of numeric part (after sign)
+    const char *num_start = ptr;
 
-    // Check for empty string after sign
-    if (*num_start == '\0') return false;
+    // Check for empty string after sign, but allow "0" which mpq_set_str handles
+    if (*num_start == '\0' && *(start) != '0' && (*(start + 1) != '0' || (*start != '+' && *start != '-'))) {
+        return false;  // Reject "+", "-", but allow "0", "+0", "-0"
+    }
 
     // --- Non-Base-10 Path (Integers Only) ---
     if (base != 10) {
         mpz_t temp_z;
         mpz_init(temp_z);
-        // Use original 'start' to include sign for mpz_set_str
-        int gmp_ret = mpz_set_str(temp_z, start, base);
+        int gmp_ret = mpz_set_str(temp_z, start, base);  // Use original start with sign
+        bool success = false;
         if (gmp_ret == 0) {
             // Scan forward using only valid digits for the base to find end_ptr
             const char *scan_ptr = num_start;
+            bool found_exponent_char = false;
             while (*scan_ptr) {
                 char c = *scan_ptr;
                 int digit_val = -1;
                 if (c >= '0' && c <= '9')
                     digit_val = c - '0';
-                else if (base > 10 && c >= 'a' && c <= 'z')  // Lowercase letters
+                else if (base > 10 && c >= 'a' && c <= 'z')
                     digit_val = c - 'a' + 10;
-                else if (base > 10 && c >= 'A' && c <= 'Z')  // Uppercase letters
+                else if (base > 10 && c >= 'A' && c <= 'Z')
                     digit_val = c - 'A' + 10;
+
+                if (c == 'e' || c == 'E') { found_exponent_char = true; }  // Still reject exponent chars
 
                 if (digit_val != -1 && digit_val < base) {
                     scan_ptr++;
                 } else {
-                    break;  // Invalid digit for base or end of number part
+                    break;
                 }
             }
-            // Check if scan consumed anything and mpz_set_str actually parsed something
-            if (scan_ptr > num_start || (mpz_sgn(temp_z) == 0 && scan_ptr == num_start && *num_start == '0')) {  // Allow "0"
-                mpq_set_z(result_q, temp_z);                                                                     // Convert integer result to rational
+
+            if (!found_exponent_char && (scan_ptr > num_start || (mpz_sgn(temp_z) == 0 && scan_ptr == num_start && *num_start == '0'))) {
+                mpq_set_z(result_q, temp_z);  // Set result directly
                 *end_ptr = scan_ptr;
                 success = true;
             }
-            // else success remains false if scan didn't advance or mpz_set_str parsed only sign
         }
-        // else gmp_ret != 0, success remains false
         mpz_clear(temp_z);
-        return success;  // Only integers allowed for non-base-10
+        return success;
+    }
+
+    // --- Base-10 Path ---
+    // Try parsing directly into result_q
+    int gmp_ret = mpq_set_str(result_q, start, 10);  // Use original start with sign
+    const char *gmp_end_ptr = NULL;
+    success = false;
+
+    if (gmp_ret == 0) {
+        // Check for division by zero
+        if (mpz_sgn(mpq_denref(result_q)) == 0) {
+            return false;  // Let caller clear result_q
+        }
+        // Scan to find where mpq_set_str stopped
+        const char *scan_ptr = num_start;
+        bool seen_slash = false;
+        bool after_slash = false;
+        bool sign_after_slash_done = false;
+        while (*scan_ptr) {
+            char c = *scan_ptr;
+            int digit_val = -1;
+            if (c >= '0' && c <= '9')
+                digit_val = c - '0';
+            else
+                digit_val = -1;
+
+            if (digit_val != -1) {
+                scan_ptr++;
+                if (after_slash) sign_after_slash_done = true;
+            } else if (c == '/' && !seen_slash && scan_ptr > num_start) {
+                seen_slash = true;
+                after_slash = true;
+                scan_ptr++;
+            } else if ((c == '+' || c == '-') && after_slash && !sign_after_slash_done) {
+                sign_after_slash_done = true;
+                scan_ptr++;
+                if (!(*scan_ptr >= '0' && *scan_ptr <= '9')) {
+                    scan_ptr--;
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Check if scan consumed characters matching mpq_set_str success
+        if (scan_ptr > num_start) {
+            gmp_end_ptr = scan_ptr;
+            *end_ptr = gmp_end_ptr;  // Set end pointer
+            success = true;          // Mark success
+        } else {
+            // Handle "0", "+0", "-0" case specifically if scan didn't advance
+            if (*num_start == '0' && (scan_ptr == num_start + 1 || (scan_ptr == num_start && *(num_start + 1) == '\0'))) {
+                gmp_end_ptr = num_start + 1;  // Point after the '0'
+                *end_ptr = gmp_end_ptr;
+                success = true;
+            } else {
+                // mpq_set_str succeeded but scan didn't find valid digits? Invalid state.
+                success = false;
+            }
+        }
+    } else {
+        // mpq_set_str failed
+        success = false;
     }
 
     // --- Base-10 Path (Integer, N/D, Decimal, Scientific) ---
@@ -291,8 +357,8 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
     mpq_t temp_q;
     mpq_init(temp_q);
     // Use original 'start' to include sign
-    int gmp_ret = mpq_set_str(temp_q, start, 10);
-    const char *gmp_end_ptr = NULL;  // Where mpq_set_str stopped
+    gmp_ret = mpq_set_str(temp_q, start, 10);
+    gmp_end_ptr = NULL;  // Where mpq_set_str stopped
 
     if (gmp_ret == 0) {
         // Check for division by zero
@@ -378,164 +444,178 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
         // --- END Significand Scan ---
 
         // Check if we actually parsed any digits or just "."
-        if (significand_end == significand_start && !decimal_point) {                                                   // no digits
-}
-else if (decimal_point && significand_end == decimal_point + 1 && significand_end == significand_start + 1) { // Just "."
-}
-else {
-    // --- BEGIN Significand Construction ---
-    mpz_t sig_num_z, sig_den_z;
-    mpz_inits(sig_num_z, sig_den_z, NULL);
-    bool sig_ok = false;
+        if (significand_end == significand_start && !decimal_point) {                                                    // no digits
+        } else if (decimal_point && significand_end == decimal_point + 1 && significand_end == significand_start + 1) {  // Just "."
+        } else {
+            // --- BEGIN Significand Construction ---
+            mpz_t sig_num_z, sig_den_z;
+            mpz_inits(sig_num_z, sig_den_z, NULL);
+            bool sig_ok = false;
 
-    size_t sig_len = significand_end - significand_start;
-    char *sig_num_str = (char *)malloc(sig_len + 1);
-    if (!sig_num_str) { // OOM
-    }  // Handle OOM
-    else {
-        char *dst = sig_num_str;
-        const char *src = significand_start;
-        while (src < significand_end) {
-            if (*src != '.') { *dst++ = *src; }
-            src++;
-        }
-        *dst = '\0';
-
-        if (mpz_set_str(sig_num_z, sig_num_str, 10) == 0) {
-            if (decimal_point) {
-                size_t fractional_digits = significand_end - decimal_point - 1;
-                if (fractional_digits > 0) {
-                    mpz_ui_pow_ui(sig_den_z, 10, fractional_digits);
-                } else {
-                    mpz_set_ui(sig_den_z, 1);
+            size_t sig_len = significand_end - significand_start;
+            char *sig_num_str = (char *)malloc(sig_len + 1);
+            if (!sig_num_str) {  // OOM
+            }  // Handle OOM
+            else {
+                char *dst = sig_num_str;
+                const char *src = significand_start;
+                while (src < significand_end) {
+                    if (*src != '.') { *dst++ = *src; }
+                    src++;
                 }
-            } else {
-                mpz_set_ui(sig_den_z, 1);
-            }
-            mpq_set_num(significand_q, sig_num_z);
-            mpq_set_den(significand_q, sig_den_z);
-            mpq_canonicalize(significand_q);
-            sig_ok = true;
-        }
-        free(sig_num_str);
-    }
-    mpz_clears(sig_num_z, sig_den_z, NULL);
-    // --- END Significand Construction ---
+                *dst = '\0';
 
-    if (sig_ok) {  // Proceed only if significand was parsed correctly
-        if (has_exponent) {
-            // --- BEGIN Exponent Handling ---
-            const char *exp_ptr = significand_end + 1;  // Skip 'e' or 'E'
-            bool exp_negative = false;                  // <<< Declare exp_negative here
-            if (*exp_ptr == '+') {
-                exp_ptr++;
-            } else if (*exp_ptr == '-') {
-                exp_negative = true;
-                exp_ptr++;
-            }
-
-            if (*exp_ptr == '\0' || !(*exp_ptr >= '0' && *exp_ptr <= '9')) {
-                 sig_ok = false;  // Mark failure, invalid exponent
-            } else {
-                const char *exp_start = exp_ptr;
-                while (*exp_ptr >= '0' && *exp_ptr <= '9') {
-                    exp_ptr++;
-                }
-
-                mpz_t exp_magnitude_z;  // <<< Declare exp_magnitude_z here
-                mpz_init(exp_magnitude_z);
-                bool exp_mag_ok = false;
-                size_t exp_len = exp_ptr - exp_start;
-                char *exp_str = (char *)malloc(exp_len + 1);
-                if (!exp_str) { // OOM
-                    sig_ok = false;
-                }  // Handle OOM
-                else {
-                    memcpy(exp_str, exp_start, exp_len);
-                    exp_str[exp_len] = '\0';
-                    if (mpz_set_str(exp_magnitude_z, exp_str, 10) == 0) { exp_mag_ok = true; }
-                    free(exp_str);
-                }
-
-                if (exp_mag_ok) {
-                    mpq_t factor_q;  // <<< Declare factor_q here
-                    mpq_init(factor_q);
-                    bool factor_ok = false;
-
-                    if (!mpz_fits_ulong_p(exp_magnitude_z)) { // Exponent too large
-                    } else {
-                        unsigned long exp_magnitude_ul = mpz_get_ui(exp_magnitude_z);
-                        if (exp_magnitude_ul == 0) {
-                            mpq_set_ui(factor_q, 1, 1);
-                            factor_ok = true;
+                if (mpz_set_str(sig_num_z, sig_num_str, 10) == 0) {
+                    if (decimal_point) {
+                        size_t fractional_digits = significand_end - decimal_point - 1;
+                        if (fractional_digits > 0) {
+                            mpz_ui_pow_ui(sig_den_z, 10, fractional_digits);
                         } else {
-                            mpz_t power_of_10_z;
-                            mpz_init(power_of_10_z);
-                            mpz_ui_pow_ui(power_of_10_z, 10, exp_magnitude_ul);
-                            mpq_set_z(factor_q, power_of_10_z);
-                            mpz_clear(power_of_10_z);
-                            factor_ok = true;
+                            mpz_set_ui(sig_den_z, 1);
                         }
+                    } else {
+                        mpz_set_ui(sig_den_z, 1);
+                    }
+                    mpq_set_num(significand_q, sig_num_z);
+                    mpq_set_den(significand_q, sig_den_z);
+                    mpq_canonicalize(significand_q);
+                    sig_ok = true;
+                }
+                free(sig_num_str);
+            }
+            mpz_clears(sig_num_z, sig_den_z, NULL);
+            // --- END Significand Construction ---
+
+            if (sig_ok) {  // Proceed only if significand was parsed correctly
+                if (has_exponent) {
+                    // --- BEGIN Exponent Handling ---
+                    const char *exp_ptr = significand_end + 1;  // Skip 'e' or 'E'
+                    bool exp_negative = false;                  // <<< Declare exp_negative here
+                    if (*exp_ptr == '+') {
+                        exp_ptr++;
+                    } else if (*exp_ptr == '-') {
+                        exp_negative = true;
+                        exp_ptr++;
                     }
 
-                    if (factor_ok) {
-                        if (exp_negative) {                           // <<< Use exp_negative here
-                            if (mpz_sgn(mpq_numref(factor_q)) == 0) { // Error
-                                sig_ok = false;
-                            } else {
-                                mpq_div(significand_q, significand_q, factor_q);
-                            }  // <<< Use factor_q here
-                        } else {
-                            mpq_mul(significand_q, significand_q, factor_q);  // <<< Use factor_q here
-                        }
-                        if (sig_ok) {                       // Only set if division/multiplication succeeded
-                            decimal_sci_end_ptr = exp_ptr;  // <<< Use exp_ptr here
-                            decimal_sci_parsed = true;
-                        }
+                    if (*exp_ptr == '\0' || !(*exp_ptr >= '0' && *exp_ptr <= '9')) {
+                        sig_ok = false;  // Mark failure, invalid exponent
                     } else {
-                        sig_ok = false;
-                    }  // Factor calculation failed
-                    mpq_clear(factor_q);
-                } else {
-                    sig_ok = false;
-                }  // Exponent magnitude parsing failed
-                mpz_clear(exp_magnitude_z);
-            }
-            // --- END Exponent Handling ---
-        } else {                                    // No exponent
-            decimal_sci_end_ptr = significand_end;  // End after significand
-            decimal_sci_parsed = true;
+                        const char *exp_start = exp_ptr;
+                        while (*exp_ptr >= '0' && *exp_ptr <= '9') {
+                            exp_ptr++;
+                        }
+
+                        mpz_t exp_magnitude_z;  // <<< Declare exp_magnitude_z here
+                        mpz_init(exp_magnitude_z);
+                        bool exp_mag_ok = false;
+                        size_t exp_len = exp_ptr - exp_start;
+                        char *exp_str = (char *)malloc(exp_len + 1);
+                        if (!exp_str) {  // OOM
+                            sig_ok = false;
+                        }  // Handle OOM
+                        else {
+                            memcpy(exp_str, exp_start, exp_len);
+                            exp_str[exp_len] = '\0';
+                            if (mpz_set_str(exp_magnitude_z, exp_str, 10) == 0) { exp_mag_ok = true; }
+                            free(exp_str);
+                        }
+
+                        if (exp_mag_ok) {
+                            mpq_t factor_q;  // <<< Declare factor_q here
+                            mpq_init(factor_q);
+                            bool factor_ok = false;
+
+                            if (!mpz_fits_ulong_p(exp_magnitude_z)) {  // Exponent too large
+                            } else {
+                                unsigned long exp_magnitude_ul = mpz_get_ui(exp_magnitude_z);
+                                if (exp_magnitude_ul == 0) {
+                                    mpq_set_ui(factor_q, 1, 1);
+                                    factor_ok = true;
+                                } else {
+                                    mpz_t power_of_10_z;
+                                    mpz_init(power_of_10_z);
+                                    mpz_ui_pow_ui(power_of_10_z, 10, exp_magnitude_ul);
+                                    mpq_set_z(factor_q, power_of_10_z);
+                                    mpz_clear(power_of_10_z);
+                                    factor_ok = true;
+                                }
+                            }
+
+                            if (factor_ok) {
+                                if (exp_negative) {                            // <<< Use exp_negative here
+                                    if (mpz_sgn(mpq_numref(factor_q)) == 0) {  // Error
+                                        sig_ok = false;
+                                    } else {
+                                        mpq_div(significand_q, significand_q, factor_q);
+                                    }  // <<< Use factor_q here
+                                } else {
+                                    mpq_mul(significand_q, significand_q, factor_q);  // <<< Use factor_q here
+                                }
+                                if (sig_ok) {                       // Only set if division/multiplication succeeded
+                                    decimal_sci_end_ptr = exp_ptr;  // <<< Use exp_ptr here
+                                    decimal_sci_parsed = true;
+                                }
+                            } else {
+                                sig_ok = false;
+                            }  // Factor calculation failed
+                            mpq_clear(factor_q);
+                        } else {
+                            sig_ok = false;
+                        }  // Exponent magnitude parsing failed
+                        mpz_clear(exp_magnitude_z);
+                    }
+                    // --- END Exponent Handling ---
+                } else {                                    // No exponent
+                    decimal_sci_end_ptr = significand_end;  // End after significand
+                    decimal_sci_parsed = true;
+                }
+            }  // End if(sig_ok)
+        }  // End else (parsed digits or '.')
+    */
+    /*
+        // --- Decide which result to use (Base 10 only) ---
+        if (decimal_sci_parsed && (!gmp_end_ptr || decimal_sci_end_ptr > gmp_end_ptr)) {
+            // Decimal/scientific parser succeeded and consumed more (or mpq_set_str failed/consumed less)
+            if (negative) { mpq_neg(significand_q, significand_q); }
+            mpq_canonicalize(significand_q);
+            mpq_set(result_q, significand_q);
+            *end_ptr = decimal_sci_end_ptr;
+            success = true;
+        } else if (gmp_end_ptr) {
+
+            // --- DEBUG PRINT ---
+            fprintf(stderr, "DEBUG: In else if (gmp_end_ptr), before mpq_set(result_q, temp_q):\n");
+            gmp_fprintf(stderr, "  temp_q = %Qd\n", temp_q);  // Print the source value
+            fflush(stderr);                                   // Ensure output is seen before potential crash
+            // --- END DEBUG ---
+
+            // mpq_set_str succeeded and consumed as much or more
+            mpq_set(result_q, temp_q);
+            *end_ptr = gmp_end_ptr;
+            success = true;
+        } else {
+            // Neither succeeded for base 10
+            success = false;
         }
-    }  // End if(sig_ok)
-}  // End else (parsed digits or '.')
-*/
-    // --- Decide which result to use (Base 10 only) ---
-    if (decimal_sci_parsed && (!gmp_end_ptr || decimal_sci_end_ptr > gmp_end_ptr)) {
-        // Decimal/scientific parser succeeded and consumed more (or mpq_set_str failed/consumed less)
-        if (negative) { mpq_neg(significand_q, significand_q); }
-        mpq_canonicalize(significand_q);
-        mpq_set(result_q, significand_q);
-        *end_ptr = decimal_sci_end_ptr;
-        success = true;
-    } else if (gmp_end_ptr) {
 
-        // --- DEBUG PRINT ---
-        fprintf(stderr, "DEBUG: In else if (gmp_end_ptr), before mpq_set(result_q, temp_q):\n");
-        gmp_fprintf(stderr, "  temp_q = %Qd\n", temp_q);  // Print the source value
-        fflush(stderr);                                   // Ensure output is seen before potential crash
-        // --- END DEBUG ---
-
-        // mpq_set_str succeeded and consumed as much or more
-        mpq_set(result_q, temp_q);
-        *end_ptr = gmp_end_ptr;
-        success = true;
+        mpq_clear(temp_q);
+        mpq_clear(significand_q);
+        return success;
+        */
+    // --- Decision Block (Simplified) ---
+    // Success is determined solely by mpq_set_str + scan
+    if (success) {
+        fprintf(stderr, "DEBUG: Using direct mpq_set_str result.\n");
+        gmp_fprintf(stderr, "  result_q = %Qd\n", result_q);
+        fflush(stderr);
+        // mpq_canonicalize(result_q); // Canonicalize the result
     } else {
-        // Neither succeeded for base 10
-        success = false;
+        fprintf(stderr, "DEBUG: mpq_set_str or scan failed.\n");
+        fflush(stderr);
     }
 
-    mpq_clear(temp_q);
-    mpq_clear(significand_q);
+    // No local mpq_t to clear
     return success;
 }
 

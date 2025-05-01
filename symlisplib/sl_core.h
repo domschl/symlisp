@@ -242,6 +242,7 @@ static inline void sl_set_cdr(sl_object *obj, sl_object *val) {
     obj->data.pair.cdr = val;
 }
 
+sl_object *sl_caar(sl_object *list);
 sl_object *sl_cadr(sl_object *list);
 sl_object *sl_caddr(sl_object *list);
 sl_object *sl_cddr(sl_object *list);

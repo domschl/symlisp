@@ -52,13 +52,13 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Character predicates (char-alphabetic?, char-numeric?, char-whitespace?, etc.).
 - [x] integer?, prime?
 - [x] math factorize
+- [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
+- [ ] Eval gc crash on string->prefix-expr tests
 
 Additional Ideas:
 
 - [ ] String and infix<->prefix
-- [ ] Vector? LinAlg?
 - [ ] Macros: define-syntax, let-syntax
-- [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
 - [ ] Check against r7rs
 - [ ] Standard library
 - [ ] Symbolics libs

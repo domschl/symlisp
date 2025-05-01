@@ -152,6 +152,17 @@ static sl_object *sl_builtin_cdr(sl_object *args) {
     return sl_cdr(pair);
 }
 
+static sl_object *sl_builtin_caar(sl_object *args) {
+    sl_object *arity_check = check_arity("caar", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *pair = sl_car(args);  // Get the first argument
+    if (!sl_is_pair(pair)) {
+        return sl_make_errorf("Error (caar): Argument must be a pair, got type %d.", pair ? pair->type : -1);
+    }
+    return sl_caar(pair);
+}
+
 static sl_object *sl_builtin_cadr(sl_object *args) {
     sl_object *arity_check = check_arity("cadr", args, 1);
     if (arity_check != SL_TRUE) return arity_check;
@@ -2262,6 +2273,7 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "car", sl_builtin_car);
     define_builtin(global_env, "cdr", sl_builtin_cdr);
     define_builtin(global_env, "cadr", sl_builtin_cadr);
+    define_builtin(global_env, "caar", sl_builtin_caar);
     define_builtin(global_env, "caddr", sl_builtin_caddr);
     define_builtin(global_env, "cddr", sl_builtin_cddr);
     define_builtin(global_env, "cons", sl_builtin_cons);

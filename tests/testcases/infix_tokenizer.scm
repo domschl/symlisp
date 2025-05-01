@@ -57,3 +57,18 @@
 ;; Error tests might need adjustment depending on C implementation
 ;(define-test "infix-tokens-error-char" ...)
 ;(define-test "infix-tokens-error-bad-num" ...) // This error wouldn't happen in the tokenizer anymore
+
+;;; --- high-level tests for infix to prefix conversion ---
+(define-test "infix-to-prefix-simple-add"
+  (assert-equal (string->prefix-expr "1 + 2") '(+ 1 2)))
+(define-test "infix-to-prefix-simple-var"
+  (assert-equal (string->prefix-expr "a * b") '(* a b)))
+(define-test "infix-to-prefix-mixed"
+  (assert-equal (string->prefix-expr "x^2-3*x") '(- (^ x 2) (* 3 x))))
+(define-test "infix-to-prefix-parens"
+  (assert-equal (string->prefix-expr "(a+b)*c") '(* (+ a b) c)))
+(define-test "right-associativity"
+  (assert-equal (string->prefix-expr "x^y^z") '(^ x (^ y z))))
+(define-test "left-associativity"
+  (assert-equal (string->prefix-expr "x-y+z") '(+ (- x y) z)))
+  

@@ -265,6 +265,14 @@ sl_object *sl_cadr(sl_object *list) {
     return sl_car(sl_cdr(list));
 }
 
+// Helper for (car (car list))
+sl_object *sl_caar(sl_object *list) {
+    if (!sl_is_pair(list)) return SL_NIL;  // Not a pair
+    sl_object *inner_list = sl_car(list);
+    if (!sl_is_pair(inner_list)) return SL_NIL;  // Car is not a pair
+    return sl_car(inner_list);                   // Return car of the car
+}
+
 sl_object *sl_caddr(sl_object *list) {
     if (!sl_is_pair(list)) return SL_NIL;
     sl_object *cdr_val = sl_cdr(list);

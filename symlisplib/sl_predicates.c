@@ -103,19 +103,25 @@ static sl_object *sl_predicate_environmentp(sl_object *args) {
 
 // --- Numeric Predicates ---
 
-// Returns true if obj is a number representing an integer, false otherwise.
+// Helper: Returns true if obj is a number representing an integer, false otherwise.
 static bool is_integer_object(sl_object *obj) {
     if (!sl_is_number(obj)) {
         return false;
     }
-    // Access the number data based on your sl_core.c structure
     sl_number *num = &obj->data.number;
-    if (num->is_bignum) {  // Check if using mpq_t
-        // Check if denominator is 1
+    if (num->is_bignum) {
         return mpz_cmp_ui(mpq_denref(num->value.big_num), 1) == 0;
-    } else {  // Check if using small_num struct
+    } else {
         return num->value.small_num.den == 1;
     }
+}
+
+// (integer? obj) -> #t if obj is an integer number, #f otherwise
+static sl_object *sl_predicate_integerp(sl_object *args) {
+    sl_object *arity_check = check_arity("integer?", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+    sl_object *obj = sl_car(args);
+    return is_integer_object(obj) ? SL_TRUE : SL_FALSE;
 }
 
 // (odd? n) -> #t if n is an odd integer, #f otherwise
@@ -158,6 +164,43 @@ static sl_object *sl_predicate_evenp(sl_object *args) {
         is_even = (num->value.small_num.num % 2 == 0);
     }
     return is_even ? SL_TRUE : SL_FALSE;
+}
+
+// (prime? n) -> #t if n is a prime integer, #f otherwise
+static sl_object *sl_predicate_primep(sl_object *args) {
+    sl_object *arity_check = check_arity("prime?", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+    sl_object *obj = sl_car(args);
+
+    if (!is_integer_object(obj)) {
+        return SL_FALSE;  // Must be an integer
+    }
+
+    sl_number *num = &obj->data.number;
+    int result = 0;  // 0 = composite, 1 = probably prime, 2 = definitely prime
+
+    if (num->is_bignum) {
+        // Use mpz_probab_prime_p directly on the numerator
+        // Check if positive first
+        if (mpz_sgn(mpq_numref(num->value.big_num)) <= 0) {
+            return SL_FALSE;  // Primes must be positive
+        }
+        result = mpz_probab_prime_p(mpq_numref(num->value.big_num), 25);  // 25 reps is strong
+    } else {
+        // Handle small_num
+        int64_t val = num->value.small_num.num;
+        if (val <= 1) {
+            return SL_FALSE;  // 1 and non-positive numbers are not prime
+        }
+        // Convert small int to mpz_t for testing
+        mpz_t temp_z;
+        mpz_init_set_si(temp_z, val);
+        result = mpz_probab_prime_p(temp_z, 25);
+        mpz_clear(temp_z);
+    }
+
+    // Return #t if result is 1 (probably prime) or 2 (definitely prime)
+    return (result > 0) ? SL_TRUE : SL_FALSE;
 }
 
 // --- Character Predicate Helper ---
@@ -211,9 +254,13 @@ void sl_predicates_init(sl_object *global_env) {
     define_builtin(global_env, "char?", sl_predicate_charp);
     define_builtin(global_env, "error?", sl_predicate_errorp);  // <<< ADDED
     define_builtin(global_env, "environment?", sl_predicate_environmentp);
+
     // Numeric Predicates
+    define_builtin(global_env, "integer?", sl_predicate_integerp);  // <<< ADDED
     define_builtin(global_env, "odd?", sl_predicate_oddp);
     define_builtin(global_env, "even?", sl_predicate_evenp);
+    define_builtin(global_env, "prime?", sl_predicate_primep);  // <<< ADDED
+
     // Character Predicates
     define_builtin(global_env, "char-alphabetic?", sl_builtin_char_alphabetic);
     define_builtin(global_env, "char-numeric?", sl_builtin_char_numeric);

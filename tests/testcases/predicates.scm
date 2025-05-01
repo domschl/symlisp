@@ -156,4 +156,56 @@
 ;(define-test "char-lower-case?-error-type" (assert-error? (char-lower-case? "a")))
 ;(define-test "char-lower-case?-error-arity" (assert-error? (char-lower-case? #\a #\b)))
 
+;;;-----------------------------------------------------------------------------
+;;; Numeric Predicates (Additional)
+;;;-----------------------------------------------------------------------------
+
+;;; integer? Tests
+(define-test "integer?-small-int" (assert-true (integer? 5)))
+(define-test "integer?-zero" (assert-true (integer? 0)))
+(define-test "integer?-negative-small-int" (assert-true (integer? -10)))
+(define-test "integer?-big-int" (assert-true (integer? 12345678901234567890))) ; Assumes this triggers bignum
+(define-test "integer?-negative-big-int" (assert-true (integer? -12345678901234567890)))
+(define-test "integer?-rational-int" (assert-true (integer? (/ 6 2)))) ; Should simplify to 3
+(define-test "integer?-rational-not-int" (assert-false (integer? (/ 1 2))))
+(define-test "integer?-rational-big-int" (assert-true (integer? (/ 24691357802469135780 2))))
+(define-test "integer?-rational-big-not-int" (assert-true (integer? (/ 12345678901234567890 3))))
+(define-test "integer?-rational-big-not-int" (assert-false (integer? (/ 12345678901234567891 3))))
+(define-test "integer?-string" (assert-false (integer? "5")))
+(define-test "integer?-symbol" (assert-false (integer? 'a)))
+(define-test "integer?-list" (assert-false (integer? '(1))))
+;(define-test "integer?-error-arity" (assert-error? (integer? 1 2)))
+
+;; odd/even? Tests
+(define-test "odd?-odd" (assert-true (odd? 3)))
+(define-test "odd?-even" (assert-false (odd? 4)))
+(define-test "odd?-zero" (assert-false (odd? 0)))
+(define-test "odd?-negative-odd" (assert-true (odd? -5)))
+(define-test "odd?-negative-even" (assert-false (odd? -6)))
+(define-test "odd?-big-odd" (assert-true (odd? 123456789)))
+(define-test "odd?-big-even" (assert-false (odd? 123456788)))
+
+;;; prime? Tests
+(define-test "prime?-2" (assert-true (prime? 2)))
+(define-test "prime?-3" (assert-true (prime? 3)))
+(define-test "prime?-4" (assert-false (prime? 4)))
+(define-test "prime?-5" (assert-true (prime? 5)))
+(define-test "prime?-7" (assert-true (prime? 7)))
+(define-test "prime?-9" (assert-false (prime? 9)))
+(define-test "prime?-10" (assert-false (prime? 10)))
+(define-test "prime?-11" (assert-true (prime? 11)))
+(define-test "prime?-large-prime" (assert-true (prime? 7919))) ; A known prime
+(define-test "prime?-large-composite" (assert-false (prime? 7921))) ; 89*89
+(define-test "prime?-big-prime" (assert-true (prime? 2147483647))) ; Mersenne prime 2^31-1
+(define-test "prime?-big-composite" (assert-false (prime? 2147483649))) ; Fermat F5 = 641 * 6700417
+(define-test "prime?-1" (assert-false (prime? 1)))
+(define-test "prime?-0" (assert-false (prime? 0)))
+(define-test "prime?-negative" (assert-false (prime? -7)))
+(define-test "prime?-rational-prime-num" (assert-false (prime? (/ 7 2)))) ; Not an integer
+(define-test "prime?-rational-int-prime" (assert-true (prime? (/ 14 2)))) ; Is integer 7
+(define-test "prime?-rational-int-composite" (assert-false (prime? (/ 18 2)))) ; Is integer 9
+(define-test "prime?-string" (assert-false (prime? "7")))
+(define-test "prime?-symbol" (assert-false (prime? 'prime)))
+;(define-test "prime?-error-arity" (assert-error? (prime? 7 11)))
+
 ;;; --- END OF PREDICATE TESTS ---

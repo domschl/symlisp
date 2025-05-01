@@ -53,7 +53,7 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] integer?, prime?
 - [x] math factorize
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
-- [ ] Eval gc crash on string->prefix-expr tests
+- [x] Eval gc crash on string->prefix-expr tests. Fixed.
 
 Additional Ideas:
 

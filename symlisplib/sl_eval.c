@@ -370,7 +370,7 @@ top_of_eval:;
                     sl_object *value_expr = sl_car(value_expr_pair);
 
                     // Unroot op_obj and args before eval
-                    sl_gc_remove_root(&op_obj);
+                    // sl_gc_remove_root(&op_obj);
                     // sl_gc_remove_root(&args);
 
                     sl_object *value = sl_eval(value_expr, env);
@@ -1364,6 +1364,9 @@ top_of_eval:;
                         current_step_expr_node = sl_cdr(current_step_expr_node);
                     }
                     sl_gc_remove_root(&current_step_expr_node);
+                    sl_gc_remove_root(&v_iter_debug);  // <<< ADD THIS LINE
+                    sl_gc_remove_root(&step_vals_tail_node);
+
                     if (!step_ok) { goto cleanup_do_loop; }  // Error during step eval
 
                     // e. Update Bindings Simultaneously
@@ -1748,7 +1751,7 @@ sl_object *sl_eval_string(const char *input, sl_object *env) {
         parse_ptr = end_ptr;
 
         // Optional: Trigger GC periodically?
-        // sl_gc();
+        sl_gc();
     }
 
     // Clean up roots

@@ -501,8 +501,18 @@ void sl_mem_shutdown() {
 
 // Add/Remove GC Roots (Implementation)
 void sl_gc_add_root(sl_object **root_ptr) {
+    // <<< --- Check for duplicates --- >>>
+    for (size_t i = 0; i < root_count; ++i) {
+        if (gc_roots[i] == root_ptr) {
+            fprintf(stderr, "[GC WARNING] Attempted to add duplicate root for VarAddr=%p\n", (void *)root_ptr);
+            return;  // Already rooted, do nothing
+        }
+    }
+    // <<< --- End check --- >>>
+
     if (root_count >= root_capacity) {
         // Resize roots array
+        printf("[DEBUG] Resizing GC roots array from %zu to %zu\n", root_capacity, root_capacity * 2);
         size_t new_capacity = root_capacity == 0 ? 16 : root_capacity * 2;
         sl_object ***new_roots = realloc(gc_roots, new_capacity * sizeof(sl_object **));
         if (!new_roots) {
@@ -525,7 +535,7 @@ void sl_gc_remove_root(sl_object **root_ptr) {
             return;
         }
     }
-    // fprintf(stderr, "Warning: Attempted to remove non-existent GC root.\n");
+    fprintf(stderr, "[DEBUG] Warning: Attempted to remove non-existent GC root: varPtr: %p\n", (void *)root_ptr);
 }
 
 // Simple allocation from the free list
@@ -1162,7 +1172,27 @@ static void sl_gc_sweep() {
 
 // Main GC function
 void sl_gc() {
-    // printf("Starting GC... Free count before: %zu\n", free_count);
+    printf("[DEBUG GC] Starting GC Mark Phase. Root count: %zu\n", root_count);
+
+    // <<< --- ADD VALIDATION LOOP --- >>>
+    for (size_t i = 0; i < root_count; ++i) {
+        sl_object **root_var_addr = gc_roots[i];
+        sl_object *root_obj_ptr = (root_var_addr != NULL) ? *root_var_addr : (sl_object *)0xDEADBEEF;  // Get the object pointer safely
+
+        printf("[DEBUG GC VALIDATE] Root %zu: VarAddr=%p, ObjPtr=%p\n",
+               i, (void *)root_var_addr, (void *)root_obj_ptr);
+
+        // Basic sanity checks (add more specific checks if needed)
+        if (root_var_addr == NULL) {
+            printf("[DEBUG GC VALIDATE] !!! Root %zu has NULL variable address!\n", i);
+        } else if (root_obj_ptr == NULL) {
+            // This might be okay if NULL pointers are allowed roots, but flag it
+            printf("[DEBUG GC VALIDATE] --- Root %zu points to NULL object.\n", i);
+        }
+        // Add check if root_obj_ptr is within expected heap range if possible
+        // Add check for alignment if relevant: if (((uintptr_t)root_obj_ptr % sizeof(void*)) != 0) { ... }
+    }
+    // <<< --- END VALIDATION LOOP --- >>>
 
     // 1. Mark all objects reachable from the root set
     for (size_t i = 0; i < root_count; ++i) {

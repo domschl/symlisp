@@ -117,9 +117,9 @@
 (define-test "char-whitespace?-space" (assert-true (char-whitespace? #\space)))
 (define-test "char-whitespace?-tab" (assert-true (char-whitespace? #\tab)))
 (define-test "char-whitespace?-newline" (assert-true (char-whitespace? #\newline)))
-;(define-test "char-whitespace?-return" (assert-true (char-whitespace? #\return))) ; Assuming #\return maps to \r
-;(define-test "char-whitespace?-formfeed" (assert-true (char-whitespace? #\page))) ; Assuming #\page maps to \f
-;(define-test "char-whitespace?-nbsp" (assert-true (char-whitespace? #\x00A0))) ; Non-breaking space
+(define-test "char-whitespace?-return" (assert-true (char-whitespace? #\return))) ; Assuming #\return maps to \r
+(define-test "char-whitespace?-formfeed" (assert-true (char-whitespace? #\page))) ; Assuming #\page maps to \f
+(define-test "char-whitespace?-nbsp" (assert-true (char-whitespace? #\x00A0))) ; Non-breaking space
 (define-test "char-whitespace?-alpha" (assert-false (char-whitespace? #\a)))
 (define-test "char-whitespace?-digit" (assert-false (char-whitespace? #\0)))
 (define-test "char-whitespace?-punct" (assert-false (char-whitespace? #\.)))

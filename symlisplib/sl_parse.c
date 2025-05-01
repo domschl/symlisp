@@ -294,6 +294,7 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
     mpq_t temp_q;  // Local temp for mpq_set_str result
     mpq_init(temp_q);
     int gmp_ret = mpq_set_str(temp_q, start, 10);
+
     const char *gmp_end_ptr = NULL;
 
     if (gmp_ret == 0) {
@@ -301,6 +302,7 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
             // Division by zero, treat as failure for this path
             gmp_ret = -1;  // Mark as failed
         } else {
+            mpq_canonicalize(temp_q);
             // mpq_set_str succeeded, find where it stopped.
             const char *scan_ptr = num_start;
             bool seen_slash = false;

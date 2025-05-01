@@ -51,10 +51,10 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Case-insensitive string comparison functions (string-ci=?, string-ci<?, etc.).
 - [x] Character predicates (char-alphabetic?, char-numeric?, char-whitespace?, etc.).
 - [x] integer?, prime?
+- [x] math factorize
 
 Additional Ideas:
 
-- [ ] math factorize
 - [ ] String and infix<->prefix
 - [ ] Vector? LinAlg?
 - [ ] Macros: define-syntax, let-syntax

@@ -1258,6 +1258,42 @@ cleanup_prime_factors:
     return result_list;
 }
 
+// (next-prime n) -> Returns the smallest prime number strictly greater than integer n
+static sl_object *sl_builtin_next_prime(sl_object *args) {
+    sl_object *arity_check = check_arity("next-prime", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *n_obj = sl_car(args);
+    sl_object *result_obj = NULL;  // Initialize to NULL
+
+    mpz_t n_z, result_z;
+    mpz_inits(n_z, result_z, NULL);
+
+    sl_gc_add_root(&n_obj);  // Protect input
+
+    // 1. Get integer value and check type
+    if (!get_number_as_mpz(n_obj, n_z, "next-prime")) {
+        // Error: not an integer (get_number_as_mpz checks this)
+        result_obj = sl_make_errorf("next-prime: Argument must be an integer.");
+        goto cleanup_next_prime;
+    }
+
+    // 2. Find the next prime using GMP
+    mpz_nextprime(result_z, n_z);
+
+    // 3. Convert result back to Scheme object
+    result_obj = sl_make_number_from_mpz(result_z);
+    if (!result_obj || result_obj == SL_OUT_OF_MEMORY_ERROR) {
+        result_obj = SL_OUT_OF_MEMORY_ERROR;  // Ensure error propagation
+    }
+
+cleanup_next_prime:
+    mpz_clears(n_z, result_z, NULL);
+    sl_gc_remove_root(&n_obj);
+    // result_obj is the intended return value, no need to root/unroot here
+    return result_obj;
+}
+
 #define DEFAULT_FLOAT_PRECISION 10  // Default decimal places if not specified
 
 // (float num [precision]) -> Returns string representation of num to precision decimal places.
@@ -2256,6 +2292,7 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "square", sl_builtin_square);                          // <<< ADDED
     define_builtin(global_env, "exact-integer-sqrt", sl_builtin_exact_integer_sqrt);  // <<< ADDED
     define_builtin(global_env, "prime-factors", sl_builtin_prime_factors);            // <<< ADDED
+    define_builtin(global_env, "next-prime", sl_builtin_next_prime);                  // <<< ADDED
     define_builtin(global_env, "float", sl_builtin_float);                            // <<< ADDED
 
     // Comparison

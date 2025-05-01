@@ -458,7 +458,7 @@
   (assert-equal (string->number "1.5E2") 150))
 
 (define-test "string->number-exponent-whitespace"
-  (assert-equal (string->number " 1.2 e -3 ") 12/10000))
+  (assert-equal (string->number " 1.2 e -3 ") #f)) ; Whitespace around e is a bad idea
 
 (define-test "string->number-exponent-invalid-missing-exp-digits"
   (assert-equal (string->number "1e") #f))
@@ -472,8 +472,8 @@
 (define-test "string->number-exponent-invalid-dot-significand"
   (assert-equal (string->number ".e3") #f))
 
-(define-test "string->number-exponent-radix-16"
-  (assert-equal (string->number "1e3" 16) #f)) ; Exponents only supported for radix 10
+(define-test "string->number-radix-16-not-exponent"
+  (assert-equal (string->number "1e3" 16) 483)) ; Not an exponent in base 16, 0x1e3 = 483
 
 ;; --- String Comparisons ---
 

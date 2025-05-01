@@ -324,10 +324,10 @@
   (assert-equal (string->number "  123") 123))
 
 (define-test "string->number-trailing-whitespace"
-  (assert-equal (string->number "123  ") #f)) ; Disallowed trailing non-digits
+  (assert-equal (string->number "123  ") 123)) ; Change from standard! Normally disallowed trailing non-digits, but for us that's useless
 
 (define-test "string->number-whitespace-sign"
-  (assert-equal (string->number " -123 ") #f)) ; Disallowed trailing non-digits
+  (assert-equal (string->number " -123 ") -123)) ; Change from standard! Normally disallowed trailing non-digits
 
 (define-test "string->number-radix-2"
   (assert-equal (string->number "1010" 2) 10))
@@ -367,13 +367,113 @@
 
 ;; Tests for non-integer formats (should return #f for now)
 (define-test "string->number-fraction-string"
-  (assert-equal (string->number "1/2") #f))
+  (assert-equal (string->number "1/2") 1/2))  ; Extension to standard to allow fractions
 
 (define-test "string->number-decimal-string"
-  (assert-equal (string->number "123.45") #f))
+  (assert-equal (string->number "123.45") 123.45)) ; Extension to standard to allow decimals
 
 (define-test "string->number-exponent-string"
-  (assert-equal (string->number "1e3") #f))
+  (assert-equal (string->number "1e3") 1000)) ; Extension to standard to allow exponent notation
+
+;; --- string->number Extended Tests (Fractions, Decimals, Exponents) ---
+
+;; Fractions
+(define-test "string->number-fraction-neg-num"
+  (assert-equal (string->number "-1/2") -1/2))
+
+(define-test "string->number-fraction-neg-den"
+  (assert-equal (string->number "1/-2") -1/2)) ; Should canonicalize
+
+(define-test "string->number-fraction-both-neg"
+  (assert-equal (string->number "-1/-2") 1/2)) ; Should canonicalize
+
+(define-test "string->number-fraction-whitespace"
+  (assert-equal (string->number " 3 / 4 ") #f)) ; Whitespace around / are a bad idea
+
+(define-test "string->number-fraction-non-canonical"
+  (assert-equal (string->number "4/8") 1/2)) ; Should simplify
+
+(define-test "string->number-fraction-zero-num"
+  (assert-equal (string->number "0/5") 0))
+
+(define-test "string->number-fraction-invalid-zero-den"
+  (assert-equal (string->number "1/0") #f)) ; Division by zero is invalid input
+
+(define-test "string->number-fraction-invalid-chars"
+  (assert-equal (string->number "1/a") #f))
+
+(define-test "string->number-fraction-radix-16"
+  (assert-equal (string->number "a/b" 16) #f)) ; Fractions only supported for radix 10
+
+;; Decimals
+(define-test "string->number-decimal-leading-dot"
+  (assert-equal (string->number ".5") 1/2))
+
+(define-test "string->number-decimal-trailing-dot"
+  (assert-equal (string->number "5.") 5))
+
+(define-test "string->number-decimal-neg"
+  (assert-equal (string->number "-12.34") -1234/100))
+
+(define-test "string->number-decimal-zero"
+  (assert-equal (string->number "0.0") 0))
+
+(define-test "string->number-decimal-just-dot"
+  (assert-equal (string->number ".") #f))
+
+(define-test "string->number-decimal-multiple-dots"
+  (assert-equal (string->number "1.2.3") #f))
+
+(define-test "string->number-decimal-radix-16"
+  (assert-equal (string->number "a.b" 16) #f)) ; Decimals only supported for radix 10
+
+;; Scientific Notation
+(define-test "string->number-exponent-positive"
+  (assert-equal (string->number "1.23e3") 1230))
+
+(define-test "string->number-exponent-neg-exp"
+  (assert-equal (string->number "123e-2") 123/100))
+
+(define-test "string->number-exponent-pos-exp-sign"
+  (assert-equal (string->number "1.2e+2") 120))
+
+(define-test "string->number-exponent-neg-significand"
+  (assert-equal (string->number "-1.23e3") -1230))
+
+(define-test "string->number-exponent-neg-significand-neg-exp"
+  (assert-equal (string->number "-123e-2") -123/100))
+
+(define-test "string->number-exponent-zero-exp"
+  (assert-equal (string->number "123e0") 123))
+
+(define-test "string->number-exponent-large-exp"
+  ;; 1.2 * 10^25 = 12 * 10^24
+  (assert-equal (string->number "1.2e25") 12000000000000000000000000))
+
+(define-test "string->number-exponent-large-neg-exp"
+  ;; 12 / 10^20
+  (assert-equal (string->number "12e-20") 12/100000000000000000000))
+
+(define-test "string->number-exponent-case-E"
+  (assert-equal (string->number "1.5E2") 150))
+
+(define-test "string->number-exponent-whitespace"
+  (assert-equal (string->number " 1.2 e -3 ") 12/10000))
+
+(define-test "string->number-exponent-invalid-missing-exp-digits"
+  (assert-equal (string->number "1e") #f))
+
+(define-test "string->number-exponent-invalid-missing-exp-digits-after-sign"
+  (assert-equal (string->number "1e+") #f))
+
+(define-test "string->number-exponent-invalid-missing-significand"
+  (assert-equal (string->number "e3") #f))
+
+(define-test "string->number-exponent-invalid-dot-significand"
+  (assert-equal (string->number ".e3") #f))
+
+(define-test "string->number-exponent-radix-16"
+  (assert-equal (string->number "1e3" 16) #f)) ; Exponents only supported for radix 10
 
 ;; --- String Comparisons ---
 

@@ -45,16 +45,13 @@
     ;; Update global counters based on result
     (if (eq? assertion #t)
         (begin
-          ;(display "Test passed\n")
+          (display "Test ") (display name) (display " passed\n")
           ;; Increment the passed test counter
           (set! tests-passed-count (+ tests-passed-count 1))
           (set! result "PASSED")
           (set! test-passed #t))
         (begin
           (display "Test ") (display name) (display " failed\n")
-          (write "  Assertion: ")
-          (write assertion)
-          (newline)
           (set! tests-failed-count (+ tests-failed-count 1))
           (set! tests-all-passed #f)))
     

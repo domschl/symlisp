@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <stdarg.h>
+#include <math.h>
 #include <gmp.h>
 
 #include "sl_core.h"
@@ -97,6 +98,7 @@ static sl_object *parse_atom(const char **input);
 static sl_object *parse_string_literal(const char **input);  // Renamed to avoid conflict
 static sl_object *parse_number(const char **input_ptr, const char *start, size_t len);
 static sl_object *parse_symbol_or_bool(const char **input_ptr, const char *start, size_t len);
+
 static bool is_delimiter(char c);
 
 // Writing helpers
@@ -223,6 +225,345 @@ static sl_object *read_atom(FILE *stream) {
 }
 
 // --- Parsing Implementation ---
+
+// Parses an integer, fraction (N/D), decimal (N.M), or scientific (N.MeP) string in base 10.
+// For other bases, only parses integers.
+// On success: Initializes result_q, sets end_ptr past the parsed number, returns true.
+// On failure: Returns false, end_ptr is undefined, result_q is undefined.
+// Caller MUST initialize result_q before calling.
+bool parse_rational_from_string(const char *start, int base, mpq_t result_q, const char **end_ptr) {
+    const char *ptr = start;
+    bool negative = false;
+    bool success = false;
+
+    // 1. Handle Sign
+    if (*ptr == '+') {
+        ptr++;
+    } else if (*ptr == '-') {
+        negative = true;
+        ptr++;
+    }
+
+    const char *num_start = ptr;  // Start of numeric part
+
+    // Check for empty string after sign
+    if (*num_start == '\0') return false;
+
+    // 2. Try GMP's mpq_set_str first (handles integers and N/D)
+    // mpq_set_str modifies its argument even on failure, so use a temp
+    mpq_t temp_q;
+    mpq_init(temp_q);
+    int gmp_ret = mpq_set_str(temp_q, start, base);  // Use original start with sign
+    if (gmp_ret == 0) {
+        // GMP parsed it successfully (integer or N/D).
+
+        // mpq_set_str might allow den=0 initially, canonicalization would fail later.
+        // Check the denominator *before* proceeding.
+        if (mpz_sgn(mpq_denref(temp_q)) == 0) {
+            // Division by zero detected by mpq_set_str or resulted in zero den.
+            mpq_clear(temp_q);
+            return false;  // Treat as parse failure
+        }
+
+        // Now find where GMP stopped reading. Scan forward from num_start.
+        // This scan needs to correctly identify the end of integer or N/D formats.
+        const char *scan_ptr = num_start;
+        bool seen_slash = false;
+        bool after_slash = false;
+        bool sign_after_slash_done = false;  // Ensure sign is only checked once right after /
+
+        while (*scan_ptr) {
+            char c = *scan_ptr;
+            int digit_val = -1;
+
+            // Check for valid digit for the base
+            if (c >= '0' && c <= '9')
+                digit_val = c - '0';
+            else if (base > 10 && c >= 'a' && c <= 'z')
+                digit_val = c - 'a' + 10;
+            else if (base > 10 && c >= 'A' && c <= 'Z')
+                digit_val = c - 'A' + 10;
+
+            if (digit_val != -1) {             // It's a digit
+                if (digit_val >= base) break;  // Invalid digit for base
+                scan_ptr++;
+                if (after_slash) sign_after_slash_done = true;  // A digit appeared after slash (or sign after slash)
+            } else if (c == '/' && base == 10 && !seen_slash && scan_ptr > num_start) {
+                // Allow '/' only in base 10, not first char, only once
+                seen_slash = true;
+                after_slash = true;
+                scan_ptr++;
+            } else if ((c == '+' || c == '-') && after_slash && !sign_after_slash_done) {
+                // Allow sign only immediately after '/', only once
+                sign_after_slash_done = true;
+                scan_ptr++;
+                // Check if sign is immediately followed by EOF or non-digit
+                if (!(*scan_ptr >= '0' && *scan_ptr <= '9')) {
+                    // Invalid: sign after slash not followed by digit
+                    // Backtrack scan_ptr to before the sign to ensure it's not included
+                    scan_ptr--;
+                    break;
+                }
+            } else {
+                // Not a valid digit, not the first '/', not a sign right after '/'
+                break;
+            }
+        }
+
+        // If scan_ptr didn't advance, mpq_set_str might have parsed just a sign? Unlikely.
+        // Trust mpq_set_str parsed *something* valid if gmp_ret==0.
+        // The scan is just to find the end.
+        if (scan_ptr > num_start) {
+            mpq_set(result_q, temp_q);  // Copy successful result
+            *end_ptr = scan_ptr;
+            success = true;
+        }
+        // If scan_ptr didn't advance, maybe it was just "+"? mpq_set_str would fail.
+    }
+    mpq_clear(temp_q);  // Clear temp GMP num
+
+    if (success) return true;  // Integer or N/D parsed successfully
+
+    // 3. If mpq_set_str failed or didn't parse anything useful, and base is 10, try decimal/scientific
+    if (base != 10) return false;  // Only base 10 supports decimal/scientific here
+
+    // Reset ptr to start after sign
+    ptr = num_start;
+    const char *significand_end = ptr;
+    const char *decimal_point = NULL;
+    bool has_exponent = false;
+
+    // Scan significand digits (integer part and fractional part)
+    while (*significand_end) {
+        if (*significand_end >= '0' && *significand_end <= '9') {
+            significand_end++;
+        } else if (*significand_end == '.' && decimal_point == NULL) {
+            decimal_point = significand_end;
+            significand_end++;
+        } else if ((*significand_end == 'e' || *significand_end == 'E') && (significand_end > ptr)) {
+            // Check if 'e'/'E' is preceded by at least one digit or '.'
+            if (*(significand_end - 1) >= '0' && *(significand_end - 1) <= '9') {
+                has_exponent = true;
+                break;  // End of significand, start of exponent
+            } else if (*(significand_end - 1) == '.' && significand_end - 1 > ptr) {
+                // Allow cases like "1.e2"
+                has_exponent = true;
+                break;
+            } else {
+                return false;  // 'e' not preceded by digit or '.'
+            }
+        } else {
+            break;  // End of significand part (or invalid char)
+        }
+    }
+
+    // Check if we actually parsed any digits for the significand
+    if (significand_end == ptr && !decimal_point) return false;  // No digits found
+    // Check for cases like just "."
+    if (decimal_point && significand_end == decimal_point + 1 && significand_end == ptr + 1) return false;
+
+    // Construct significand rational
+    mpz_t sig_num_z, sig_den_z;
+    mpz_inits(sig_num_z, sig_den_z, NULL);
+    mpq_t significand_q;
+    mpq_init(significand_q);
+
+    // Create numerator string (digits only)
+    size_t sig_len = significand_end - ptr;
+    char *sig_num_str = (char *)malloc(sig_len + 1);
+    if (!sig_num_str) {
+        mpz_clears(sig_num_z, sig_den_z, NULL);
+        mpq_clear(significand_q);
+        return false;
+    }  // OOM
+    char *dst = sig_num_str;
+    const char *src = ptr;
+    while (src < significand_end) {
+        if (*src != '.') {
+            *dst++ = *src;
+        }
+        src++;
+    }
+    *dst = '\0';
+
+    if (mpz_set_str(sig_num_z, sig_num_str, 10) != 0) {
+        // Should not happen if only digits were copied
+        free(sig_num_str);
+        mpz_clears(sig_num_z, sig_den_z, NULL);
+        mpq_clear(significand_q);
+        return false;
+    }
+    free(sig_num_str);
+
+    // Create denominator (power of 10)
+    if (decimal_point) {
+        size_t fractional_digits = significand_end - decimal_point - 1;
+        if (fractional_digits > 0) {
+            mpz_ui_pow_ui(sig_den_z, 10, fractional_digits);
+        } else {
+            mpz_set_ui(sig_den_z, 1);  // e.g., "1." -> denominator is 1
+        }
+    } else {
+        mpz_set_ui(sig_den_z, 1);  // Integer significand
+    }
+
+    // Set significand rational value
+    mpq_set_num(significand_q, sig_num_z);
+    mpq_set_den(significand_q, sig_den_z);
+    mpq_canonicalize(significand_q);
+
+    mpz_clears(sig_num_z, sig_den_z, NULL);  // Done with temp Z values
+
+    // 4. Handle Exponent (if present)
+    if (has_exponent) {
+        const char *exp_ptr = significand_end + 1;  // Skip 'e' or 'E'
+        bool exp_negative = false;
+        if (*exp_ptr == '+') {
+            exp_ptr++;
+        } else if (*exp_ptr == '-') {
+            exp_negative = true;
+            exp_ptr++;
+        }
+
+        // Check for empty exponent
+        if (*exp_ptr == '\0' || !(*exp_ptr >= '0' && *exp_ptr <= '9')) {
+            mpq_clear(significand_q);
+            return false;  // No digits after exponent sign/marker
+        }
+
+        const char *exp_start = exp_ptr;
+        while (*exp_ptr >= '0' && *exp_ptr <= '9') {
+            exp_ptr++;
+        }
+        // Check if exponent part is valid integer
+        mpz_t exp_z;
+        mpz_init(exp_z);
+        // Need a temp null-terminated string for mpz_set_str
+        size_t exp_len = exp_ptr - exp_start;
+        char *exp_str = (char *)malloc(exp_len + 1);
+        if (!exp_str) {
+            mpz_clear(exp_z);
+            mpq_clear(significand_q);
+            return false;
+        }  // OOM
+        memcpy(exp_str, exp_start, exp_len);
+        exp_str[exp_len] = '\0';
+
+        if (mpz_set_str(exp_z, exp_str, 10) != 0) {
+            // Should not happen
+            free(exp_str);
+            mpz_clear(exp_z);
+            mpq_clear(significand_q);
+            return false;
+        }
+        free(exp_str);
+
+        // Check if exponent is too large for mpz_ui_pow_ui/mpq_mul_si/mpq_div_si
+        // mpz_ui_pow_ui takes unsigned long exponent.
+        // mpq_mul_si/div_si take signed long.
+        // We need to handle potentially large exponents carefully.
+        if (!mpz_fits_slong_p(exp_z)) {
+            // Exponent too large for direct multiplication/division factor.
+            // We need to calculate 10^|exp| as mpz_t and multiply/divide.
+            mpz_t power_of_10_z, abs_exp_z;
+            mpz_inits(power_of_10_z, abs_exp_z, NULL);
+            mpz_abs(abs_exp_z, exp_z);
+            // Check if abs_exp_z fits unsigned long for mpz_ui_pow_ui
+            if (!mpz_fits_ulong_p(abs_exp_z)) {
+                // Exponent magnitude is truly enormous, likely impractical. Treat as error.
+                mpz_clears(power_of_10_z, abs_exp_z, exp_z, NULL);
+                mpq_clear(significand_q);
+                return false;  // Or maybe return infinity/zero? For now, error.
+            }
+            unsigned long exp_ul = mpz_get_ui(abs_exp_z);  // Use UI as it fits ulong
+            mpz_ui_pow_ui(power_of_10_z, 10, exp_ul);
+
+            mpq_t factor_q;
+            mpq_init(factor_q);
+            mpq_set_z(factor_q, power_of_10_z);  // factor = 10^|exp| / 1
+
+            if (exp_negative) {
+                mpq_div(significand_q, significand_q, factor_q);
+            } else {
+                mpq_mul(significand_q, significand_q, factor_q);
+            }
+            mpq_clear(factor_q);
+            mpz_clears(power_of_10_z, abs_exp_z, NULL);
+
+        } else {
+            // Exponent fits in signed long
+            long exp_sl = mpz_get_si(exp_z);
+            if (exp_negative) {
+                // Divide by 10^|exp_sl|
+                mpz_t power_of_10_z;
+                mpz_init(power_of_10_z);
+                unsigned long exponent_val = (unsigned long)(-exp_sl);
+                mpz_ui_pow_ui(power_of_10_z, 10, exponent_val);
+
+                mpq_t factor_q;
+                mpq_init(factor_q);
+                mpq_set_z(factor_q, power_of_10_z);  // factor_q = power_of_10_z / 1
+
+                // --- DEBUG PRINT ---
+                gmp_fprintf(stderr, "DEBUG: Before mpq_div:\n");
+                gmp_fprintf(stderr, "  significand_q = %Qd\n", significand_q);
+                gmp_fprintf(stderr, "  factor_q      = %Qd\n", factor_q);
+                // --- END DEBUG ---
+
+                // Check denominator of factor_q just in case
+                if (mpz_sgn(mpq_denref(factor_q)) == 0) {
+                    fprintf(stderr, "Error: Factor denominator is zero before division.\n");
+                    mpq_clear(factor_q);
+                    mpz_clear(power_of_10_z);
+                    // mpz_clear(exp_z); // exp_z cleared later
+                    mpq_clear(significand_q);
+                    return false;  // Should return false here
+                }
+
+                mpq_div(significand_q, significand_q, factor_q);
+
+                // --- DEBUG PRINT ---
+                gmp_fprintf(stderr, "DEBUG: After mpq_div:\n");
+                gmp_fprintf(stderr, "  significand_q = %Qd\n", significand_q);
+                // --- END DEBUG ---
+
+                mpq_clear(factor_q);
+                mpz_clear(power_of_10_z);
+            } else if (exp_sl > 0) {
+                // Multiply by 10^exp_sl
+                mpz_t power_of_10_z;
+                mpz_init(power_of_10_z);
+                mpz_ui_pow_ui(power_of_10_z, 10, (unsigned long)exp_sl);
+                mpq_t factor_q;
+                mpq_init(factor_q);
+                mpq_set_z(factor_q, power_of_10_z);
+                mpq_mul(significand_q, significand_q, factor_q);
+                mpq_clear(factor_q);
+                mpz_clear(power_of_10_z);
+            }
+            // If exp_sl is 0, do nothing.
+        }
+        mpz_clear(exp_z);
+        *end_ptr = exp_ptr;  // Update end_ptr past the exponent
+        success = true;
+
+    } else {                         // No exponent part
+        *end_ptr = significand_end;  // End is after significand
+        success = true;
+    }
+
+    // 5. Apply original sign and finalize
+    if (success) {
+        if (negative) {
+            mpq_neg(significand_q, significand_q);
+        }
+        mpq_canonicalize(significand_q);
+        mpq_set(result_q, significand_q);  // Copy final result
+    }
+
+    mpq_clear(significand_q);  // Clear the working rational
+    return success;
+}
 
 static sl_object *parse_character_literal(const char **input) {
     const char *start = *input;  // Points right after #\
@@ -518,20 +859,50 @@ static sl_object *parse_atom(const char **input) {
         return SL_NIL;
     }
 
-    // Try parsing as a number first
-    sl_object *num_result = parse_number(input, start, len);  // Pass start and len
-    if (num_result) {
-        if (num_result == SL_OUT_OF_MEMORY_ERROR) return num_result;  // Propagate OOM
-        *input = ptr;                                                 // Consume the atom characters if number parsing succeeded
-        return num_result;
+    // --- Create a null-terminated copy for parsing ---
+    char *token = (char *)malloc(len + 1);
+    if (!token) { /* ... OOM error handling ... */
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+    memcpy(token, start, len);
+    token[len] = '\0';
+
+    sl_object *result = NULL;
+
+    // --- Try parsing as number using the new helper ---
+    mpq_t temp_q;
+    mpq_init(temp_q);
+    const char *num_end_ptr = NULL;
+    // Use base 10 for general atom parsing
+    if (parse_rational_from_string(token, 10, temp_q, &num_end_ptr)) {
+        // Check if the entire token was consumed
+        if (*num_end_ptr == '\0') {
+            // Successfully parsed the whole token as a number
+            result = make_number_from_mpq(temp_q);  // Use existing helper to simplify if possible
+        }
+        // If *num_end_ptr != '\0', it means there were trailing chars, so not a valid number token.
+    }
+    mpq_clear(temp_q);
+
+    // --- If not a valid number, try symbol/boolean ---
+    if (!result) {
+        if (strcmp(token, "#t") == 0) {  // Check booleans again (should be caught by # prefix, but safe)
+            result = SL_TRUE;
+        } else if (strcmp(token, "#f") == 0) {
+            result = SL_FALSE;
+        } else {
+            // Assume symbol
+            result = sl_make_symbol(token);
+        }
     }
 
-    // If not a number, try parsing as a symbol or boolean
-    sl_object *sym_result = parse_symbol_or_bool(input, start, len);  // Pass start and len
-    if (sym_result) {
-        if (sym_result == SL_OUT_OF_MEMORY_ERROR) return sym_result;  // Propagate OOM
-        *input = ptr;                                                 // Consume the atom characters if symbol parsing succeeded
-        return sym_result;
+    free(token);  // Free the temporary token string
+
+    if (result == SL_OUT_OF_MEMORY_ERROR) return result;  // Propagate OOM
+
+    if (result) {
+        *input = ptr;  // Consume the atom characters if parsing succeeded
+        return result;
     }
 
     // If neither worked, it's an error
@@ -991,30 +1362,30 @@ static sl_object *parse_stream_atom(FILE *stream) {
     sl_object *result = NULL;
     const char *token = sbuf.buffer;
 
-    // Try parsing as number
-    mpq_t num_q;
-    mpq_init(num_q);
-    if (mpq_set_str(num_q, token, 10) == 0) {
-        mpq_canonicalize(num_q);
-        mpz_t num_z, den_z;
-        mpz_inits(num_z, den_z, NULL);
-        mpq_get_num(num_z, num_q);
-        mpq_get_den(den_z, num_q);
-
-        if (mpz_cmp_si(den_z, 1) == 0 && fits_int64(num_z)) {
-            result = sl_make_number_si(mpz_get_si(num_z), 1);
-        } else if (fits_int64(num_z) && fits_int64(den_z)) {
-            result = sl_make_number_si(mpz_get_si(num_z), mpz_get_si(den_z));
-        } else {
-            result = sl_make_number_q(num_q);
+    // --- Try parsing token as number using the new helper ---
+    mpq_t temp_q;
+    mpq_init(temp_q);
+    const char *num_end_ptr = NULL;
+    // Use base 10 for general atom parsing
+    if (parse_rational_from_string(token, 10, temp_q, &num_end_ptr)) {
+        // Check if the entire token was consumed
+        if (*num_end_ptr == '\0') {
+            // Successfully parsed the whole token as a number
+            result = make_number_from_mpq(temp_q);  // Use existing helper to simplify if possible
         }
-        mpz_clears(num_z, den_z, NULL);
     }
-    mpq_clear(num_q);
+    mpq_clear(temp_q);
 
+    // --- If not a valid number, try symbol/boolean ---
     if (!result) {
-        // If not a number, assume it's a symbol
-        result = sl_make_symbol(token);
+        if (strcmp(token, "#t") == 0) {  // Check booleans again
+            result = SL_TRUE;
+        } else if (strcmp(token, "#f") == 0) {
+            result = SL_FALSE;
+        } else {
+            // Assume symbol
+            result = sl_make_symbol(token);
+        }
     }
 
     sbuf_free(&sbuf);

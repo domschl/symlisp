@@ -81,5 +81,6 @@ void sl_object_to_string_buf(sl_object *obj, char *buffer, size_t size);
 
 /** */
 void skip_whitespace_and_comments(const char **input);
+bool parse_rational_from_string(const char *start, int base, mpq_t result_q, const char **end_ptr);  // <<< ADDED
 
 #endif  // SL_PARSE_H

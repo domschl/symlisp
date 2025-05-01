@@ -787,9 +787,11 @@ static sl_object *sl_builtin_number_to_string(sl_object *args) {
 }
 
 // (string->number string [radix]) -> number or #f
-// Converts a string representation to a number (currently integer only).
-// Returns #f if the string is not a valid integer representation in the given radix,
-// or if there are any non-whitespace characters after the number part.
+// Converts a string representation to a number.
+// Supports integers (base 2-62), fractions N/D (base 10), decimals (base 10),
+// and scientific notation (base 10).
+// Returns #f if the string is not a valid representation in the given radix,
+// or if there are non-whitespace characters after the number part.
 static sl_object *sl_builtin_string_to_number(sl_object *args) {
     sl_object *arity_check = check_arity_range("string->number", args, 1, 2);
     if (arity_check != SL_TRUE) return arity_check;
@@ -803,7 +805,9 @@ static sl_object *sl_builtin_string_to_number(sl_object *args) {
     if (radix_obj) {
         if (!sl_is_number(radix_obj) || !sl_number_is_integer(radix_obj)) return sl_make_errorf("string->number: Expected integer radix (2-62), got %s", sl_type_name(radix_obj ? radix_obj->type : -1));
         int64_t r_val;
-        if (!get_number_as_int64(radix_obj, &r_val, "string->number")) return SL_NIL;
+        if (!get_number_as_int64(radix_obj, &r_val, "string->number")) return SL_NIL;  // Error handled
+        // R7RS allows bases 2 through 36. GMP allows 2-62 or -2 to -36. Let's stick to 2-36 for R7RS.
+        // Or keep 2-62 if GMP supports it well via mpq_set_str for integers. Let's keep 2-62 for now.
         if (r_val < 2 || r_val > 62) return sl_make_errorf("string->number: Radix %" PRId64 " must be between 2 and 62", r_val);
         radix = (int)r_val;
     }
@@ -817,104 +821,33 @@ static sl_object *sl_builtin_string_to_number(sl_object *args) {
         parse_start_ptr++;
     }
 
-    // --- Handle Optional Leading Sign ---
-    const char *gmp_start_ptr = parse_start_ptr;    // Pointer to pass to GMP
-    const char *digit_start_ptr = parse_start_ptr;  // Pointer to the first potential digit
-    bool sign_present = false;
-    if (*gmp_start_ptr == '+') {
-        sign_present = true;
-        gmp_start_ptr++;    // Skip the '+' for GMP parsing
-        digit_start_ptr++;  // First digit is after '+'
-    } else if (*gmp_start_ptr == '-') {
-        sign_present = true;
-        // Keep the '-' for GMP parsing
-        digit_start_ptr++;  // First digit is after '-'
-    }
-
-    // --- Pre-validation: Check for empty, just sign, or invalid first digit ---
-    if (*digit_start_ptr == '\0') {  // Empty, just '+', or just '-' after whitespace
-        return SL_FALSE;
-    }
-    // Check if first char *after* any sign is valid for radix
-    int first_digit_val = -1;
-    if (*digit_start_ptr >= '0' && *digit_start_ptr <= '9')
-        first_digit_val = *digit_start_ptr - '0';
-    else if (*digit_start_ptr >= 'a' && *digit_start_ptr <= 'z')
-        first_digit_val = *digit_start_ptr - 'a' + 10;
-    else if (*digit_start_ptr >= 'A' && *digit_start_ptr <= 'Z')
-        first_digit_val = *digit_start_ptr - 'A' + 10;
-
-    if (first_digit_val == -1 || first_digit_val >= radix) {
-        // First char after sign is invalid for the radix
-        // printf("Invalid first char after sign\n"); // Optional debug
-        return SL_FALSE;
-    }
-    // --- End Pre-validation ---
-
-    // --- Use GMP to parse the integer ---
-    mpz_t temp_int;
-    mpz_init(temp_int);
-
-    // Pass gmp_start_ptr (which might be after a '+', but includes '-') to mpz_set_str
-    int ret = mpz_set_str(temp_int, gmp_start_ptr, radix);
-
-    if (ret != 0) {
-        // Parse failed (e.g., invalid char later in string for radix)
-        mpz_clear(temp_int);
-        // printf("Parse failed\n"); // Optional debug
+    // Handle empty string or string with only whitespace
+    if (*parse_start_ptr == '\0') {
         return SL_FALSE;
     }
 
-    // --- Validation: Find where the valid number sequence *should* end ---
-    // Scan manually from gmp_start_ptr to find the end of the valid sequence.
-    const char *end_ptr = gmp_start_ptr;
-    bool first_char = true;
-    while (*end_ptr != '\0') {
-        int digit_val = -1;
-        bool is_sign = (*end_ptr == '-' || *end_ptr == '+');  // '+' shouldn't be here now
+    mpq_t temp_q;
+    mpq_init(temp_q);
+    const char *end_ptr = NULL;
+    sl_object *result = SL_FALSE;  // Default to failure
 
-        if (is_sign && first_char) {
-            // Allow leading sign (only '-') at the very beginning of gmp_start_ptr
-            if (*end_ptr == '+') {
-                mpz_clear(temp_int);
-                return SL_FALSE;
-            }
-            // It's a '-', continue scanning
-        } else if (*end_ptr >= '0' && *end_ptr <= '9') {
-            digit_val = *end_ptr - '0';
-        } else if (*end_ptr >= 'a' && *end_ptr <= 'z') {
-            digit_val = *end_ptr - 'a' + 10;
-        } else if (*end_ptr >= 'A' && *end_ptr <= 'Z') {
-            digit_val = *end_ptr - 'A' + 10;
-        } else {
-            // Not a sign, not a valid digit for any radix
-            break;
+    // Call the parsing helper
+    if (parse_rational_from_string(parse_start_ptr, radix, temp_q, &end_ptr)) {
+        // Parsing succeeded up to end_ptr. Check for trailing characters.
+        // Skip trailing whitespace
+        while (*end_ptr && isspace((unsigned char)*end_ptr)) {
+            end_ptr++;
         }
-
-        // If it wasn't the initial sign, check if the digit is valid for the current radix
-        if (!is_sign || !first_char) {
-            if (digit_val == -1 || digit_val >= radix) {
-                break;  // Found first character not part of the number in this radix
-            }
+        // If we reached the end of the original string, it's a valid number string
+        if (*end_ptr == '\0') {
+            result = make_number_from_mpq(temp_q);  // Simplify if possible
         }
-
-        end_ptr++;
-        first_char = false;  // No longer the first character
+        // Otherwise, there were non-whitespace trailing characters, result remains SL_FALSE
     }
+    // If parse_rational_from_string returned false, result remains SL_FALSE
 
-    // After the loop, end_ptr points to the first character *after* the number part.
-    // For the conversion to be valid, this character MUST be '\0'.
-    if (*end_ptr == '\0') {
-        // Success: The entire string (from gmp_start_ptr) was consumed.
-        sl_object *result = sl_make_number_from_mpz(temp_int);
-        mpz_clear(temp_int);
-        return result;
-    } else {
-        // Failure: Trailing characters found after the number part.
-        // printf("Trail\n"); // Optional debug
-        mpz_clear(temp_int);
-        return SL_FALSE;
-    }
+    mpq_clear(temp_q);
+    return result;
 }
 
 // --- Comparison Functions ---

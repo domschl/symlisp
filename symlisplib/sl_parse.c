@@ -516,6 +516,13 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
         *end_ptr = decimal_sci_end_ptr;
         success = true;
     } else if (gmp_end_ptr) {
+
+        // --- DEBUG PRINT ---
+        fprintf(stderr, "DEBUG: In else if (gmp_end_ptr), before mpq_set(result_q, temp_q):\n");
+        gmp_fprintf(stderr, "  temp_q = %Qd\n", temp_q);  // Print the source value
+        fflush(stderr);                                   // Ensure output is seen before potential crash
+        // --- END DEBUG ---
+
         // mpq_set_str succeeded and consumed as much or more
         mpq_set(result_q, temp_q);
         *end_ptr = gmp_end_ptr;

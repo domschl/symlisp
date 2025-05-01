@@ -910,6 +910,50 @@ static sl_object *sl_builtin_string_ge(sl_object *args) {
     return string_compare(args, "string>=?", strcmp);
 }
 
+/**
+ * @brief Builtin function (symbol->string symbol)
+ * Converts a symbol to its string representation.
+ * @param env The current environment (unused).
+ * @param args A list containing the symbol argument.
+ * @return A string object representing the symbol's name, or an error object.
+ */
+sl_object *sl_builtin_symbol_to_string(sl_object *args) {
+    sl_object *arg1;
+    sl_object *arity_check = check_arity("symbol->string", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    arg1 = sl_car(args);
+    if (!sl_is_symbol(arg1)) {
+        return sl_make_errorf("symbol->string: argument must be a symbol, got %s", sl_type_name(arg1->type));
+    }
+
+    // --- Conversion ---
+    // The symbol's name is already a C string. Create a Scheme string from it.
+    return sl_make_string(arg1->data.symbol_name);
+}
+
+/**
+ * @brief Builtin function (string->symbol string)
+ * Converts a string to the corresponding symbol.
+ * @param env The current environment (unused).
+ * @param args A list containing the string argument.
+ * @return The symbol object corresponding to the string, or an error object.
+ */
+sl_object *sl_builtin_string_to_symbol(sl_object *args) {
+    sl_object *arg1;
+
+    sl_object *arity_check = check_arity("string->symbol", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    arg1 = sl_car(args);
+    if (!sl_is_string(arg1)) {
+        return sl_make_errorf("string->symbol: argument must be a string, got %s", sl_type_name(arg1->type));
+    }
+
+    // --- Conversion ---
+    // sl_make_symbol handles interning.
+    return sl_make_symbol(arg1->data.string_val);
+}
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
@@ -922,9 +966,13 @@ void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string-join", sl_builtin_string_join);          // <<< ADDED
     define_builtin(global_env, "string-split", sl_builtin_string_split);        // <<< ADDED
     define_builtin(global_env, "string-tokenize", sl_builtin_string_tokenize);  // <<< ADDED
+
     // Conversions
     define_builtin(global_env, "number->string", sl_builtin_number_to_string);  // <<< ADDED
     define_builtin(global_env, "string->number", sl_builtin_string_to_number);  // <<< ADDED
+    define_builtin(global_env, "symbol->string", sl_builtin_symbol_to_string);
+    define_builtin(global_env, "string->symbol", sl_builtin_string_to_symbol);
+
     // Comparisons
     define_builtin(global_env, "string=?", sl_builtin_string_eq);   // <<< ADDED
     define_builtin(global_env, "string<?", sl_builtin_string_lt);   // <<< ADDED

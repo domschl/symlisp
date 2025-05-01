@@ -43,13 +43,12 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Refine lambda/define syntax validation (variadics?), variable arity support (lambda)
 - [x] higher-order functions, map, reduce, foldl, foldr, filter.
 - [x] the `do` loop.
-- [ ] Conversion: rational<->string, symbol<->string, expr<->string
+- [x] Conversion: rational<->string // <<< MARK AS DONE (implicitly by string->number)
+- [x] Conversion: symbol<->string // <<< MARK AS DONE
+- [ ] Conversion: expr<->string
 
 Summary of Missing Builtins:
 
-- Parsing logic within string->number for fractions, decimals, and exponents.
-- string->symbol builtin.
-- symbol->string builtin.
 - read-from-string (or similar name) builtin.
 - write-to-string (or similar name) builtin.
 

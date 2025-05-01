@@ -543,4 +543,65 @@
 (define-test "string>=?-less"
   (assert-false (string>=? "apple" "banana")))
 
+(define-test "symbol->string-basic"
+  (assert-equal "abc" (symbol->string 'abc)))
+
+(define-test "symbol->string-special-chars"
+  (assert-equal "a-symbol-with-hyphens!" (symbol->string 'a-symbol-with-hyphens!)))
+
+;(define-test "symbol->string-numeric-like"
+;  (assert-equal "123" (symbol->string '123)))
+
+(define-test "symbol->string-numeric-like-name"
+  ; Create the symbol whose name is "123"
+  (let ((sym (string->symbol "123")))
+    ; Check that it is indeed a symbol
+    (assert-true (symbol? sym))
+    ; Check that converting it back gives the original string name
+    (assert-equal "123" (symbol->string sym))))
+
+; Assuming the reader supports R7RS |...| syntax for symbols with spaces or empty
+; If your reader uses a different convention for the empty symbol, adjust '||
+; If the empty symbol isn't supported, this test might fail or need removal.
+; (define-test symbol->string-empty
+;   (assert-equal "" (symbol->string '||)))
+
+;(define-test symbol->string-error-type
+;  (assert-error? (symbol->string 123)))
+
+;(define-test symbol->string-error-arity-0
+;  (assert-error? (symbol->string)))
+
+;(define-test symbol->string-error-arity-2
+;  (assert-error? (symbol->string 'a 'b)))
+
+(define-test "string->symbol-basic"
+  (assert-equal 'abc (string->symbol "abc")))
+
+(define-test "string->symbol-special-chars"
+  (assert-equal 'a-symbol-with-hyphens! (string->symbol "a-symbol-with-hyphens!")))
+
+;(define-test "string->symbol-numeric-like"
+;  (assert-equal '123 (string->symbol "123")))
+
+; Test empty string conversion
+; Adjust '|| if your empty symbol representation differs
+;(define-test "string->symbol-empty"
+;  (assert-equal '|| (string->symbol "")))
+
+; Test symbol interning
+(define-test "string->symbol-interning"
+  (assert-true (eq? (string->symbol "intern-test") (string->symbol "intern-test"))))
+
+(define-test "string->symbol-interning-different"
+  (assert-false (eq? (string->symbol "intern-test-1") (string->symbol "intern-test-2"))))
+
+;(define-test string->symbol-error-type
+;  (assert-error? (string->symbol 123)))
+
+;(define-test string->symbol-error-arity-0
+;  (assert-error? (string->symbol)))
+
+;(define-test string->symbol-error-arity-2
+;  (assert-error? (string->symbol "a" "b")))
 ;;; --- END OF STRING TESTS ---

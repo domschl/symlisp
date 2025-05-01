@@ -6,6 +6,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Add this line
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
 
+# --- Add ASan Option ---
+option(USE_ASAN "Enable AddressSanitizer" OFF)
+
+if(USE_ASAN)
+    message(STATUS "AddressSanitizer enabled")
+    # Add ASan flags to compiler and linker
+    # Using add_compile_options/add_link_options is generally preferred over modifying CMAKE_*_FLAGS directly
+    # but modifying the global flags is often simpler for sanitizers applied project-wide.
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -g")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+    # If you build shared libraries, uncomment the next line:
+    # set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
+endif()
+# --- End ASan Option ---
+
 # Find GMP package
 find_package(GMP QUIET) # Try finding it automatically first, but don't fail yet
 
@@ -43,8 +58,6 @@ add_subdirectory(repl)
 
 # Add other subdirectories like tests if needed
 # add_subdirectory(tests)
-
-# In your CMakeLists.txt (likely in the root or a 'tests' subdirectory)
 
 # Add the tester executable
 add_executable(symlisp_tester tests/symlisp_tester.c) # Adjust path if needed

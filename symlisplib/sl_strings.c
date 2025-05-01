@@ -954,6 +954,88 @@ sl_object *sl_builtin_string_to_symbol(sl_object *args) {
     // sl_make_symbol handles interning.
     return sl_make_symbol(arg1->data.string_val);
 }
+
+/**
+ * @brief Builtin function (expr->string expr)
+ * Converts any Scheme object to its string representation.
+ * Essentially calls sl_write_to_string.
+ * @param args A list containing the expression object.
+ * @return A string object representing the expression, or an error object.
+ */
+sl_object *sl_builtin_expr_to_string(sl_object *args) {
+    sl_object *arity_check = check_arity("expr->string", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *expr_obj = sl_car(args);
+
+    // sl_write_to_string handles the conversion
+    char *str_repr = sl_write_to_string(expr_obj);
+    if (!str_repr) {
+        // sl_write_to_string likely failed due to memory allocation
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+
+    // Create a Scheme string object from the result
+    sl_object *result_str_obj = sl_make_string(str_repr);
+    free(str_repr);  // sl_make_string copied it
+
+    return result_str_obj;  // Can still be SL_OUT_OF_MEMORY_ERROR if sl_make_string fails
+}
+
+/**
+ * @brief Builtin function (string->expr string)
+ * Converts a string containing a single Scheme expression into that object.
+ * Essentially calls sl_parse_string and checks for complete consumption.
+ * @param args A list containing the string object.
+ * @return The parsed Scheme object, or an error object if parsing fails
+ *         or if the string contains more than one expression (ignoring trailing whitespace).
+ */
+sl_object *sl_builtin_string_to_expr(sl_object *args) {
+    sl_object *arity_check = check_arity("string->expr", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    if (!sl_is_string(str_obj)) {
+        return sl_make_errorf("string->expr: argument must be a string, got %s", sl_type_name(str_obj->type));
+    }
+
+    const char *input_str = sl_string_value(str_obj);
+    if (!input_str) input_str = "";  // Handle potential NULL
+
+    const char *end_ptr = NULL;
+    sl_object *parsed_obj = sl_parse_string(input_str, &end_ptr);
+
+    // Check for parsing errors or OOM
+    if (parsed_obj == SL_NIL && end_ptr == input_str) {
+        // Check if the input was just whitespace/comments
+        const char *check_ptr = input_str;
+        skip_whitespace_and_comments(&check_ptr);
+        if (*check_ptr == '\0') {
+            return sl_make_errorf("string->expr: No expression found in input string.");
+        } else {
+            return sl_make_errorf("string->expr: Failed to parse expression from string.");
+        }
+    }
+    if (parsed_obj == SL_OUT_OF_MEMORY_ERROR || sl_is_error(parsed_obj)) {
+        return parsed_obj;  // Propagate OOM or specific parse error
+    }
+    if (parsed_obj == SL_NIL) {  // General parse failure indicated by NIL
+        return sl_make_errorf("string->expr: Failed to parse expression from string.");
+    }
+
+    // Check if the entire string was consumed (ignoring trailing whitespace)
+    const char *check_ptr = end_ptr;
+    skip_whitespace_and_comments(&check_ptr);
+
+    if (*check_ptr != '\0') {
+        // There was leftover non-whitespace content after the first expression
+        return sl_make_errorf("string->expr: String contains more than one expression or trailing characters: '%s'", check_ptr);
+    }
+
+    // Success!
+    return parsed_obj;
+}
+
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
@@ -972,6 +1054,8 @@ void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string->number", sl_builtin_string_to_number);  // <<< ADDED
     define_builtin(global_env, "symbol->string", sl_builtin_symbol_to_string);
     define_builtin(global_env, "string->symbol", sl_builtin_string_to_symbol);
+    define_builtin(global_env, "expr->string", sl_builtin_expr_to_string);  // <<< ADDED
+    define_builtin(global_env, "string->expr", sl_builtin_string_to_expr);  // <<< ADDED
 
     // Comparisons
     define_builtin(global_env, "string=?", sl_builtin_string_eq);   // <<< ADDED

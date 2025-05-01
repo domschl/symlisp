@@ -45,12 +45,7 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] the `do` loop.
 - [x] Conversion: rational<->string // <<< MARK AS DONE (implicitly by string->number)
 - [x] Conversion: symbol<->string // <<< MARK AS DONE
-- [ ] Conversion: expr<->string
-
-Summary of Missing Builtins:
-
-- read-from-string (or similar name) builtin.
-- write-to-string (or similar name) builtin.
+- [x] Conversion: expr<->string
 
 Additional Ideas:
 

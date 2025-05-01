@@ -233,8 +233,7 @@ static sl_object *read_atom(FILE *stream) {
 // Caller MUST initialize result_q before calling.
 bool parse_rational_from_string(const char *start, int base, mpq_t result_q, const char **end_ptr) {
     const char *ptr = start;
-    // bool negative = false;
-    bool success = false;
+    // bool negative = false; // mpq_set_str handles sign
 
     // 1. Handle Sign (just to find num_start)
     if (*ptr == '+') {
@@ -246,7 +245,8 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
 
     // Check for empty string after sign, but allow "0" which mpq_set_str handles
     if (*num_start == '\0' && *(start) != '0' && (*(start + 1) != '0' || (*start != '+' && *start != '-'))) {
-        return false;  // Reject "+", "-", but allow "0", "+0", "-0"
+        *end_ptr = start;  // No consumption
+        return false;      // Reject "+", "-", but allow "0", "+0", "-0"
     }
 
     // --- Non-Base-10 Path (Integers Only) ---
@@ -255,6 +255,7 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
         mpz_init(temp_z);
         int gmp_ret = mpz_set_str(temp_z, start, base);  // Use original start with sign
         bool success = false;
+        const char *final_end_ptr = start;  // Default end pointer
         if (gmp_ret == 0) {
             // Scan forward using only valid digits for the base to find end_ptr
             const char *scan_ptr = num_start;
@@ -280,129 +281,70 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
 
             if (!found_exponent_char && (scan_ptr > num_start || (mpz_sgn(temp_z) == 0 && scan_ptr == num_start && *num_start == '0'))) {
                 mpq_set_z(result_q, temp_z);  // Set result directly
-                *end_ptr = scan_ptr;
+                final_end_ptr = scan_ptr;     // Set end pointer
                 success = true;
             }
+            // else: mpz_set_str succeeded but scan didn't match or 'e' found -> failure
         }
+        // else: mpz_set_str failed -> failure
         mpz_clear(temp_z);
+        *end_ptr = final_end_ptr;  // Set end pointer based on success/failure
         return success;
     }
 
     // --- Base-10 Path ---
     // Try parsing directly into result_q
     int gmp_ret = mpq_set_str(result_q, start, 10);  // Use original start with sign
-    const char *gmp_end_ptr = NULL;
-    success = false;
+    bool success = false;
+    const char *final_end_ptr = start;  // Default end pointer if parse fails
 
-    if (gmp_ret == 0) {
+    if (gmp_ret == 0) {  // mpq_set_str succeeded
         // Check for division by zero
         if (mpz_sgn(mpq_denref(result_q)) == 0) {
-            return false;  // Let caller clear result_q
-        }
-        // Scan to find where mpq_set_str stopped
-        const char *scan_ptr = num_start;
-        bool seen_slash = false;
-        bool after_slash = false;
-        bool sign_after_slash_done = false;
-        while (*scan_ptr) {
-            char c = *scan_ptr;
-            int digit_val = -1;
-            if (c >= '0' && c <= '9')
-                digit_val = c - '0';
-            else
-                digit_val = -1;
+            // Division by zero is a parse failure for our purposes
+            success = false;
+            final_end_ptr = start;  // No consumption on failure
+        } else {
+            // mpq_set_str succeeded, now find where it stopped.
+            // Run the scan loop to find the end of the consumed part.
+            const char *scan_ptr = num_start;
+            bool seen_slash = false;
+            bool after_slash = false;
+            bool sign_after_slash_done = false;
+            while (*scan_ptr) {
+                char c = *scan_ptr;
+                int digit_val = -1;
+                if (c >= '0' && c <= '9')
+                    digit_val = c - '0';
+                else
+                    digit_val = -1;
 
-            if (digit_val != -1) {
-                scan_ptr++;
-                if (after_slash) sign_after_slash_done = true;
-            } else if (c == '/' && !seen_slash && scan_ptr > num_start) {
-                seen_slash = true;
-                after_slash = true;
-                scan_ptr++;
-            } else if ((c == '+' || c == '-') && after_slash && !sign_after_slash_done) {
-                sign_after_slash_done = true;
-                scan_ptr++;
-                if (!(*scan_ptr >= '0' && *scan_ptr <= '9')) {
-                    scan_ptr--;
+                if (digit_val != -1) {  // Digit
+                    scan_ptr++;
+                    if (after_slash) sign_after_slash_done = true;
+                } else if (c == '/' && !seen_slash && scan_ptr > num_start) {  // First slash
+                    seen_slash = true;
+                    after_slash = true;
+                    scan_ptr++;
+                } else if ((c == '+' || c == '-') && after_slash && !sign_after_slash_done) {  // Sign after slash
+                    sign_after_slash_done = true;
+                    scan_ptr++;
+                    if (!(*scan_ptr >= '0' && *scan_ptr <= '9')) {  // Must be followed by digit
+                        scan_ptr--;                                 // Backtrack sign
+                        break;
+                    }
+                } else {  // Any other character
                     break;
                 }
-            } else {
-                break;
             }
-        }
-
-        // Check if scan consumed characters matching mpq_set_str success
-        if (scan_ptr > num_start) {
-            gmp_end_ptr = scan_ptr;
-            *end_ptr = gmp_end_ptr;  // Set end pointer
-            success = true;          // Mark success
-        } else {
-            // Handle "0", "+0", "-0" case specifically if scan didn't advance
-            if (*num_start == '0' && (scan_ptr == num_start + 1 || (scan_ptr == num_start && *(num_start + 1) == '\0'))) {
-                gmp_end_ptr = num_start + 1;  // Point after the '0'
-                *end_ptr = gmp_end_ptr;
-                success = true;
-            } else {
-                // mpq_set_str succeeded but scan didn't find valid digits? Invalid state.
-                success = false;
-            }
+            // Set the end pointer to where the scan stopped
+            final_end_ptr = scan_ptr;
+            success = true;  // Mark success
         }
     } else {
-        // mpq_set_str failed
+        // mpq_set_str failed entirely
         success = false;
-    }
-
-    // --- Base-10 Path (Integer, N/D, Decimal, Scientific) ---
-    // Try GMP's mpq_set_str first (handles integers and N/D)
-    mpq_t temp_q;
-    mpq_init(temp_q);
-    // Use original 'start' to include sign
-    gmp_ret = mpq_set_str(temp_q, start, 10);
-    gmp_end_ptr = NULL;  // Where mpq_set_str stopped
-
-    if (gmp_ret == 0) {
-        // Check for division by zero
-        if (mpz_sgn(mpq_denref(temp_q)) == 0) {
-            mpq_clear(temp_q);
-            return false;
-        }
-        // --- BEGIN Scan Logic ---
-        // Scan to find where mpq_set_str stopped (digits and '/')
-        const char *scan_ptr = num_start;  // <<< DECLARE scan_ptr here
-        bool seen_slash = false;
-        bool after_slash = false;
-        bool sign_after_slash_done = false;
-        while (*scan_ptr) {
-            char c = *scan_ptr;
-            int digit_val = -1;
-            if (c >= '0' && c <= '9')
-                digit_val = c - '0';
-            else
-                digit_val = -1;  // Base 10 only uses 0-9
-
-            if (digit_val != -1) {  // It's a digit
-                scan_ptr++;
-                if (after_slash) sign_after_slash_done = true;
-            } else if (c == '/' && !seen_slash && scan_ptr > num_start) {
-                seen_slash = true;
-                after_slash = true;
-                scan_ptr++;
-            } else if ((c == '+' || c == '-') && after_slash && !sign_after_slash_done) {
-                sign_after_slash_done = true;
-                scan_ptr++;
-                if (!(*scan_ptr >= '0' && *scan_ptr <= '9')) {
-                    scan_ptr--;
-                    break;
-                }
-            } else {
-                // Stop scan for mpq_set_str result at any non-digit/non-first-slash char
-                break;
-            }
-        }
-        // --- END Scan Logic ---
-        if (scan_ptr > num_start) {  // <<< Now scan_ptr is declared
-            gmp_end_ptr = scan_ptr;  // Potential end point if this path is chosen
-        }
+        final_end_ptr = start;  // Indicate no consumption
     }
 
     // Now, regardless of mpq_set_str result, try the full decimal/scientific parser
@@ -603,15 +545,17 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
         mpq_clear(significand_q);
         return success;
         */
-    // --- Decision Block (Simplified) ---
-    // Success is determined solely by mpq_set_str + scan
+    // --- Set end_ptr and return ---
+    *end_ptr = final_end_ptr;  // Set the end pointer based on success/failure and scan
+
+    // --- Debug Print ---
     if (success) {
         fprintf(stderr, "DEBUG: Using direct mpq_set_str result.\n");
         gmp_fprintf(stderr, "  result_q = %Qd\n", result_q);
         fflush(stderr);
-        // mpq_canonicalize(result_q); // Canonicalize the result
+        // mpq_canonicalize(result_q); // Canonicalize if needed (caller might do this)
     } else {
-        fprintf(stderr, "DEBUG: mpq_set_str or scan failed.\n");
+        // fprintf(stderr, "DEBUG: mpq_set_str failed or division by zero.\n");
         fflush(stderr);
     }
 

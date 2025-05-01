@@ -349,7 +349,7 @@ bool parse_rational_from_string(const char *start, int base, mpq_t result_q, con
 
     // Now, regardless of mpq_set_str result, try the full decimal/scientific parser
     mpq_t significand_q;  // Use a separate rational for this path
-    mpq_init(significand_q);
+    // mpq_init(significand_q);
     const char *decimal_sci_end_ptr = NULL;
     bool decimal_sci_parsed = false;
     /*

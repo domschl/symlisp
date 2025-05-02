@@ -1087,7 +1087,7 @@ top_of_eval:;
                             SL_GC_REMOVE_ROOT(&args);  // Unroot args list
                             goto cleanup;              // Result is the first truthy value
                         }
-                        SL_GC_REMOVE_ROOT(&result);  // Unroot intermediate result (it was #f)
+                        // SL_GC_REMOVE_ROOT(&result);  // Unroot intermediate result (it was #f)
                     }
                     current_node = next_node;
                 }

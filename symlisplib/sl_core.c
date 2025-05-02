@@ -537,6 +537,7 @@ void sl_gc_add_root_debug(sl_object **root_ptr, const char *filename, int line) 
         root_capacity = new_capacity;
     }
     gc_roots[root_count++] = root_ptr;
+
     if (filename != NULL && line > 0) {
         printf("[DEBUG] Added GC root for VarAddr=%p in %s:%d, new root_count: %zu\n", (void *)root_ptr, filename, line, root_count);
     } else {
@@ -549,29 +550,26 @@ void sl_gc_add_root(sl_object **root_ptr) {
 }
 
 void sl_gc_remove_root_debug(sl_object **root_ptr, const char *filename, int line) {
-    fprintf(stderr, "[GC_REMOVE_DETAIL] Trying to remove %p. Initial count: %zu\n", (void *)root_ptr, root_count);  // <<< ADD
     for (size_t i = 0; i < root_count; ++i) {
-        // Cast root_ptr to sl_object** for comparison (though types match)
         if (gc_roots[i] == root_ptr) {
-            fprintf(stderr, "[GC_REMOVE_DETAIL] Found %p at index %zu.\n", (void *)root_ptr, i);  // <<< ADD
-            // gc_roots[i] = gc_roots[root_count - 1];
-            // root_count--;
+            // fprintf(stderr, "[GC_REMOVE_DETAIL] Found %p at index %zu.\n", (void *)root_ptr, i);  // <<< ADD
+            //  gc_roots[i] = gc_roots[root_count - 1];
+            //  root_count--;
 
             size_t num_to_move = root_count - i - 1;
             size_t move_size = num_to_move * sizeof(sl_object **);
-            fprintf(stderr, "[GC_REMOVE_DETAIL] memmove(&gc_roots[%zu], &gc_roots[%zu], %zu bytes)\n", i, i + 1, move_size);  // <<< ADD
             memmove(&gc_roots[i], &gc_roots[i + 1], move_size);
             root_count--;
             gc_roots[root_count] = NULL;
 
-            fprintf(stderr, "[GC_REMOVE_DETAIL] Removed %p. Final count: %zu\n", (void *)root_ptr, root_count);  // <<< ADD
-
             debug_root_balance_counter--;
+
             if (filename != NULL && line > 0) {
                 printf("[DEBUG] Removed GC root for VarAddr=%p in %s:%d, new root_count: %zu\n", (void *)root_ptr, filename, line, root_count);
             } else {
                 printf("[DEBUG] Removed GC root for VarAddr=%p, new root_count: %zu\n", (void *)root_ptr, root_count);
             }
+
             return;
         }
     }

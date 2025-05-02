@@ -511,6 +511,7 @@ void sl_gc_add_root(sl_object **root_ptr) {
     for (size_t i = 0; i < root_count; ++i) {
         if (gc_roots[i] == root_ptr) {
             fprintf(stderr, "[GC ERROR] Attempted to add duplicate root for VarAddr=%p\n", (void *)root_ptr);
+            abort();
             return;  // Already rooted, do nothing
         }
     }

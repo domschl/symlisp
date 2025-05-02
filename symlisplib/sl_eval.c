@@ -37,16 +37,17 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     sl_object *current_node = seq;
     sl_object *defines_list = SL_NIL;
     sl_object **defines_tail_ptr = &defines_list;
-    sl_object *body_start_node = seq;  // Where non-define expressions start
-    sl_object *result = SL_NIL;        // Default result for empty sequence
+    sl_object *body_start_node = seq;     // Where non-define expressions start
+    sl_object *sequence_result = SL_NIL;  // Default result for empty sequence
 
     // --- Root parameters and locals ---
     sl_gc_add_root(&seq);
     sl_gc_add_root(&env);
     sl_gc_add_root(&defines_list);
     sl_gc_add_root(&body_start_node);
-    sl_gc_add_root(&result);  // remove after GC analysis
+    sl_gc_add_root(&sequence_result);  // remove after GC analysis
 
+    printf("[DEBUG] eval_sequence_with_defines: seq=%p, env=%p, defines_list=%p, body_start_node=%p, sequence_result=%p\n", (void *)seq, (void *)env, (void *)defines_list, (void *)body_start_node, (void *)sequence_result);
     // --- Pass 1: Scan for defines and create placeholders ---
     bool defines_found = false;
     while (sl_is_pair(current_node)) {
@@ -55,7 +56,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
             defines_found = true;
             sl_object *define_args = sl_cdr(expr);
             if (define_args == SL_NIL) {
-                result = sl_make_errorf("Eval: Malformed define in sequence (no target)");
+                sequence_result = sl_make_errorf("Eval: Malformed define in sequence (no target)");
                 goto cleanup_sequence;
             }
             sl_object *target = sl_car(define_args);
@@ -66,18 +67,18 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
             } else if (sl_is_symbol(target)) {  // Variable define: (define x ...)
                 var_sym = target;
             } else {
-                result = sl_make_errorf("Eval: Invalid define target in sequence");
+                sequence_result = sl_make_errorf("Eval: Invalid define target in sequence");
                 goto cleanup_sequence;
             }
 
             if (!sl_is_symbol(var_sym)) {
-                result = sl_make_errorf("Eval: Define target must be or start with a symbol");
+                sequence_result = sl_make_errorf("Eval: Define target must be or start with a symbol");
                 goto cleanup_sequence;
             }
 
             // Add define expression to defines_list
             sl_object *define_pair = sl_make_pair(expr, SL_NIL);
-            CHECK_ALLOC_GOTO(define_pair, cleanup_sequence, result);
+            CHECK_ALLOC_GOTO(define_pair, cleanup_sequence, sequence_result);
             *defines_tail_ptr = define_pair;
             defines_tail_ptr = &define_pair->data.pair.cdr;
 
@@ -95,7 +96,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     // Check for improper list during define scan
     if (!defines_found && current_node != seq) {  // Only error if we advanced
         if (current_node != SL_NIL) {
-            result = sl_make_errorf("Eval: Improper list while scanning for defines");
+            sequence_result = sl_make_errorf("Eval: Improper list while scanning for defines");
             goto cleanup_sequence;
         }
     }
@@ -104,6 +105,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     if (defines_found) {
         current_node = defines_list;
         sl_gc_add_root(&current_node);  // Root traversal pointer for defines
+        printf("[DEBUG] eval_sequence_with_defines: Found defines, current_node=%p\n", (void *)current_node);
         while (current_node != SL_NIL) {
             // We know current_node is a pair containing a define expression
             sl_object *define_expr = sl_car(current_node);
@@ -121,11 +123,11 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
                 sl_object *body = value_expr_or_body;
 
                 value_to_set = sl_make_closure(params, body, env);
-                CHECK_ALLOC_GOTO(value_to_set, cleanup_sequence_eval, result);
+                CHECK_ALLOC_GOTO(value_to_set, cleanup_sequence_eval, sequence_result);
             } else {  // Variable define
                 var_sym = target;
                 if (!sl_is_pair(value_expr_or_body) || sl_cdr(value_expr_or_body) != SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed variable define in sequence");
+                    sequence_result = sl_make_errorf("Eval: Malformed variable define in sequence");
                     sl_gc_remove_root(&value_to_set);
                     goto cleanup_sequence_eval;
                 }
@@ -133,7 +135,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
                 value_to_set = sl_eval(value_expr, env);  // Eval value - MIGHT GC
                 // value_to_set is already rooted
                 if (value_to_set == SL_OUT_OF_MEMORY_ERROR || sl_is_error(value_to_set)) {
-                    result = value_to_set;  // Propagate error
+                    sequence_result = value_to_set;  // Propagate error
                     sl_gc_remove_root(&value_to_set);
                     goto cleanup_sequence_eval;
                 }
@@ -141,7 +143,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
 
             // Update the placeholder using set! semantics
             if (!sl_env_set(env, var_sym, value_to_set)) {
-                result = sl_make_errorf("Eval: Internal error - failed to set! defined variable '%s'", sl_symbol_name(var_sym));
+                sequence_result = sl_make_errorf("Eval: Internal error - failed to set! defined variable '%s'", sl_symbol_name(var_sym));
                 sl_gc_remove_root(&value_to_set);
                 goto cleanup_sequence_eval;
             }
@@ -150,7 +152,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
         }  // End while defines_list
     cleanup_sequence_eval:
         sl_gc_remove_root(&current_node);  // Unroot traversal pointer
-        if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
+        if (sequence_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(sequence_result)) {
             goto cleanup_sequence;  // Propagate error from define eval
         }
     }  // End if defines_found
@@ -158,9 +160,10 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     // --- Pass 3: Evaluate body expressions ---
     current_node = body_start_node;
     sl_gc_add_root(&current_node);
-    result = SL_NIL;  // Default result if body is empty
+    printf("[DEBUG] eval_sequence_with_defines: Evaluating body, current_node=%p\n", (void *)current_node);
+    sequence_result = SL_NIL;  // Default if body is empty
 
-    if (current_node == SL_NIL) {  // Handle empty body case
+    if (current_node == SL_NIL) {
         goto cleanup_sequence_body;
     }
 
@@ -168,53 +171,57 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
         sl_object *expr_to_eval = sl_car(current_node);
         sl_object *next_node = sl_cdr(current_node);
 
-        // Check for tail call position
-        if (next_node == SL_NIL) {
-            // --- ADDED CHECK for valid TCO pointers ---
-            if (obj_ptr && env_ptr) {
-                // Caller can handle TCO, modify pointers and signal
+        if (next_node == SL_NIL) {     // Tail position
+            if (obj_ptr && env_ptr) {  // TCO possible
                 *obj_ptr = expr_to_eval;
-                *env_ptr = env;             // Use current env for tail call
-                result = SL_CONTINUE_EVAL;  // Signal TCO jump
-            } else {
-                // Caller cannot handle TCO (e.g., called from apply builtin),
-                // so evaluate the tail expression directly here.
-                // Need to root expr_to_eval before calling sl_eval
+                *env_ptr = env;
+                // <<< ADD DEBUG PRINT >>>
+                fprintf(stderr, "[DEBUG TCO Cleanup] Removing roots in eval_sequence_with_defines (env VarAddr=%p)\n", (void *)&env);
+                // --- Clean up ALL local roots before returning signal ---
+                sl_gc_remove_root(&sequence_result);
+                sl_gc_remove_root(&current_node);     // <<< ADD: Unroot body traversal node
+                sl_gc_remove_root(&body_start_node);  // <<< ADD
+                sl_gc_remove_root(&defines_list);     // <<< ADD
+                sl_gc_remove_root(&env);              // <<< ADD: Unroot local copy of env pointer
+                sl_gc_remove_root(&seq);              // <<< ADD: Unroot local copy of seq pointer
+                // Note: Roots added during Pass 2 (like value_to_set) should have been
+                // cleaned up within that pass or its error paths.
+                return SL_CONTINUE_EVAL;  // Signal TCO
+            } else {                      // No TCO possible
+                printf("[DEBUG] eval_sequence_with_defines: expr_to_eval: %p, seq_result=%p\n", (void *)expr_to_eval, (void *)sequence_result);
                 sl_gc_add_root(&expr_to_eval);
-                result = sl_eval(expr_to_eval, env);  // Evaluate final expression
+                sl_gc_remove_root(&sequence_result);           // Remove root before assigning final value
+                sequence_result = sl_eval(expr_to_eval, env);  // Evaluate final expression
+                sl_gc_add_root(&sequence_result);              // Re-root final value
                 sl_gc_remove_root(&expr_to_eval);
-                // result now holds the final value or an error
+                goto cleanup_sequence_body;  // Go to cleanup
             }
-            // --- END ADDED CHECK ---
-            goto cleanup_sequence_body;  // Don't evaluate here
-        } else {
-            // Not the last expression, evaluate normally
-            sl_gc_remove_root(&result);
-            result = sl_eval(expr_to_eval, env);  // Eval - MIGHT GC
-            sl_gc_add_root(&result);
+        } else {                                           // Not tail position
+            sl_gc_remove_root(&sequence_result);           // Remove previous root
+            sequence_result = sl_eval(expr_to_eval, env);  // Evaluate intermediate
+            sl_gc_add_root(&sequence_result);              // Root intermediate
 
-            if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
+            if (sequence_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(sequence_result)) {
                 goto cleanup_sequence_body;  // Error occurred, propagate
             }
         }
         current_node = sl_cdr(current_node);
     }
 
-    if (current_node != SL_NIL) {  // Check for improper list
-        result = sl_make_errorf("Eval: Improper list in sequence body");
+    if (current_node != SL_NIL) {             // Improper list
+        sl_gc_remove_root(&sequence_result);  // Remove root before assigning error
+        sequence_result = sl_make_errorf("Eval: Improper list in sequence body");
+        sl_gc_add_root(&sequence_result);  // Root error
     }
-    // If loop finished normally, result holds the value of the second-to-last expression.
-    // The TCO path handles the final evaluation.
 
 cleanup_sequence_body:
     sl_gc_remove_root(&current_node);
 cleanup_sequence:
-    sl_gc_remove_root(&result);
     sl_gc_remove_root(&body_start_node);
     sl_gc_remove_root(&defines_list);
     sl_gc_remove_root(&env);
     sl_gc_remove_root(&seq);
-    return result;
+    return sequence_result;
 }
 
 sl_object *sl_eval(sl_object *obj_in, sl_object *env_in) {
@@ -449,16 +456,17 @@ top_of_eval:;
                 sl_gc_remove_root(&args);
                 break;  // Break from switch
             }
-            // --- BEGIN --- <<< ADDED BLOCK
+            // --- BEGIN ---
             else if (strcmp(op_name, "begin") == 0) {
-                // (begin expr1 expr2 ...)
-                // Delegate to the sequence evaluator
-                result = eval_sequence_with_defines(args, env, &obj, &env);
-                if (result == SL_CONTINUE_EVAL) {  // Check if TCO jump is requested
+                sl_object *temp_res = eval_sequence_with_defines(args, env, &obj, &env);
+                if (temp_res == SL_CONTINUE_EVAL) {
+                    // result = temp_res;  // Keep signal
                     goto top_of_eval;
                 }
-                // Otherwise, result holds the final value or error
-                break;  // Break from switch
+                sl_gc_remove_root(&result);  // Remove old root
+                result = temp_res;           // Assign new result
+                sl_gc_add_root(&result);     // Add new root
+                break;
             }
             // --- LET / NAMED LET ---
             else if (strcmp(op_name, "let") == 0) {
@@ -613,14 +621,17 @@ top_of_eval:;
                 sl_gc_remove_root(&args);
                 if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
 
-                result = eval_sequence_with_defines(body_list, let_env, &obj, &env);
-                sl_gc_remove_root(&let_env);    // Unroot let_env after sequence eval
-                sl_gc_remove_root(&body_list);  // <<< ADDED: Unroot body_list after use
-
-                if (result == SL_CONTINUE_EVAL) {  // Check if TCO jump is requested
+                sl_object *temp_res = eval_sequence_with_defines(body_list, let_env, &obj, &env);
+                sl_gc_remove_root(&let_env);
+                sl_gc_remove_root(&body_list);
+                if (temp_res == SL_CONTINUE_EVAL) {
+                    // result = temp_res;  // Keep signal
                     goto top_of_eval;
                 }
-                // Otherwise, result holds the final value or error from the body
+                sl_gc_remove_root(&result);  // Remove old root
+                result = temp_res;           // Assign new result
+                sl_gc_add_root(&result);     // Add new root
+                                             // Otherwise, result holds the final value or error from the body
 
             oom_let_env:                        // Label for OOM after let_env creation (if needed)
                                                 // sl_gc_remove_root(&let_env); // Already handled
@@ -720,14 +731,17 @@ top_of_eval:;
                 sl_gc_remove_root(&bindings);
                 sl_gc_remove_root(&args);
 
-                result = eval_sequence_with_defines(body_list, let_star_env, &obj, &env);
-                sl_gc_remove_root(&let_star_env);  // Unroot final env after sequence eval
+                sl_object *temp_res = eval_sequence_with_defines(body_list, let_star_env, &obj, &env);
+                sl_gc_remove_root(&let_star_env);
                 sl_gc_remove_root(&body_list);
-
-                if (result == SL_CONTINUE_EVAL) {  // Check if TCO jump is requested
+                if (temp_res == SL_CONTINUE_EVAL) {
+                    // result = temp_res;  // Keep signal
                     goto top_of_eval;
                 }
-                // Otherwise, result holds the final value or error
+                sl_gc_remove_root(&result);  // Remove old root
+                result = temp_res;           // Assign new result
+                sl_gc_add_root(&result);     // Add new root
+                                             // Otherwise, result holds the final value or error
 
             cleanup_let_star:  // Error/cleanup path
                 sl_gc_remove_root(&current_binding_node);
@@ -852,14 +866,17 @@ top_of_eval:;
                 sl_gc_remove_root(&bindings);
                 sl_gc_remove_root(&args);
 
-                result = eval_sequence_with_defines(body_list, letrec_env, &obj, &env);
-                sl_gc_remove_root(&letrec_env);  // Unroot env after sequence eval
+                sl_object *temp_res = eval_sequence_with_defines(body_list, letrec_env, &obj, &env);
+                sl_gc_remove_root(&letrec_env);
                 sl_gc_remove_root(&body_list);
-
-                if (result == SL_CONTINUE_EVAL) {  // Check if TCO jump is requested
+                if (temp_res == SL_CONTINUE_EVAL) {
+                    // result = temp_res;  // Keep signal
                     goto top_of_eval;
                 }
-                // Otherwise, result holds the final value or error
+                sl_gc_remove_root(&result);  // Remove old root
+                result = temp_res;           // Assign new result
+                sl_gc_add_root(&result);     // Add new root
+                                             // Otherwise, result holds the final value or error
 
             cleanup_letrec_env:
                 sl_gc_remove_root(&letrec_env);
@@ -1493,72 +1510,62 @@ cleanup:
 
 // Helper to evaluate a list of arguments
 sl_object *sl_eval_list(sl_object *list, sl_object *env) {
-    if (list == SL_NIL) {
-        return SL_NIL;
-    }
-    if (!sl_is_pair(list)) {
-        // Allow evaluating dotted lists? For now, require proper list.
-        return sl_make_errorf("Eval: Invalid argument list structure (not a pair)");
-    }
+    if (list == SL_NIL) return SL_NIL;
+    if (!sl_is_pair(list)) return sl_make_errorf("Eval: Invalid argument list structure (not a pair)");
 
     sl_object *head = SL_NIL;
     sl_object **tail_ptr = &head;
-    sl_object *current_expr = list;
-    sl_object *return_value = SL_NIL;  // Variable to hold final return value (list head or error)
+    sl_object *current_expr_node = list;  // Traversal node
+    sl_object *evaled_arg = SL_NIL;       // Slot for evaluated arg
+    sl_object *new_pair = SL_NIL;         // Slot for newly created pair
+    sl_object *return_value = SL_NIL;     // Final return
 
-    // --- Root key variables ---
-    sl_gc_add_root(&head);
-    sl_gc_add_root(&env);
-    sl_gc_add_root(&current_expr);
-    // Do NOT root return_value itself, it just holds the final pointer
+    // Root key variables
+    sl_gc_add_root(&head);               // Protect the list being built
+    sl_gc_add_root(&env);                // Protect the environment
+    sl_gc_add_root(&current_expr_node);  // Protect traversal position
+    sl_gc_add_root(&evaled_arg);         // Protect intermediate eval result
+    sl_gc_add_root(&new_pair);           // Protect intermediate allocation
 
-    while (current_expr != SL_NIL) {
-        if (!sl_is_pair(current_expr)) {
-            // Set error object to be returned
+    while (current_expr_node != SL_NIL) {
+        if (!sl_is_pair(current_expr_node)) {
             return_value = sl_make_errorf("Eval: Improper argument list (dotted list?)");
             goto cleanup_eval_list;
         }
-        sl_object *arg_expr = sl_car(current_expr);
-        sl_object *evaled_arg = sl_eval(arg_expr, env);
-        sl_gc_add_root(&evaled_arg);
-        /*
-        if (evaled_arg == SL_OUT_OF_MEMORY_ERROR) {
-            return_value = evaled_arg;  // Set error object
-            sl_gc_remove_root(&evaled_arg);
-            goto cleanup_eval_list;
-        }
-        */
+        sl_object *arg_expr = sl_car(current_expr_node);
 
-        // --- Check for ANY error from sl_eval --- <<< MODIFIED CHECK
+        // Evaluate argument - Overwrites rooted evaled_arg slot
+        evaled_arg = sl_eval(arg_expr, env);
         if (evaled_arg == SL_OUT_OF_MEMORY_ERROR || sl_is_error(evaled_arg)) {
-            return_value = evaled_arg;  // Set error object
-            sl_gc_remove_root(&evaled_arg);
-            goto cleanup_eval_list;  // Propagate error immediately
-        }
-        // --- End Modified Check ---
-
-        sl_object *new_pair = sl_make_pair(evaled_arg, SL_NIL);
-
-        if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
-            return_value = new_pair;  // Set error object
-            sl_gc_remove_root(&evaled_arg);
+            return_value = evaled_arg;  // Propagate error
             goto cleanup_eval_list;
         }
 
+        // Create new pair - Overwrites rooted new_pair slot
+        new_pair = sl_make_pair(evaled_arg, SL_NIL);
+        if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
+            return_value = new_pair;  // Propagate error
+            goto cleanup_eval_list;
+        }
+
+        // Append to list (new_pair is protected by its root)
         *tail_ptr = new_pair;
         tail_ptr = &new_pair->data.pair.cdr;
 
-        sl_gc_remove_root(&evaled_arg);
-        current_expr = sl_cdr(current_expr);
+        // Advance
+        current_expr_node = sl_cdr(current_expr_node);
     }
 
-    return_value = head;  // Success: return the head of the built list
+    return_value = head;  // Success
 
 cleanup_eval_list:
-    sl_gc_remove_root(&current_expr);
+    // Unroot all local roots
+    sl_gc_remove_root(&new_pair);
+    sl_gc_remove_root(&evaled_arg);
+    sl_gc_remove_root(&current_expr_node);
     sl_gc_remove_root(&env);
     sl_gc_remove_root(&head);
-    return return_value;  // Return either the list head or an error object
+    return return_value;
 }
 
 // sl_object *sl_apply(sl_object *fn, sl_object *args) {
@@ -1671,11 +1678,20 @@ sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_obje
             // <<< CORRECTED CALL to eval_sequence_with_defines >>>
             result = eval_sequence_with_defines(body_list, call_env, obj_ptr, env_ptr);
 
-            // --- REMOVED BLOCK that called sl_eval recursively ---
-            // If eval_sequence_with_defines returns SL_CONTINUE_EVAL,
-            // it has already updated *obj_ptr and *env_ptr for the main loop.
-            // sl_apply simply needs to return SL_CONTINUE_EVAL to signal the jump.
-            // --- END REMOVED BLOCK ---
+            // --- ADDED: Check for TCO signal and cleanup ---
+            if (result == SL_CONTINUE_EVAL) {
+                // TCO signaled. Clean up sl_apply's locals before returning signal.
+                // Cleanup closure/call specific roots
+                sl_gc_remove_root(&call_env);
+                sl_gc_remove_root(&params);
+                sl_gc_remove_root(&body_list);
+                sl_gc_remove_root(&closure_env);
+                // Also clean up the main roots for fn, args, result
+                sl_gc_remove_root(&result);  // result holds SL_CONTINUE_EVAL, safe to unroot
+                sl_gc_remove_root(&args);
+                sl_gc_remove_root(&fn);
+                return SL_CONTINUE_EVAL;  // Propagate signal
+            }
         }
         // else: result already holds the binding error
 

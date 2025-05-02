@@ -41,11 +41,11 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     sl_object *sequence_result = SL_NIL;  // Default result for empty sequence
 
     // --- Root parameters and locals ---
-    sl_gc_add_root(&seq);
-    sl_gc_add_root(&env);
-    sl_gc_add_root(&defines_list);
-    sl_gc_add_root(&body_start_node);
-    sl_gc_add_root(&sequence_result);  // remove after GC analysis
+    SL_GC_ADD_ROOT(&seq);
+    SL_GC_ADD_ROOT(&env);
+    SL_GC_ADD_ROOT(&defines_list);
+    SL_GC_ADD_ROOT(&body_start_node);
+    SL_GC_ADD_ROOT(&sequence_result);  // remove after GC analysis
 
     // --- Pass 1: Scan for defines and create placeholders ---
     bool defines_found = false;
@@ -103,7 +103,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     // --- Pass 2: Evaluate define expressions ---
     if (defines_found) {
         current_node = defines_list;
-        sl_gc_add_root(&current_node);  // Root traversal pointer for defines
+        SL_GC_ADD_ROOT(&current_node);  // Root traversal pointer for defines
         while (current_node != SL_NIL) {
             // We know current_node is a pair containing a define expression
             sl_object *define_expr = sl_car(current_node);
@@ -113,7 +113,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
             sl_object *var_sym = SL_NIL;
             sl_object *value_to_set = SL_NIL;
 
-            sl_gc_add_root(&value_to_set);  // Root value slot
+            SL_GC_ADD_ROOT(&value_to_set);  // Root value slot
 
             if (sl_is_pair(target)) {  // Function define
                 var_sym = sl_car(target);
@@ -126,7 +126,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
                 var_sym = target;
                 if (!sl_is_pair(value_expr_or_body) || sl_cdr(value_expr_or_body) != SL_NIL) {
                     sequence_result = sl_make_errorf("Eval: Malformed variable define in sequence");
-                    sl_gc_remove_root(&value_to_set);
+                    SL_GC_REMOVE_ROOT(&value_to_set);
                     goto cleanup_sequence_eval;
                 }
                 sl_object *value_expr = sl_car(value_expr_or_body);
@@ -134,7 +134,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
                 // value_to_set is already rooted
                 if (value_to_set == SL_OUT_OF_MEMORY_ERROR || sl_is_error(value_to_set)) {
                     sequence_result = value_to_set;  // Propagate error
-                    sl_gc_remove_root(&value_to_set);
+                    SL_GC_REMOVE_ROOT(&value_to_set);
                     goto cleanup_sequence_eval;
                 }
             }
@@ -142,14 +142,14 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
             // Update the placeholder using set! semantics
             if (!sl_env_set(env, var_sym, value_to_set)) {
                 sequence_result = sl_make_errorf("Eval: Internal error - failed to set! defined variable '%s'", sl_symbol_name(var_sym));
-                sl_gc_remove_root(&value_to_set);
+                SL_GC_REMOVE_ROOT(&value_to_set);
                 goto cleanup_sequence_eval;
             }
-            sl_gc_remove_root(&value_to_set);  // Unroot value after set
+            SL_GC_REMOVE_ROOT(&value_to_set);  // Unroot value after set
             current_node = sl_cdr(current_node);
         }  // End while defines_list
     cleanup_sequence_eval:
-        sl_gc_remove_root(&current_node);  // Unroot traversal pointer
+        SL_GC_REMOVE_ROOT(&current_node);  // Unroot traversal pointer
         if (sequence_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(sequence_result)) {
             goto cleanup_sequence;  // Propagate error from define eval
         }
@@ -157,7 +157,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
 
     // --- Pass 3: Evaluate body expressions ---
     current_node = body_start_node;
-    sl_gc_add_root(&current_node);
+    SL_GC_ADD_ROOT(&current_node);
     sequence_result = SL_NIL;  // Default if body is empty
 
     if (current_node == SL_NIL) {
@@ -173,29 +173,29 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
                 *obj_ptr = expr_to_eval;
                 *env_ptr = env;
                 // <<< ADD DEBUG PRINT >>>
-                fprintf(stderr, "[DEBUG TCO Cleanup] Removing roots in eval_sequence_with_defines (env VarAddr=%p)\n", (void *)&env);
+                // fprintf(stderr, "[DEBUG TCO Cleanup] Removing roots in eval_sequence_with_defines (env VarAddr=%p)\n", (void *)&env);
                 // --- Clean up ALL local roots before returning signal ---
-                sl_gc_remove_root(&sequence_result);
-                sl_gc_remove_root(&current_node);     // <<< ADD: Unroot body traversal node
-                sl_gc_remove_root(&body_start_node);  // <<< ADD
-                sl_gc_remove_root(&defines_list);     // <<< ADD
-                sl_gc_remove_root(&env);              // <<< ADD: Unroot local copy of env pointer
-                sl_gc_remove_root(&seq);              // <<< ADD: Unroot local copy of seq pointer
+                SL_GC_REMOVE_ROOT(&sequence_result);
+                SL_GC_REMOVE_ROOT(&current_node);     // <<< ADD: Unroot body traversal node
+                SL_GC_REMOVE_ROOT(&body_start_node);  // <<< ADD
+                SL_GC_REMOVE_ROOT(&defines_list);     // <<< ADD
+                SL_GC_REMOVE_ROOT(&env);              // <<< ADD: Unroot local copy of env pointer
+                SL_GC_REMOVE_ROOT(&seq);              // <<< ADD: Unroot local copy of seq pointer
                 // Note: Roots added during Pass 2 (like value_to_set) should have been
                 // cleaned up within that pass or its error paths.
                 return SL_CONTINUE_EVAL;  // Signal TCO
             } else {                      // No TCO possible
-                sl_gc_add_root(&expr_to_eval);
-                sl_gc_remove_root(&sequence_result);           // Remove root before assigning final value
+                SL_GC_ADD_ROOT(&expr_to_eval);
+                SL_GC_REMOVE_ROOT(&sequence_result);           // Remove root before assigning final value
                 sequence_result = sl_eval(expr_to_eval, env);  // Evaluate final expression
-                sl_gc_add_root(&sequence_result);              // Re-root final value
-                sl_gc_remove_root(&expr_to_eval);
+                SL_GC_ADD_ROOT(&sequence_result);              // Re-root final value
+                SL_GC_REMOVE_ROOT(&expr_to_eval);
                 goto cleanup_sequence_body;  // Go to cleanup
             }
         } else {                                           // Not tail position
-            sl_gc_remove_root(&sequence_result);           // Remove previous root
+            SL_GC_REMOVE_ROOT(&sequence_result);           // Remove previous root
             sequence_result = sl_eval(expr_to_eval, env);  // Evaluate intermediate
-            sl_gc_add_root(&sequence_result);              // Root intermediate
+            SL_GC_ADD_ROOT(&sequence_result);              // Root intermediate
 
             if (sequence_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(sequence_result)) {
                 goto cleanup_sequence_body;  // Error occurred, propagate
@@ -205,18 +205,19 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     }
 
     if (current_node != SL_NIL) {             // Improper list
-        sl_gc_remove_root(&sequence_result);  // Remove root before assigning error
+        SL_GC_REMOVE_ROOT(&sequence_result);  // Remove root before assigning error
         sequence_result = sl_make_errorf("Eval: Improper list in sequence body");
-        sl_gc_add_root(&sequence_result);  // Root error
+        SL_GC_ADD_ROOT(&sequence_result);  // Root error
     }
 
 cleanup_sequence_body:
-    sl_gc_remove_root(&current_node);
+    SL_GC_REMOVE_ROOT(&current_node);
 cleanup_sequence:
-    sl_gc_remove_root(&body_start_node);
-    sl_gc_remove_root(&defines_list);
-    sl_gc_remove_root(&env);
-    sl_gc_remove_root(&seq);
+    SL_GC_REMOVE_ROOT(&body_start_node);
+    SL_GC_REMOVE_ROOT(&defines_list);
+    SL_GC_REMOVE_ROOT(&env);
+    SL_GC_REMOVE_ROOT(&seq);
+    SL_GC_REMOVE_ROOT(&sequence_result);  // <<< ADD THIS LINE
     return sequence_result;
 }
 
@@ -226,9 +227,9 @@ sl_object *sl_eval(sl_object *obj_in, sl_object *env_in) {
     sl_object *result = SL_NIL;
 
     // --- Root key local variables ---
-    sl_gc_add_root(&obj);
-    sl_gc_add_root(&env);
-    sl_gc_add_root(&result);
+    SL_GC_ADD_ROOT(&obj);
+    SL_GC_ADD_ROOT(&env);
+    SL_GC_ADD_ROOT(&result);
 
 top_of_eval:;
     if (!obj) {  // Handle NULL input gracefully
@@ -273,19 +274,19 @@ top_of_eval:;
 
             // --- QUOTE ---
             if (strcmp(op_name, "quote") == 0) {
-                sl_gc_add_root(&args);  // Root args for safety
+                SL_GC_ADD_ROOT(&args);  // Root args for safety
                 if (args == SL_NIL || sl_cdr(args) != SL_NIL) {
                     result = sl_make_errorf("Eval: Malformed quote");
                 } else {
                     result = sl_car(args);  // Don't eval args of quote
                 }
-                sl_gc_remove_root(&args);
+                SL_GC_REMOVE_ROOT(&args);
                 break;  // Break from switch (handled special form)
             }
             // --- IF ---
             else if (strcmp(op_name, "if") == 0) {
                 // Root args temporarily
-                sl_gc_add_root(&args);
+                SL_GC_ADD_ROOT(&args);
                 // (if test conseq alt)
                 sl_object *arg1 = sl_car(args);
                 sl_object *arg2_pair = sl_cdr(args);
@@ -298,19 +299,19 @@ top_of_eval:;
                 // Check structure
                 if (test_expr == SL_NIL || conseq_expr == SL_NIL || !sl_is_pair(arg2_pair) || (sl_is_pair(arg3_pair) && sl_cdr(arg3_pair) != SL_NIL)) {
                     result = sl_make_errorf("Eval: Malformed if structure");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;  // Break from switch
                 }
                 if (!sl_is_pair(arg3_pair)) { alt_expr = SL_NIL; }
 
-                sl_gc_remove_root(&args);  // Unroot args before eval
+                SL_GC_REMOVE_ROOT(&args);  // Unroot args before eval
 
                 // Root expressions needed after test_result is evaluated
-                sl_gc_add_root(&conseq_expr);
-                sl_gc_add_root(&alt_expr);
+                SL_GC_ADD_ROOT(&conseq_expr);
+                SL_GC_ADD_ROOT(&alt_expr);
 
                 sl_object *test_result = sl_eval(test_expr, env);  // Eval test - MIGHT GC
-                sl_gc_add_root(&test_result);
+                SL_GC_ADD_ROOT(&test_result);
 
                 if (test_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(test_result)) {
                     result = test_result;  // Propagate error
@@ -321,25 +322,25 @@ top_of_eval:;
                     obj = alt_expr;  // Tail call alt
                 }
                 // Unroot temporaries before tail call
-                sl_gc_remove_root(&test_result);
-                sl_gc_remove_root(&alt_expr);
-                sl_gc_remove_root(&conseq_expr);
+                SL_GC_REMOVE_ROOT(&test_result);
+                SL_GC_REMOVE_ROOT(&alt_expr);
+                SL_GC_REMOVE_ROOT(&conseq_expr);
                 goto top_of_eval;  // Tail call optimization
 
             cleanup_if:                           // Cleanup path for errors during test eval or structure check
-                sl_gc_remove_root(&test_result);  // Ensure unrooted
-                sl_gc_remove_root(&alt_expr);     // Ensure unrooted
-                sl_gc_remove_root(&conseq_expr);  // Ensure unrooted
+                SL_GC_REMOVE_ROOT(&test_result);  // Ensure unrooted
+                SL_GC_REMOVE_ROOT(&alt_expr);     // Ensure unrooted
+                SL_GC_REMOVE_ROOT(&conseq_expr);  // Ensure unrooted
                 // args was already unrooted
                 break;  // <<< FIX: Break from switch, result holds the error >>>
             }
             // --- DEFINE ---
             else if (strcmp(op_name, "define") == 0) {
-                sl_gc_add_root(&args);
+                SL_GC_ADD_ROOT(&args);
                 // (define symbol value) or (define (fn params...) body...)
                 if (args == SL_NIL) {
                     result = sl_make_errorf("Eval: Malformed define (no symbol/value)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 sl_object *target = sl_car(args);
@@ -352,7 +353,7 @@ top_of_eval:;
 
                     if (!sl_is_symbol(fn_name_sym)) {
                         result = sl_make_errorf("Eval: Function name in define must be a symbol");
-                        sl_gc_remove_root(&args);
+                        SL_GC_REMOVE_ROOT(&args);
                         break;
                     }
                     // TODO: Add validation for params list structure
@@ -367,17 +368,17 @@ top_of_eval:;
                 } else if (sl_is_symbol(target)) {  // Variable definition
                     if (value_expr_pair == SL_NIL || sl_cdr(value_expr_pair) != SL_NIL) {
                         result = sl_make_errorf("Eval: Malformed define (wrong number of args for variable)");
-                        sl_gc_remove_root(&args);
+                        SL_GC_REMOVE_ROOT(&args);
                         break;
                     }
                     sl_object *value_expr = sl_car(value_expr_pair);
 
                     // Unroot op_obj and args before eval
-                    // sl_gc_remove_root(&op_obj);
-                    // sl_gc_remove_root(&args);
+                    // SL_GC_REMOVE_ROOT(&op_obj);
+                    // SL_GC_REMOVE_ROOT(&args);
 
                     sl_object *value = sl_eval(value_expr, env);
-                    sl_gc_add_root(&value);
+                    SL_GC_ADD_ROOT(&value);
 
                     if (value == SL_OUT_OF_MEMORY_ERROR) {
                         result = value;
@@ -387,21 +388,21 @@ top_of_eval:;
                         // Check for OOM? See comment above.
                         result = target;  // Return the symbol
                     }
-                    sl_gc_remove_root(&value);
+                    SL_GC_REMOVE_ROOT(&value);
 
                 } else {
                     result = sl_make_errorf("Eval: Invalid target for define");
                 }
-                sl_gc_remove_root(&args);
+                SL_GC_REMOVE_ROOT(&args);
                 break;
             }
             // --- SET! --- <<< ADDED BLOCK
             else if (strcmp(op_name, "set!") == 0) {
-                sl_gc_add_root(&args);  // Root args
+                SL_GC_ADD_ROOT(&args);  // Root args
                 // (set! symbol value)
                 if (args == SL_NIL || !sl_is_pair(args) || sl_cdr(args) == SL_NIL || !sl_is_pair(sl_cdr(args)) || sl_cdr(sl_cdr(args)) != SL_NIL) {
                     result = sl_make_errorf("Eval: Malformed set!");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 sl_object *target_sym = sl_car(args);
@@ -409,14 +410,14 @@ top_of_eval:;
 
                 if (!sl_is_symbol(target_sym)) {
                     result = sl_make_errorf("Eval: Target for set! must be a symbol");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
 
-                sl_gc_remove_root(&args);  // Unroot args before eval
+                SL_GC_REMOVE_ROOT(&args);  // Unroot args before eval
 
                 sl_object *value = sl_eval(value_expr, env);  // Eval value - MIGHT GC
-                sl_gc_add_root(&value);                       // Root result
+                SL_GC_ADD_ROOT(&value);                       // Root result
 
                 if (value == SL_OUT_OF_MEMORY_ERROR) {
                     result = value;  // Propagate error
@@ -428,16 +429,16 @@ top_of_eval:;
                         result = value;  // set! usually returns the value
                     }
                 }
-                sl_gc_remove_root(&value);  // Unroot value
+                SL_GC_REMOVE_ROOT(&value);  // Unroot value
                 break;                      // Break from switch
             }
             // --- LAMBDA ---
             else if (strcmp(op_name, "lambda") == 0) {
-                sl_gc_add_root(&args);  // Root args
+                SL_GC_ADD_ROOT(&args);  // Root args
                 // (lambda (params...) body...)
                 if (args == SL_NIL || sl_cdr(args) == SL_NIL) {
                     result = sl_make_errorf("Eval: Malformed lambda (missing params or body)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 sl_object *params = sl_car(args);
@@ -449,7 +450,7 @@ top_of_eval:;
                 // Create closure with the *list* of body expressions
                 result = sl_make_closure(params, body_list, env);
                 CHECK_ALLOC(result);  // Checks if result is SL_OUT_OF_MEMORY_ERROR
-                sl_gc_remove_root(&args);
+                SL_GC_REMOVE_ROOT(&args);
                 break;  // Break from switch
             }
             // --- BEGIN ---
@@ -459,19 +460,19 @@ top_of_eval:;
                     // result = temp_res;  // Keep signal
                     goto top_of_eval;
                 }
-                sl_gc_remove_root(&result);  // Remove old root
+                SL_GC_REMOVE_ROOT(&result);  // Remove old root
                 result = temp_res;           // Assign new result
-                sl_gc_add_root(&result);     // Add new root
+                SL_GC_ADD_ROOT(&result);     // Add new root
                 break;
             }
             // --- LET / NAMED LET ---
             else if (strcmp(op_name, "let") == 0) {
                 // (let bindings body...) or (let name bindings body...)
-                sl_gc_add_root(&args);  // Root the rest of the let form
+                SL_GC_ADD_ROOT(&args);  // Root the rest of the let form
 
                 if (args == SL_NIL) {
                     result = sl_make_errorf("Eval: Malformed let (missing bindings/body)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
 
@@ -483,11 +484,11 @@ top_of_eval:;
                 // Check for named let variant
                 if (sl_is_symbol(first_arg)) {
                     name_sym = first_arg;
-                    sl_gc_add_root(&name_sym);  // Root name symbol
+                    SL_GC_ADD_ROOT(&name_sym);  // Root name symbol
                     if (body_list == SL_NIL || !sl_is_pair(body_list)) {
                         result = sl_make_errorf("Eval: Malformed named let (missing bindings/body)");
-                        sl_gc_remove_root(&name_sym);
-                        sl_gc_remove_root(&args);
+                        SL_GC_REMOVE_ROOT(&name_sym);
+                        SL_GC_REMOVE_ROOT(&args);
                         break;
                     }
                     bindings = sl_car(body_list);
@@ -500,20 +501,20 @@ top_of_eval:;
                 // Validate bindings structure and body
                 if (!sl_is_list(bindings)) {  // sl_is_list checks for proper list or NIL
                     result = sl_make_errorf("Eval: Malformed let bindings (not a list)");
-                    if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
-                    sl_gc_remove_root(&args);
+                    if (name_sym != SL_NIL) SL_GC_REMOVE_ROOT(&name_sym);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 if (body_list == SL_NIL) {
                     result = sl_make_errorf("Eval: Malformed let (missing body)");
-                    if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
-                    sl_gc_remove_root(&args);
+                    if (name_sym != SL_NIL) SL_GC_REMOVE_ROOT(&name_sym);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
 
                 // Root bindings and body before evaluation loops
-                sl_gc_add_root(&bindings);
-                sl_gc_add_root(&body_list);
+                SL_GC_ADD_ROOT(&bindings);
+                SL_GC_ADD_ROOT(&body_list);
 
                 // --- Evaluate initializers in the *current* environment ---
                 sl_object *vars_list = SL_NIL;
@@ -523,9 +524,9 @@ top_of_eval:;
                 sl_object *current_binding = bindings;
                 bool init_eval_ok = true;
 
-                sl_gc_add_root(&vars_list);  // Root lists being built
-                sl_gc_add_root(&vals_list);
-                sl_gc_add_root(&current_binding);
+                SL_GC_ADD_ROOT(&vars_list);  // Root lists being built
+                SL_GC_ADD_ROOT(&vals_list);
+                SL_GC_ADD_ROOT(&current_binding);
 
                 while (current_binding != SL_NIL) {
                     if (!sl_is_pair(current_binding)) {  // Should be caught by sl_is_list, but double check
@@ -550,11 +551,11 @@ top_of_eval:;
 
                     // Evaluate init_expr in the *outer* env
                     sl_object *init_val = sl_eval(init_expr, env);  // MIGHT GC
-                    sl_gc_add_root(&init_val);                      // Root the evaluated value
+                    SL_GC_ADD_ROOT(&init_val);                      // Root the evaluated value
 
                     if (init_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(init_val)) {
                         result = init_val;  // Propagate error
-                        sl_gc_remove_root(&init_val);
+                        SL_GC_REMOVE_ROOT(&init_val);
                         init_eval_ok = false;
                         break;
                     }
@@ -571,12 +572,12 @@ top_of_eval:;
                     *vals_tail_ptr = val_pair;
                     vals_tail_ptr = &val_pair->data.pair.cdr;
 
-                    sl_gc_remove_root(&init_val);  // Value is now safe in vals_list
+                    SL_GC_REMOVE_ROOT(&init_val);  // Value is now safe in vals_list
                     current_binding = sl_cdr(current_binding);
                 }  // End while bindings
 
                 // Unroot temporary binding list traversal pointer
-                sl_gc_remove_root(&current_binding);
+                SL_GC_REMOVE_ROOT(&current_binding);
 
                 if (!init_eval_ok) {   // Error during init eval or binding list parsing
                     goto cleanup_let;  // Result already holds the error
@@ -585,7 +586,7 @@ top_of_eval:;
                 // --- Create new environment and bind variables ---
                 sl_object *let_env = sl_env_create(env);
                 CHECK_ALLOC_GOTO(let_env, oom_let, result);
-                sl_gc_add_root(&let_env);  // Root the new environment
+                SL_GC_ADD_ROOT(&let_env);  // Root the new environment
 
                 // --- Handle named let: define the recursive function ---
                 if (name_sym != SL_NIL) {
@@ -610,45 +611,45 @@ top_of_eval:;
                 // --- Evaluate body in the new environment ---
                 // Use helper function for sequence evaluation with TCO
                 // Unroot lists before potential tail call in eval_sequence
-                sl_gc_remove_root(&vals_list);
-                sl_gc_remove_root(&vars_list);
-                // sl_gc_remove_root(&body_list);
-                sl_gc_remove_root(&bindings);
-                sl_gc_remove_root(&args);
-                if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
+                SL_GC_REMOVE_ROOT(&vals_list);
+                SL_GC_REMOVE_ROOT(&vars_list);
+                // SL_GC_REMOVE_ROOT(&body_list);
+                SL_GC_REMOVE_ROOT(&bindings);
+                SL_GC_REMOVE_ROOT(&args);
+                if (name_sym != SL_NIL) SL_GC_REMOVE_ROOT(&name_sym);
 
                 sl_object *temp_res = eval_sequence_with_defines(body_list, let_env, &obj, &env);
-                sl_gc_remove_root(&let_env);
-                sl_gc_remove_root(&body_list);
+                SL_GC_REMOVE_ROOT(&let_env);
+                SL_GC_REMOVE_ROOT(&body_list);
                 if (temp_res == SL_CONTINUE_EVAL) {
                     // result = temp_res;  // Keep signal
                     goto top_of_eval;
                 }
-                sl_gc_remove_root(&result);  // Remove old root
+                SL_GC_REMOVE_ROOT(&result);  // Remove old root
                 result = temp_res;           // Assign new result
-                sl_gc_add_root(&result);     // Add new root
+                SL_GC_ADD_ROOT(&result);     // Add new root
                                              // Otherwise, result holds the final value or error from the body
 
             oom_let_env:                        // Label for OOM after let_env creation (if needed)
-                                                // sl_gc_remove_root(&let_env); // Already handled
+                                                // SL_GC_REMOVE_ROOT(&let_env); // Already handled
             oom_let:                            // Label for OOM before let_env creation
             cleanup_let:                        // General cleanup label for let
-                sl_gc_remove_root(&vals_list);  // Ensure unrooted on error paths
-                sl_gc_remove_root(&vars_list);
-                sl_gc_remove_root(&body_list);
-                sl_gc_remove_root(&bindings);
-                sl_gc_remove_root(&args);
-                if (name_sym != SL_NIL) sl_gc_remove_root(&name_sym);
+                SL_GC_REMOVE_ROOT(&vals_list);  // Ensure unrooted on error paths
+                SL_GC_REMOVE_ROOT(&vars_list);
+                SL_GC_REMOVE_ROOT(&body_list);
+                SL_GC_REMOVE_ROOT(&bindings);
+                SL_GC_REMOVE_ROOT(&args);
+                if (name_sym != SL_NIL) SL_GC_REMOVE_ROOT(&name_sym);
                 break;  // Break from switch case 'let'
             }  // End LET / NAMED LET block
             // --- LET* --- <<< NEW BLOCK
             else if (strcmp(op_name, "let*") == 0) {
                 // (let* bindings body...)
-                sl_gc_add_root(&args);  // Root the rest of the form
+                SL_GC_ADD_ROOT(&args);  // Root the rest of the form
 
                 if (args == SL_NIL || !sl_is_pair(args)) {
                     result = sl_make_errorf("Eval: Malformed let* (missing bindings/body)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 sl_object *bindings = sl_car(args);
@@ -656,23 +657,23 @@ top_of_eval:;
 
                 if (!sl_is_list(bindings)) {
                     result = sl_make_errorf("Eval: Malformed let* bindings (not a list)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 if (body_list == SL_NIL) {
                     result = sl_make_errorf("Eval: Malformed let* (missing body)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
 
-                sl_gc_add_root(&bindings);
-                sl_gc_add_root(&body_list);
+                SL_GC_ADD_ROOT(&bindings);
+                SL_GC_ADD_ROOT(&body_list);
 
                 // --- Sequentially evaluate and bind ---
                 sl_object *current_binding_node = bindings;
                 sl_object *let_star_env = env;  // Start with outer env
-                sl_gc_add_root(&let_star_env);  // Root the evolving environment
-                sl_gc_add_root(&current_binding_node);
+                SL_GC_ADD_ROOT(&let_star_env);  // Root the evolving environment
+                SL_GC_ADD_ROOT(&current_binding_node);
 
                 while (current_binding_node != SL_NIL) {
                     if (!sl_is_pair(current_binding_node)) {
@@ -694,11 +695,11 @@ top_of_eval:;
 
                     // Evaluate init_expr in the *current* let_star_env
                     sl_object *init_val = sl_eval(init_expr, let_star_env);  // MIGHT GC
-                    sl_gc_add_root(&init_val);
+                    SL_GC_ADD_ROOT(&init_val);
 
                     if (init_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(init_val)) {
                         result = init_val;  // Propagate error
-                        sl_gc_remove_root(&init_val);
+                        SL_GC_REMOVE_ROOT(&init_val);
                         goto cleanup_let_star;
                     }
 
@@ -711,51 +712,51 @@ top_of_eval:;
                     // Check OOM?
 
                     // Update let_star_env for the next iteration
-                    sl_gc_remove_root(&let_star_env);  // Unroot old env ptr
+                    SL_GC_REMOVE_ROOT(&let_star_env);  // Unroot old env ptr
                     let_star_env = next_env;           // Point to the new env
-                    sl_gc_add_root(&let_star_env);     // Root the new env ptr
+                    SL_GC_ADD_ROOT(&let_star_env);     // Root the new env ptr
 
                 cleanup_let_star_val:
-                    sl_gc_remove_root(&init_val);                                 // Unroot value after potential use/binding
+                    SL_GC_REMOVE_ROOT(&init_val);                                 // Unroot value after potential use/binding
                     if (result == SL_OUT_OF_MEMORY_ERROR) goto cleanup_let_star;  // Handle OOM from env_create
 
                     current_binding_node = sl_cdr(current_binding_node);
                 }  // End while bindings
 
                 // --- Evaluate body in the final let_star_env ---
-                sl_gc_remove_root(&current_binding_node);
-                sl_gc_remove_root(&bindings);
-                sl_gc_remove_root(&args);
+                SL_GC_REMOVE_ROOT(&current_binding_node);
+                SL_GC_REMOVE_ROOT(&bindings);
+                SL_GC_REMOVE_ROOT(&args);
 
                 sl_object *temp_res = eval_sequence_with_defines(body_list, let_star_env, &obj, &env);
-                sl_gc_remove_root(&let_star_env);
-                sl_gc_remove_root(&body_list);
+                SL_GC_REMOVE_ROOT(&let_star_env);
+                SL_GC_REMOVE_ROOT(&body_list);
                 if (temp_res == SL_CONTINUE_EVAL) {
                     // result = temp_res;  // Keep signal
                     goto top_of_eval;
                 }
-                sl_gc_remove_root(&result);  // Remove old root
+                SL_GC_REMOVE_ROOT(&result);  // Remove old root
                 result = temp_res;           // Assign new result
-                sl_gc_add_root(&result);     // Add new root
+                SL_GC_ADD_ROOT(&result);     // Add new root
                                              // Otherwise, result holds the final value or error
 
             cleanup_let_star:  // Error/cleanup path
-                sl_gc_remove_root(&current_binding_node);
-                sl_gc_remove_root(&let_star_env);
-                sl_gc_remove_root(&body_list);
-                sl_gc_remove_root(&bindings);
-                sl_gc_remove_root(&args);
+                SL_GC_REMOVE_ROOT(&current_binding_node);
+                SL_GC_REMOVE_ROOT(&let_star_env);
+                SL_GC_REMOVE_ROOT(&body_list);
+                SL_GC_REMOVE_ROOT(&bindings);
+                SL_GC_REMOVE_ROOT(&args);
                 break;  // Break from switch case 'let*'
             }  // End LET* block
 
             // --- LETREC* --- <<< NEW BLOCK
             else if (strcmp(op_name, "letrec*") == 0) {
                 // (letrec* bindings body...)
-                sl_gc_add_root(&args);  // Root the rest of the form
+                SL_GC_ADD_ROOT(&args);  // Root the rest of the form
 
                 if (args == SL_NIL || !sl_is_pair(args)) {
                     result = sl_make_errorf("Eval: Malformed letrec* (missing bindings/body)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 sl_object *bindings = sl_car(args);
@@ -763,26 +764,26 @@ top_of_eval:;
 
                 if (!sl_is_list(bindings)) {
                     result = sl_make_errorf("Eval: Malformed letrec* bindings (not a list)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 if (body_list == SL_NIL) {
                     result = sl_make_errorf("Eval: Malformed letrec* (missing body)");
-                    sl_gc_remove_root(&args);
+                    SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
 
-                sl_gc_add_root(&bindings);
-                sl_gc_add_root(&body_list);
+                SL_GC_ADD_ROOT(&bindings);
+                SL_GC_ADD_ROOT(&body_list);
 
                 // --- Create new environment ---
                 sl_object *letrec_env = sl_env_create(env);
                 CHECK_ALLOC_GOTO(letrec_env, cleanup_letrec, result);
-                sl_gc_add_root(&letrec_env);
+                SL_GC_ADD_ROOT(&letrec_env);
 
                 // --- Pass 1: Create placeholders ---
                 sl_object *current_binding_node = bindings;
-                sl_gc_add_root(&current_binding_node);
+                SL_GC_ADD_ROOT(&current_binding_node);
                 while (current_binding_node != SL_NIL) {
                     if (!sl_is_pair(current_binding_node)) { /* error handled below */
                         break;
@@ -802,11 +803,11 @@ top_of_eval:;
 
                     current_binding_node = sl_cdr(current_binding_node);
                 }
-                sl_gc_remove_root(&current_binding_node);  // Unroot traversal pointer
+                SL_GC_REMOVE_ROOT(&current_binding_node);  // Unroot traversal pointer
 
                 // --- Pass 2: Evaluate initializers sequentially and update bindings ---
                 current_binding_node = bindings;
-                sl_gc_add_root(&current_binding_node);
+                SL_GC_ADD_ROOT(&current_binding_node);
                 bool init_ok = true;
                 while (current_binding_node != SL_NIL) {
                     if (!sl_is_pair(current_binding_node)) {
@@ -831,11 +832,11 @@ top_of_eval:;
 
                     // Evaluate init_expr in the letrec_env (placeholders are visible)
                     sl_object *init_val = sl_eval(init_expr, letrec_env);  // MIGHT GC
-                    sl_gc_add_root(&init_val);
+                    SL_GC_ADD_ROOT(&init_val);
 
                     if (init_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(init_val)) {
                         result = init_val;  // Propagate error
-                        sl_gc_remove_root(&init_val);
+                        SL_GC_REMOVE_ROOT(&init_val);
                         init_ok = false;
                         break;
                     }
@@ -844,50 +845,50 @@ top_of_eval:;
                     if (!sl_env_set(letrec_env, var_sym, init_val)) {
                         // Should not happen if placeholder was created correctly
                         result = sl_make_errorf("Eval: Internal error - failed to set! letrec* variable '%s'", sl_symbol_name(var_sym));
-                        sl_gc_remove_root(&init_val);
+                        SL_GC_REMOVE_ROOT(&init_val);
                         init_ok = false;
                         break;
                     }
-                    sl_gc_remove_root(&init_val);  // Unroot value after set
+                    SL_GC_REMOVE_ROOT(&init_val);  // Unroot value after set
 
                     current_binding_node = sl_cdr(current_binding_node);
                 }  // End while bindings (Pass 2)
-                sl_gc_remove_root(&current_binding_node);
+                SL_GC_REMOVE_ROOT(&current_binding_node);
 
                 if (!init_ok) {  // Error during Pass 2?
                     goto cleanup_letrec_env;
                 }
 
                 // --- Evaluate body in the letrec_env ---
-                sl_gc_remove_root(&bindings);
-                sl_gc_remove_root(&args);
+                SL_GC_REMOVE_ROOT(&bindings);
+                SL_GC_REMOVE_ROOT(&args);
 
                 sl_object *temp_res = eval_sequence_with_defines(body_list, letrec_env, &obj, &env);
-                sl_gc_remove_root(&letrec_env);
-                sl_gc_remove_root(&body_list);
+                SL_GC_REMOVE_ROOT(&letrec_env);
+                SL_GC_REMOVE_ROOT(&body_list);
                 if (temp_res == SL_CONTINUE_EVAL) {
                     // result = temp_res;  // Keep signal
                     goto top_of_eval;
                 }
-                sl_gc_remove_root(&result);  // Remove old root
+                SL_GC_REMOVE_ROOT(&result);  // Remove old root
                 result = temp_res;           // Assign new result
-                sl_gc_add_root(&result);     // Add new root
+                SL_GC_ADD_ROOT(&result);     // Add new root
                                              // Otherwise, result holds the final value or error
 
             cleanup_letrec_env:
-                sl_gc_remove_root(&letrec_env);
+                SL_GC_REMOVE_ROOT(&letrec_env);
             cleanup_letrec:                                // Error/cleanup path
-                sl_gc_remove_root(&current_binding_node);  // Ensure unrooted
-                sl_gc_remove_root(&body_list);
-                sl_gc_remove_root(&bindings);
-                sl_gc_remove_root(&args);
+                SL_GC_REMOVE_ROOT(&current_binding_node);  // Ensure unrooted
+                SL_GC_REMOVE_ROOT(&body_list);
+                SL_GC_REMOVE_ROOT(&bindings);
+                SL_GC_REMOVE_ROOT(&args);
                 break;  // Break from switch case 'letrec*'
             }  // End LETREC* block
 
             // --- COND --- <<< ADDED BLOCK
             else if (strcmp(op_name, "cond") == 0) {
                 // (cond (test1 body1...) (test2 body2...) ... (else else_body...))
-                sl_gc_add_root(&args);  // Root the list of clauses
+                SL_GC_ADD_ROOT(&args);  // Root the list of clauses
 
                 sl_object *current_clause_node = args;
                 result = SL_NIL;  // Default result if no clause matches (unspecified)
@@ -923,11 +924,11 @@ top_of_eval:;
                     if (!is_else_clause) {
                         // Evaluate the test expression
                         test_result = sl_eval(test_expr, env);  // MIGHT GC
-                        sl_gc_add_root(&test_result);           // Root the result
+                        SL_GC_ADD_ROOT(&test_result);           // Root the result
 
                         if (test_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(test_result)) {
                             result = test_result;  // Propagate error
-                            sl_gc_remove_root(&test_result);
+                            SL_GC_REMOVE_ROOT(&test_result);
                             goto cleanup_cond;
                         }
                     }
@@ -935,11 +936,11 @@ top_of_eval:;
                     // Check if test is true (anything but #f)
                     if (is_else_clause || test_result != SL_FALSE) {
                         if (!is_else_clause) {
-                            sl_gc_remove_root(&test_result);  // Unroot test result if it was evaluated
+                            SL_GC_REMOVE_ROOT(&test_result);  // Unroot test result if it was evaluated
                         }
 
                         // --- Evaluate the body sequence of the chosen clause ---
-                        sl_gc_add_root(&body_list);  // Root the body list
+                        SL_GC_ADD_ROOT(&body_list);  // Root the body list
 
                         if (body_list == SL_NIL) {
                             // Clause like (test) - result is the test result itself
@@ -950,7 +951,7 @@ top_of_eval:;
                             // A clause like (else) is questionable, maybe error? R5RS says unspecified.
                             // Let's return the test result if not else, NIL if else.
                             result = is_else_clause ? SL_NIL : test_result;
-                            sl_gc_remove_root(&body_list);
+                            SL_GC_REMOVE_ROOT(&body_list);
                             goto cleanup_cond;  // Found the clause, evaluation done.
                         }
 
@@ -963,21 +964,21 @@ top_of_eval:;
 
                             // Check for tail call position (last expression in the body)
                             if (next_body_node == SL_NIL) {
-                                sl_gc_remove_root(&body_list);  // Unroot body list
-                                sl_gc_remove_root(&args);       // Unroot clause list
+                                SL_GC_REMOVE_ROOT(&body_list);  // Unroot body list
+                                SL_GC_REMOVE_ROOT(&args);       // Unroot clause list
                                 obj = expr_to_eval;             // Set up for tail call
                                 goto top_of_eval;               // Jump!
                             } else {
                                 // Not the last expression, evaluate normally
-                                sl_gc_remove_root(&result);           // Unroot previous result
+                                SL_GC_REMOVE_ROOT(&result);           // Unroot previous result
                                 result = sl_eval(expr_to_eval, env);  // MIGHT GC
-                                sl_gc_add_root(&result);              // Root intermediate result
+                                SL_GC_ADD_ROOT(&result);              // Root intermediate result
 
                                 if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
-                                    sl_gc_remove_root(&body_list);  // Unroot before cleanup
+                                    SL_GC_REMOVE_ROOT(&body_list);  // Unroot before cleanup
                                     goto cleanup_cond;              // Error occurred
                                 }
-                                sl_gc_remove_root(&result);  // Unroot intermediate result
+                                // SL_GC_REMOVE_ROOT(&result);  // Unroot intermediate result
                             }
                             current_body_node = next_body_node;
                         }  // end while body expressions
@@ -989,28 +990,28 @@ top_of_eval:;
                         // If loop finished normally (e.g. empty body list initially), result is NIL.
                         // If error occurred, result holds the error.
 
-                        sl_gc_remove_root(&body_list);  // Unroot body list
+                        SL_GC_REMOVE_ROOT(&body_list);  // Unroot body list
                         goto cleanup_cond;              // Clause handled, exit cond evaluation.
 
                     }  // end if test true or else
 
                     // Test was false, unroot test result and continue to next clause
                     if (!is_else_clause) {
-                        sl_gc_remove_root(&test_result);
+                        SL_GC_REMOVE_ROOT(&test_result);
                     }
                     current_clause_node = next_clause_node;
 
                 }  // end while clauses
 
             cleanup_cond:
-                sl_gc_remove_root(&args);  // Final unroot of clause list
+                SL_GC_REMOVE_ROOT(&args);  // Final unroot of clause list
                 break;                     // Break from switch case 'cond'
             }  // End COND block
             // --- AND --- <<< ADDED BLOCK
             else if (strcmp(op_name, "and") == 0) {
                 // (and expr1 expr2 ...)
                 // Short-circuits on #f. Returns last value if all true. Returns #t if no args.
-                sl_gc_add_root(&args);  // Root the list of expressions
+                SL_GC_ADD_ROOT(&args);  // Root the list of expressions
                 result = SL_TRUE;       // Default for (and)
 
                 sl_object *current_node = args;
@@ -1020,25 +1021,25 @@ top_of_eval:;
 
                     // Check for tail call position (last expression)
                     if (next_node == SL_NIL) {
-                        sl_gc_remove_root(&args);  // Unroot args list
+                        SL_GC_REMOVE_ROOT(&args);  // Unroot args list
                         obj = expr_to_eval;        // Set up for tail call
                         goto top_of_eval;          // Jump!
                     } else {
                         // Not the last expression, evaluate normally
                         result = sl_eval(expr_to_eval, env);  // MIGHT GC
-                        sl_gc_add_root(&result);              // Root intermediate result
+                        // SL_GC_ADD_ROOT(&result);              // Root intermediate result
 
                         if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
-                            sl_gc_remove_root(&args);  // Unroot before cleanup
+                            SL_GC_REMOVE_ROOT(&args);  // Unroot before cleanup
                             goto cleanup;              // Error occurred
                         }
 
                         // Check for short-circuit condition (#f)
                         if (result == SL_FALSE) {
-                            sl_gc_remove_root(&args);  // Unroot args list
+                            SL_GC_REMOVE_ROOT(&args);  // Unroot args list
                             goto cleanup;              // Result is already #f
                         }
-                        sl_gc_remove_root(&result);  // Unroot intermediate result
+                        SL_GC_REMOVE_ROOT(&result);  // Unroot intermediate result
                     }
                     current_node = next_node;
                 }
@@ -1051,14 +1052,14 @@ top_of_eval:;
                 // If error occurred, result holds the error.
                 // If short-circuited, result is SL_FALSE.
 
-                sl_gc_remove_root(&args);  // Final unroot of args list
+                SL_GC_REMOVE_ROOT(&args);  // Final unroot of args list
                 break;                     // Break from switch case 'and'
             }  // End AND block
             // --- OR --- <<< ADDED BLOCK
             else if (strcmp(op_name, "or") == 0) {
                 // (or expr1 expr2 ...)
                 // Short-circuits on first non-#f value. Returns #f if all #f. Returns #f if no args.
-                sl_gc_add_root(&args);  // Root the list of expressions
+                SL_GC_ADD_ROOT(&args);  // Root the list of expressions
                 result = SL_FALSE;      // Default for (or)
 
                 sl_object *current_node = args;
@@ -1068,25 +1069,25 @@ top_of_eval:;
 
                     // Check for tail call position (last expression)
                     if (next_node == SL_NIL) {
-                        sl_gc_remove_root(&args);  // Unroot args list
+                        SL_GC_REMOVE_ROOT(&args);  // Unroot args list
                         obj = expr_to_eval;        // Set up for tail call
                         goto top_of_eval;          // Jump!
                     } else {
                         // Not the last expression, evaluate normally
                         result = sl_eval(expr_to_eval, env);  // MIGHT GC
-                        sl_gc_add_root(&result);              // Root intermediate result
+                        // SL_GC_ADD_ROOT(&result);              // Root intermediate result
 
                         if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
-                            sl_gc_remove_root(&args);  // Unroot before cleanup
+                            SL_GC_REMOVE_ROOT(&args);  // Unroot before cleanup
                             goto cleanup;              // Error occurred
                         }
 
                         // Check for short-circuit condition (non-#f)
                         if (result != SL_FALSE) {
-                            sl_gc_remove_root(&args);  // Unroot args list
+                            SL_GC_REMOVE_ROOT(&args);  // Unroot args list
                             goto cleanup;              // Result is the first truthy value
                         }
-                        sl_gc_remove_root(&result);  // Unroot intermediate result (it was #f)
+                        SL_GC_REMOVE_ROOT(&result);  // Unroot intermediate result (it was #f)
                     }
                     current_node = next_node;
                 }
@@ -1099,13 +1100,13 @@ top_of_eval:;
                 // If error occurred, result holds the error.
                 // If short-circuited, result holds the first truthy value.
 
-                sl_gc_remove_root(&args);  // Final unroot of args list
+                SL_GC_REMOVE_ROOT(&args);  // Final unroot of args list
                 break;                     // Break from switch case 'or'
             }  // End OR block
             // --- DO --- <<< NEW BLOCK
             else if (strcmp(op_name, "do") == 0) {
                 // (do ((var1 init1 step1) ...) (test result ...) command ...)
-                sl_gc_add_root(&args);  // Root the rest of the form
+                SL_GC_ADD_ROOT(&args);  // Root the rest of the form
 
                 // --- 1. Parse Structure ---
                 if (!sl_is_pair(args) || !sl_is_pair(sl_cdr(args))) {
@@ -1133,10 +1134,10 @@ top_of_eval:;
                 sl_object *result_exprs = sl_cdr(test_result_pair);  // List of result expressions
 
                 // Root parsed parts
-                sl_gc_add_root(&bindings);
-                sl_gc_add_root(&test_expr);
-                sl_gc_add_root(&result_exprs);
-                sl_gc_add_root(&commands);
+                SL_GC_ADD_ROOT(&bindings);
+                SL_GC_ADD_ROOT(&test_expr);
+                SL_GC_ADD_ROOT(&result_exprs);
+                SL_GC_ADD_ROOT(&commands);
 
                 // --- 2. Process Bindings & Evaluate Inits ---
                 sl_object *vars_list = SL_NIL;
@@ -1149,15 +1150,15 @@ top_of_eval:;
                 sl_object *current_binding_node = bindings;
                 bool init_ok = true;
 
-                sl_gc_add_root(&vars_list);
-                sl_gc_add_root(&steps_list);
-                sl_gc_add_root(&init_vals_list);
+                SL_GC_ADD_ROOT(&vars_list);
+                SL_GC_ADD_ROOT(&steps_list);
+                SL_GC_ADD_ROOT(&init_vals_list);
                 // --- NEW: Root tail node pointers ---
-                sl_gc_add_root(&vars_tail_node);
-                sl_gc_add_root(&steps_tail_node);
-                sl_gc_add_root(&inits_tail_node);
+                SL_GC_ADD_ROOT(&vars_tail_node);
+                SL_GC_ADD_ROOT(&steps_tail_node);
+                SL_GC_ADD_ROOT(&inits_tail_node);
                 // ---
-                sl_gc_add_root(&current_binding_node);
+                SL_GC_ADD_ROOT(&current_binding_node);
 
                 while (current_binding_node != SL_NIL) {
                     if (!sl_is_pair(current_binding_node)) { /* caught by sl_is_list */
@@ -1183,11 +1184,11 @@ top_of_eval:;
 
                     // Evaluate init_expr in the *outer* environment (env)
                     sl_object *init_val = sl_eval(init_expr, env);  // MIGHT GC
-                    sl_gc_add_root(&init_val);
+                    SL_GC_ADD_ROOT(&init_val);
 
                     if (init_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(init_val)) {
                         result = init_val;  // Propagate error
-                        sl_gc_remove_root(&init_val);
+                        SL_GC_REMOVE_ROOT(&init_val);
                         init_ok = false;
                         break;
                     }
@@ -1197,63 +1198,63 @@ top_of_eval:;
                     if (!new_var_node || new_var_node == SL_OUT_OF_MEMORY_ERROR) {
                         result = SL_OUT_OF_MEMORY_ERROR;
                         init_ok = false;
-                        sl_gc_remove_root(&init_val);
+                        SL_GC_REMOVE_ROOT(&init_val);
                         break;
                     }
-                    sl_gc_add_root(&new_var_node);  // Root new node before potential modification/next alloc
+                    SL_GC_ADD_ROOT(&new_var_node);  // Root new node before potential modification/next alloc
                     if (vars_list == SL_NIL) {
                         vars_list = new_var_node;  // First node
                     } else {
                         sl_set_cdr(vars_tail_node, new_var_node);  // Link previous tail to new node
                     }
                     vars_tail_node = new_var_node;     // Update tail node pointer
-                    sl_gc_remove_root(&new_var_node);  // Unroot (safe in list or via tail pointer)
+                    SL_GC_REMOVE_ROOT(&new_var_node);  // Unroot (safe in list or via tail pointer)
 
                     // --- REVISED: Append step ---
                     sl_object *new_step_node = sl_make_pair(step_expr, SL_NIL);
                     if (!new_step_node || new_step_node == SL_OUT_OF_MEMORY_ERROR) {
                         result = SL_OUT_OF_MEMORY_ERROR;
                         init_ok = false;
-                        sl_gc_remove_root(&init_val);
+                        SL_GC_REMOVE_ROOT(&init_val);
                         break;
                     }
-                    sl_gc_add_root(&new_step_node);
+                    SL_GC_ADD_ROOT(&new_step_node);
                     if (steps_list == SL_NIL) {
                         steps_list = new_step_node;
                     } else {
                         sl_set_cdr(steps_tail_node, new_step_node);
                     }
                     steps_tail_node = new_step_node;
-                    sl_gc_remove_root(&new_step_node);
+                    SL_GC_REMOVE_ROOT(&new_step_node);
 
                     // --- REVISED: Append init_val ---
                     sl_object *new_init_node = sl_make_pair(init_val, SL_NIL);
                     if (!new_init_node || new_init_node == SL_OUT_OF_MEMORY_ERROR) {
                         result = SL_OUT_OF_MEMORY_ERROR;
                         init_ok = false;
-                        sl_gc_remove_root(&init_val);
+                        SL_GC_REMOVE_ROOT(&init_val);
                         break;
                     }
-                    sl_gc_add_root(&new_init_node);
+                    SL_GC_ADD_ROOT(&new_init_node);
                     if (init_vals_list == SL_NIL) {
                         init_vals_list = new_init_node;
                     } else {
                         sl_set_cdr(inits_tail_node, new_init_node);
                     }
                     inits_tail_node = new_init_node;
-                    sl_gc_remove_root(&new_init_node);
+                    SL_GC_REMOVE_ROOT(&new_init_node);
 
                     // --- End Appends ---
 
-                    sl_gc_remove_root(&init_val);  // Value is safe in init_vals_list
+                    SL_GC_REMOVE_ROOT(&init_val);  // Value is safe in init_vals_list
                     current_binding_node = sl_cdr(current_binding_node);
                 }
-                sl_gc_remove_root(&current_binding_node);
+                SL_GC_REMOVE_ROOT(&current_binding_node);
 
                 // --- NEW: Remove roots for tail node pointers ---
-                sl_gc_remove_root(&vars_tail_node);
-                sl_gc_remove_root(&steps_tail_node);
-                sl_gc_remove_root(&inits_tail_node);
+                SL_GC_REMOVE_ROOT(&vars_tail_node);
+                SL_GC_REMOVE_ROOT(&steps_tail_node);
+                SL_GC_REMOVE_ROOT(&inits_tail_node);
                 // ---
 
                 if (!init_ok) { goto cleanup_do_state; }  // Error during init eval or list building
@@ -1261,7 +1262,7 @@ top_of_eval:;
                 // --- 3. Create Loop Environment & Bind Initial Values ---
                 sl_object *loop_env = sl_env_create(env);
                 CHECK_ALLOC_GOTO(loop_env, cleanup_do_state, result);
-                sl_gc_add_root(&loop_env);
+                SL_GC_ADD_ROOT(&loop_env);
 
                 sl_object *v_iter = vars_list;
                 sl_object *iv_iter = init_vals_list;
@@ -1276,26 +1277,26 @@ top_of_eval:;
 
                 // --- 4. The Loop ---
                 sl_object *step_vals_list = SL_NIL;  // Temp storage for evaluated steps
-                sl_gc_add_root(&step_vals_list);
+                SL_GC_ADD_ROOT(&step_vals_list);
                 while (true) {
                     // a. Evaluate Test in loop_env
                     sl_object *test_result = sl_eval(test_expr, loop_env);  // MIGHT GC
-                    sl_gc_add_root(&test_result);
+                    SL_GC_ADD_ROOT(&test_result);
 
                     if (test_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(test_result)) {
                         result = test_result;  // Propagate error
-                        sl_gc_remove_root(&test_result);
+                        SL_GC_REMOVE_ROOT(&test_result);
                         goto cleanup_do_loop;
                     }
 
                     // b. Check Test Result
                     if (test_result != SL_FALSE) {
-                        sl_gc_remove_root(&test_result);  // Unroot test result
+                        SL_GC_REMOVE_ROOT(&test_result);  // Unroot test result
 
                         // Evaluate result expressions sequentially in loop_env
                         sl_object *current_res_expr_node = result_exprs;
                         result = SL_NIL;  // Default if no result exprs
-                        sl_gc_add_root(&current_res_expr_node);
+                        SL_GC_ADD_ROOT(&current_res_expr_node);
 
                         while (current_res_expr_node != SL_NIL) {
                             if (!sl_is_pair(current_res_expr_node)) {
@@ -1303,9 +1304,9 @@ top_of_eval:;
                                 goto cleanup_do_results;
                             }
                             sl_object *res_expr = sl_car(current_res_expr_node);
-                            sl_gc_remove_root(&result);            // Unroot previous result
+                            SL_GC_REMOVE_ROOT(&result);            // Unroot previous result
                             result = sl_eval(res_expr, loop_env);  // MIGHT GC
-                            sl_gc_add_root(&result);               // Root new result
+                            SL_GC_ADD_ROOT(&result);               // Root new result
 
                             if (result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result)) {
                                 goto cleanup_do_results;  // Propagate error
@@ -1313,32 +1314,32 @@ top_of_eval:;
                             current_res_expr_node = sl_cdr(current_res_expr_node);
                         }
                     cleanup_do_results:
-                        sl_gc_remove_root(&current_res_expr_node);
+                        SL_GC_REMOVE_ROOT(&current_res_expr_node);
                         goto cleanup_do_loop;  // Exit loop, result holds final value/error
                     }
-                    sl_gc_remove_root(&test_result);  // Unroot test result (#f)
+                    SL_GC_REMOVE_ROOT(&test_result);  // Unroot test result (#f)
 
                     // c. Execute Commands in loop_env
                     sl_object *current_cmd_node = commands;
-                    sl_gc_add_root(&current_cmd_node);
+                    SL_GC_ADD_ROOT(&current_cmd_node);
                     while (current_cmd_node != SL_NIL) {
                         if (!sl_is_pair(current_cmd_node)) { /* Handled by initial check */
                             break;
                         }
                         sl_object *cmd_expr = sl_car(current_cmd_node);
                         sl_object *cmd_result = sl_eval(cmd_expr, loop_env);  // MIGHT GC
-                        sl_gc_add_root(&cmd_result);                          // Root intermediate result
+                        SL_GC_ADD_ROOT(&cmd_result);                          // Root intermediate result
 
                         if (cmd_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(cmd_result)) {
                             result = cmd_result;  // Propagate error
-                            sl_gc_remove_root(&cmd_result);
-                            sl_gc_remove_root(&current_cmd_node);
+                            SL_GC_REMOVE_ROOT(&cmd_result);
+                            SL_GC_REMOVE_ROOT(&current_cmd_node);
                             goto cleanup_do_loop;
                         }
-                        sl_gc_remove_root(&cmd_result);  // Discard command result
+                        SL_GC_REMOVE_ROOT(&cmd_result);  // Discard command result
                         current_cmd_node = sl_cdr(current_cmd_node);
                     }
-                    sl_gc_remove_root(&current_cmd_node);
+                    SL_GC_REMOVE_ROOT(&current_cmd_node);
 
                     // d. Evaluate Steps in loop_env (store temporarily)
                     step_vals_list = SL_NIL;  // Reset temp list
@@ -1347,10 +1348,10 @@ top_of_eval:;
                     sl_object *current_step_expr_node = steps_list;
 
                     sl_object *v_iter_debug = vars_list;   // Add parallel iterator for var names
-                    sl_gc_add_root(&v_iter_debug);         // Root it
-                    sl_gc_add_root(&step_vals_tail_node);  // <<< NEW: Root the tail node pointer variable
+                    SL_GC_ADD_ROOT(&v_iter_debug);         // Root it
+                    SL_GC_ADD_ROOT(&step_vals_tail_node);  // <<< NEW: Root the tail node pointer variable
 
-                    sl_gc_add_root(&current_step_expr_node);
+                    SL_GC_ADD_ROOT(&current_step_expr_node);
                     bool step_ok = true;
 
                     while (current_step_expr_node != SL_NIL) {
@@ -1359,27 +1360,27 @@ top_of_eval:;
 
                         sl_object *step_val = sl_eval(step_expr, loop_env);  // <<< EVALUATE STEP
 
-                        sl_gc_add_root(&step_val);
+                        SL_GC_ADD_ROOT(&step_val);
 
                         if (step_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(step_val)) {
                             result = step_val;  // Propagate error
-                            sl_gc_remove_root(&step_val);
+                            SL_GC_REMOVE_ROOT(&step_val);
                             step_ok = false;
                             break;
                         }
 
                         if (!append_to_list(&step_vals_list, &step_vals_tail_node, step_val)) {
                             result = sl_make_errorf("Eval: OOM building do step values");
-                            sl_gc_remove_root(&step_val);
+                            SL_GC_REMOVE_ROOT(&step_val);
                             step_ok = false;
                             break;
                         }
-                        sl_gc_remove_root(&step_val);  // Value safe in step_vals_list
+                        SL_GC_REMOVE_ROOT(&step_val);  // Value safe in step_vals_list
                         current_step_expr_node = sl_cdr(current_step_expr_node);
                     }
-                    sl_gc_remove_root(&current_step_expr_node);
-                    sl_gc_remove_root(&v_iter_debug);  // <<< ADD THIS LINE
-                    sl_gc_remove_root(&step_vals_tail_node);
+                    SL_GC_REMOVE_ROOT(&current_step_expr_node);
+                    SL_GC_REMOVE_ROOT(&v_iter_debug);  // <<< ADD THIS LINE
+                    SL_GC_REMOVE_ROOT(&step_vals_tail_node);
 
                     if (!step_ok) { goto cleanup_do_loop; }  // Error during step eval
 
@@ -1401,18 +1402,18 @@ top_of_eval:;
                 }  // End while(true) loop
 
             cleanup_do_loop:
-                sl_gc_remove_root(&step_vals_list);
-                sl_gc_remove_root(&loop_env);
+                SL_GC_REMOVE_ROOT(&step_vals_list);
+                SL_GC_REMOVE_ROOT(&loop_env);
             cleanup_do_state:
-                sl_gc_remove_root(&init_vals_list);
-                sl_gc_remove_root(&steps_list);
-                sl_gc_remove_root(&vars_list);
-                sl_gc_remove_root(&commands);
-                sl_gc_remove_root(&result_exprs);
-                sl_gc_remove_root(&test_expr);
-                sl_gc_remove_root(&bindings);
+                SL_GC_REMOVE_ROOT(&init_vals_list);
+                SL_GC_REMOVE_ROOT(&steps_list);
+                SL_GC_REMOVE_ROOT(&vars_list);
+                SL_GC_REMOVE_ROOT(&commands);
+                SL_GC_REMOVE_ROOT(&result_exprs);
+                SL_GC_REMOVE_ROOT(&test_expr);
+                SL_GC_REMOVE_ROOT(&bindings);
             cleanup_do:
-                sl_gc_remove_root(&args);
+                SL_GC_REMOVE_ROOT(&args);
                 break;  // Break from switch case 'do'
             }  // End DO block
 
@@ -1424,11 +1425,11 @@ top_of_eval:;
 
         // --- Generic Function Call ---
         // If op_obj wasn't a symbol or wasn't a recognized special form symbol.
-        sl_gc_add_root(&op_obj);  // Root operator object itself
-        sl_gc_add_root(&args);    // Root arguments list
+        SL_GC_ADD_ROOT(&op_obj);  // Root operator object itself
+        SL_GC_ADD_ROOT(&args);    // Root arguments list
 
         sl_object *fn = sl_eval(op_obj, env);  // Evaluate the operator - MIGHT GC
-        sl_gc_add_root(&fn);                   // Root the resulting function object
+        SL_GC_ADD_ROOT(&fn);                   // Root the resulting function object
 
         if (fn == SL_OUT_OF_MEMORY_ERROR) {
             result = fn;
@@ -1443,7 +1444,7 @@ top_of_eval:;
 
         // Evaluate arguments
         sl_object *evaled_args = sl_eval_list(args, env);  // Eval list - MIGHT GC
-        sl_gc_add_root(&evaled_args);                      // Root the evaluated argument list
+        SL_GC_ADD_ROOT(&evaled_args);                      // Root the evaluated argument list
 
         // --- ADDED CHECK for errors from sl_eval_list ---
         if (evaled_args == SL_OUT_OF_MEMORY_ERROR || sl_is_error(evaled_args)) {
@@ -1462,22 +1463,22 @@ top_of_eval:;
             // sl_apply signaled that a tail call is needed.
             // eval_sequence_with_defines (called by sl_apply) already updated obj and env.
             // Unroot locals specific to this path before jumping.
-            sl_gc_remove_root(&evaled_args);
-            sl_gc_remove_root(&fn);
-            sl_gc_remove_root(&op_obj);
-            sl_gc_remove_root(&args);
+            SL_GC_REMOVE_ROOT(&evaled_args);
+            SL_GC_REMOVE_ROOT(&fn);
+            SL_GC_REMOVE_ROOT(&op_obj);
+            SL_GC_REMOVE_ROOT(&args);
             goto top_of_eval;  // Jump back to the main loop start
         }
         // --- END ADDED CHECK ---
         // Otherwise, result holds the final value or an error from sl_apply
 
     cleanup_args_call:
-        sl_gc_remove_root(&evaled_args);
+        SL_GC_REMOVE_ROOT(&evaled_args);
     cleanup_fn_call:
-        sl_gc_remove_root(&fn);
+        SL_GC_REMOVE_ROOT(&fn);
         // Also unroot op_obj and args used in this path
-        sl_gc_remove_root(&op_obj);
-        sl_gc_remove_root(&args);
+        SL_GC_REMOVE_ROOT(&op_obj);
+        SL_GC_REMOVE_ROOT(&args);
         break;  // Break from switch case SL_TYPE_PAIR
 
     }  // end case SL_TYPE_PAIR
@@ -1490,9 +1491,9 @@ top_of_eval:;
 
 cleanup:
     // --- Unroot locals before returning ---
-    sl_gc_remove_root(&result);
-    sl_gc_remove_root(&env);
-    sl_gc_remove_root(&obj);
+    SL_GC_REMOVE_ROOT(&result);
+    SL_GC_REMOVE_ROOT(&env);
+    SL_GC_REMOVE_ROOT(&obj);
     return result;
 }
 
@@ -1517,11 +1518,11 @@ sl_object *sl_eval_list(sl_object *list, sl_object *env) {
     sl_object *return_value = SL_NIL;     // Final return
 
     // Root key variables
-    sl_gc_add_root(&head);               // Protect the list being built
-    sl_gc_add_root(&env);                // Protect the environment
-    sl_gc_add_root(&current_expr_node);  // Protect traversal position
-    sl_gc_add_root(&evaled_arg);         // Protect intermediate eval result
-    sl_gc_add_root(&new_pair);           // Protect intermediate allocation
+    SL_GC_ADD_ROOT(&head);               // Protect the list being built
+    SL_GC_ADD_ROOT(&env);                // Protect the environment
+    SL_GC_ADD_ROOT(&current_expr_node);  // Protect traversal position
+    SL_GC_ADD_ROOT(&evaled_arg);         // Protect intermediate eval result
+    SL_GC_ADD_ROOT(&new_pair);           // Protect intermediate allocation
 
     while (current_expr_node != SL_NIL) {
         if (!sl_is_pair(current_expr_node)) {
@@ -1556,11 +1557,11 @@ sl_object *sl_eval_list(sl_object *list, sl_object *env) {
 
 cleanup_eval_list:
     // Unroot all local roots
-    sl_gc_remove_root(&new_pair);
-    sl_gc_remove_root(&evaled_arg);
-    sl_gc_remove_root(&current_expr_node);
-    sl_gc_remove_root(&env);
-    sl_gc_remove_root(&head);
+    SL_GC_REMOVE_ROOT(&new_pair);
+    SL_GC_REMOVE_ROOT(&evaled_arg);
+    SL_GC_REMOVE_ROOT(&current_expr_node);
+    SL_GC_REMOVE_ROOT(&env);
+    SL_GC_REMOVE_ROOT(&head);
     return return_value;
 }
 
@@ -1584,9 +1585,9 @@ sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_obje
 
     sl_object *result = SL_NIL;
     // --- Root key variables ---
-    sl_gc_add_root(&fn);
-    sl_gc_add_root(&args);
-    sl_gc_add_root(&result);
+    SL_GC_ADD_ROOT(&fn);
+    SL_GC_ADD_ROOT(&args);
+    SL_GC_ADD_ROOT(&result);
 
     if (fn->data.function.is_builtin) {
         // Builtins cannot be tail called in this scheme. They execute and return.
@@ -1598,21 +1599,21 @@ sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_obje
         sl_object *closure_env = fn->data.function.def.closure.env;
 
         // Root closure parts temporarily
-        sl_gc_add_root(&params);
-        sl_gc_add_root(&body_list);
-        sl_gc_add_root(&closure_env);
+        SL_GC_ADD_ROOT(&params);
+        SL_GC_ADD_ROOT(&body_list);
+        SL_GC_ADD_ROOT(&closure_env);
 
         // Create a new environment for the call
         sl_object *call_env = sl_env_create(closure_env);
         CHECK_ALLOC_GOTO(call_env, cleanup_apply_closure, result);
-        sl_gc_add_root(&call_env);
+        SL_GC_ADD_ROOT(&call_env);
 
         // --- REVISED Binding Logic for Variadics ---
         sl_object *p = params;  // Current parameter specifier
         sl_object *a = args;    // Current argument list node
         bool bind_ok = true;
-        sl_gc_add_root(&p);  // Root traversal pointers
-        sl_gc_add_root(&a);
+        SL_GC_ADD_ROOT(&p);  // Root traversal pointers
+        SL_GC_ADD_ROOT(&a);
 
         if (sl_is_pair(p)) {  // Case 1 & 2: Proper or dotted list parameters (e.g., (a b) or (a b . rest))
             while (sl_is_pair(p) && sl_is_pair(a)) {
@@ -1664,8 +1665,8 @@ sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_obje
         }
 
     binding_done:
-        sl_gc_remove_root(&p);  // Unroot traversal pointers
-        sl_gc_remove_root(&a);
+        SL_GC_REMOVE_ROOT(&p);  // Unroot traversal pointers
+        SL_GC_REMOVE_ROOT(&a);
         // --- End REVISED Binding Logic ---
 
         if (bind_ok) {
@@ -1678,30 +1679,30 @@ sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_obje
             if (result == SL_CONTINUE_EVAL) {
                 // TCO signaled. Clean up sl_apply's locals before returning signal.
                 // Cleanup closure/call specific roots
-                sl_gc_remove_root(&call_env);
-                sl_gc_remove_root(&params);
-                sl_gc_remove_root(&body_list);
-                sl_gc_remove_root(&closure_env);
+                SL_GC_REMOVE_ROOT(&call_env);
+                SL_GC_REMOVE_ROOT(&params);
+                SL_GC_REMOVE_ROOT(&body_list);
+                SL_GC_REMOVE_ROOT(&closure_env);
                 // Also clean up the main roots for fn, args, result
-                sl_gc_remove_root(&result);  // result holds SL_CONTINUE_EVAL, safe to unroot
-                sl_gc_remove_root(&args);
-                sl_gc_remove_root(&fn);
+                SL_GC_REMOVE_ROOT(&result);  // result holds SL_CONTINUE_EVAL, safe to unroot
+                SL_GC_REMOVE_ROOT(&args);
+                SL_GC_REMOVE_ROOT(&fn);
                 return SL_CONTINUE_EVAL;  // Propagate signal
             }
         }
         // else: result already holds the binding error
 
     cleanup_apply_closure:  // Label for cleanup within closure apply path
-        sl_gc_remove_root(&call_env);
-        sl_gc_remove_root(&params);
-        sl_gc_remove_root(&body_list);
-        sl_gc_remove_root(&closure_env);
+        SL_GC_REMOVE_ROOT(&call_env);
+        SL_GC_REMOVE_ROOT(&params);
+        SL_GC_REMOVE_ROOT(&body_list);
+        SL_GC_REMOVE_ROOT(&closure_env);
     }
 
 cleanup_apply:
-    sl_gc_remove_root(&result);
-    sl_gc_remove_root(&args);
-    sl_gc_remove_root(&fn);
+    SL_GC_REMOVE_ROOT(&result);
+    SL_GC_REMOVE_ROOT(&args);
+    SL_GC_REMOVE_ROOT(&fn);
     // Return the final value, an error, OR SL_CONTINUE_EVAL
     return result;
 }
@@ -1714,9 +1715,9 @@ sl_object *sl_eval_string(const char *input, sl_object *env) {
     const char *end_ptr = NULL;
 
     // Root environment and potentially changing last_result/expr
-    sl_gc_add_root(&env);
-    sl_gc_add_root(&last_result);
-    sl_gc_add_root(&expr);  // Root expr slot once
+    SL_GC_ADD_ROOT(&env);
+    SL_GC_ADD_ROOT(&last_result);
+    SL_GC_ADD_ROOT(&expr);  // Root expr slot once
 
     while (true) {
         // --- Skip whitespace AND comments before parsing the next expression ---
@@ -1750,9 +1751,9 @@ sl_object *sl_eval_string(const char *input, sl_object *env) {
 
         // --- Evaluate ---
         // Unroot previous result before eval potentially overwrites it via last_result
-        sl_gc_remove_root(&last_result);
+        SL_GC_REMOVE_ROOT(&last_result);
         last_result = sl_eval(expr, env);
-        sl_gc_add_root(&last_result);  // Re-root the new result
+        SL_GC_ADD_ROOT(&last_result);  // Re-root the new result
 
         // Check for evaluation errors
         if (last_result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(last_result)) {
@@ -1768,9 +1769,9 @@ sl_object *sl_eval_string(const char *input, sl_object *env) {
     }
 
     // Clean up roots
-    sl_gc_remove_root(&expr);
-    sl_gc_remove_root(&last_result);
-    sl_gc_remove_root(&env);
+    SL_GC_REMOVE_ROOT(&expr);
+    SL_GC_REMOVE_ROOT(&last_result);
+    SL_GC_REMOVE_ROOT(&env);
 
     return last_result;  // Return the result of the last evaluation or an error
 }
@@ -1830,8 +1831,8 @@ sl_object *sl_load_directory(const char *dir_path, sl_object *env) {
     }
 
     // Root env and last_result
-    sl_gc_add_root(&env);
-    sl_gc_add_root(&last_result);
+    SL_GC_ADD_ROOT(&env);
+    SL_GC_ADD_ROOT(&last_result);
 
     while ((entry = readdir(dir)) != NULL) {
         const char *name = entry->d_name;
@@ -1895,8 +1896,8 @@ sl_object *sl_load_directory(const char *dir_path, sl_object *env) {
     closedir(dir);
 
     // Unroot locals
-    sl_gc_remove_root(&last_result);
-    sl_gc_remove_root(&env);
+    SL_GC_REMOVE_ROOT(&last_result);
+    SL_GC_REMOVE_ROOT(&env);
 
     // Return SL_TRUE if loop completed without break, otherwise return the error.
     return last_result;

@@ -24,13 +24,13 @@ sl_object *sl_builtin_string(sl_object *args) {
     size_t capacity = 0;
     size_t length = 0;
     sl_object *current = args;
-    sl_gc_add_root(&current);  // Protect argument list iterator
+    SL_GC_ADD_ROOT(&current);  // Protect argument list iterator
 
     while (sl_is_pair(current)) {
         sl_object *char_obj = sl_car(current);
         if (!sl_is_char(char_obj)) {
             free(buffer);
-            sl_gc_remove_root(&current);
+            SL_GC_REMOVE_ROOT(&current);
             return sl_make_errorf("string: Expected a character argument, got %s", sl_type_name(char_obj ? char_obj->type : -1));
         }
 
@@ -48,7 +48,7 @@ sl_object *sl_builtin_string(sl_object *args) {
             char *new_buffer = realloc(buffer, new_capacity);
             if (!new_buffer) {
                 free(buffer);
-                sl_gc_remove_root(&current);
+                SL_GC_REMOVE_ROOT(&current);
                 return SL_OUT_OF_MEMORY_ERROR;
             }
             buffer = new_buffer;
@@ -65,11 +65,11 @@ sl_object *sl_builtin_string(sl_object *args) {
     // Check if args was a proper list (ends in NIL)
     if (!sl_is_nil(current)) {
         free(buffer);
-        sl_gc_remove_root(&current);
+        SL_GC_REMOVE_ROOT(&current);
         return sl_make_errorf("string: Internal error - improper argument list");
     }
 
-    sl_gc_remove_root(&current);
+    SL_GC_REMOVE_ROOT(&current);
 
     // Finalize buffer
     if (!buffer) {  // Handle zero arguments case
@@ -197,7 +197,7 @@ static sl_object *sl_builtin_string_ref(sl_object *args) {
 
 // (string-append str1 str2 ...) -> string
 static sl_object *sl_builtin_string_append(sl_object *args) {
-    sl_gc_add_root(&args);
+    SL_GC_ADD_ROOT(&args);
     size_t total_byte_len = 0;
     sl_object *current_arg = args;
 
@@ -205,7 +205,7 @@ static sl_object *sl_builtin_string_append(sl_object *args) {
     while (sl_is_pair(current_arg)) {
         sl_object *str = sl_car(current_arg);
         if (!sl_is_string(str)) {
-            sl_gc_remove_root(&args);
+            SL_GC_REMOVE_ROOT(&args);
             return sl_make_errorf("string-append: Expected a string, got %s", sl_type_name(str ? str->type : -1));
         }
         const char *str_val = str->data.string_val;
@@ -215,14 +215,14 @@ static sl_object *sl_builtin_string_append(sl_object *args) {
         current_arg = sl_cdr(current_arg);
     }
     if (!sl_is_nil(current_arg)) {
-        sl_gc_remove_root(&args);
+        SL_GC_REMOVE_ROOT(&args);
         return sl_make_errorf("string-append: Internal error - improper argument list");
     }
 
     // Allocate buffer using standard malloc
     char *buffer = malloc(total_byte_len + 1);  // <<< USE malloc
     if (!buffer) {
-        sl_gc_remove_root(&args);
+        SL_GC_REMOVE_ROOT(&args);
         return SL_OUT_OF_MEMORY_ERROR;
     }
     buffer[0] = '\0';
@@ -242,7 +242,7 @@ static sl_object *sl_builtin_string_append(sl_object *args) {
     }
     *current_pos = '\0';
 
-    sl_gc_remove_root(&args);
+    SL_GC_REMOVE_ROOT(&args);
 
     // Create the string object. sl_make_string should copy the buffer.
     sl_object *result = sl_make_string(buffer);
@@ -386,7 +386,7 @@ static sl_object *sl_builtin_string_to_list(sl_object *args) {
     sl_object **tail_ptr = &head;
     const char *ptr = input_str;
 
-    sl_gc_add_root(&head);  // Protect the list being built
+    SL_GC_ADD_ROOT(&head);  // Protect the list being built
 
     while (*ptr != '\0') {
         const char *start_ptr = ptr;
@@ -395,22 +395,22 @@ static sl_object *sl_builtin_string_to_list(sl_object *args) {
 
         // Handle decode error? R7RS says string->list raises error on invalid encoding.
         if (cp == UTF8_REPLACEMENT_CHAR && ptr == start_ptr + 1) {
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return sl_make_errorf("string->list: Invalid UTF-8 sequence in string");
         }
 
         sl_object *char_obj = sl_make_char(cp);
         if (char_obj == SL_OUT_OF_MEMORY_ERROR) {
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return SL_OUT_OF_MEMORY_ERROR;
         }
-        sl_gc_add_root(&char_obj);  // Protect new char
+        SL_GC_ADD_ROOT(&char_obj);  // Protect new char
 
         sl_object *new_pair = sl_make_pair(char_obj, SL_NIL);
-        sl_gc_remove_root(&char_obj);  // Unroot char, now part of pair
+        SL_GC_REMOVE_ROOT(&char_obj);  // Unroot char, now part of pair
 
         if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return SL_OUT_OF_MEMORY_ERROR;
         }
 
@@ -418,7 +418,7 @@ static sl_object *sl_builtin_string_to_list(sl_object *args) {
         tail_ptr = &new_pair->data.pair.cdr;
     }
 
-    sl_gc_remove_root(&head);
+    SL_GC_REMOVE_ROOT(&head);
     return head;
 }
 
@@ -437,13 +437,13 @@ static sl_object *sl_builtin_list_to_string(sl_object *args) {
     size_t capacity = 0;
     size_t length = 0;
     sl_object *current = list_obj;
-    sl_gc_add_root(&current);
+    SL_GC_ADD_ROOT(&current);
 
     while (sl_is_pair(current)) {
         sl_object *char_obj = sl_car(current);
         if (!sl_is_char(char_obj)) {
             free(buffer);  // <<< USE free
-            sl_gc_remove_root(&current);
+            SL_GC_REMOVE_ROOT(&current);
             return sl_make_errorf("list->string: List element is not a character: %s", sl_type_name(char_obj ? char_obj->type : -1));
         }
 
@@ -461,7 +461,7 @@ static sl_object *sl_builtin_list_to_string(sl_object *args) {
             char *new_buffer = realloc(buffer, new_capacity);  // <<< USE realloc
             if (!new_buffer) {
                 free(buffer);  // <<< USE free
-                sl_gc_remove_root(&current);
+                SL_GC_REMOVE_ROOT(&current);
                 return SL_OUT_OF_MEMORY_ERROR;
             }
             buffer = new_buffer;
@@ -478,11 +478,11 @@ static sl_object *sl_builtin_list_to_string(sl_object *args) {
     // Check if list was proper
     if (!sl_is_nil(current)) {
         free(buffer);  // <<< USE free
-        sl_gc_remove_root(&current);
+        SL_GC_REMOVE_ROOT(&current);
         return sl_make_errorf("list->string: Expected a proper list, but encountered non-nil cdr");
     }
 
-    sl_gc_remove_root(&current);
+    SL_GC_REMOVE_ROOT(&current);
 
     // Finalize buffer
     if (!buffer) {           // Handle empty list case
@@ -530,13 +530,13 @@ static sl_object *sl_builtin_string_join(sl_object *args) {
     sl_object *current = list_obj;
     bool first_item = true;
 
-    sl_gc_add_root(&current);  // Protect list iterator
+    SL_GC_ADD_ROOT(&current);  // Protect list iterator
 
     while (sl_is_pair(current)) {
         sl_object *str_obj = sl_car(current);
         if (!sl_is_string(str_obj)) {
             free(buffer);
-            sl_gc_remove_root(&current);
+            SL_GC_REMOVE_ROOT(&current);
             return sl_make_errorf("string-join: List element is not a string: %s", sl_type_name(str_obj ? str_obj->type : -1));
         }
 
@@ -552,7 +552,7 @@ static sl_object *sl_builtin_string_join(sl_object *args) {
             char *new_buffer = realloc(buffer, new_capacity);
             if (!new_buffer) {
                 free(buffer);
-                sl_gc_remove_root(&current);
+                SL_GC_REMOVE_ROOT(&current);
                 return SL_OUT_OF_MEMORY_ERROR;
             }
             buffer = new_buffer;
@@ -576,11 +576,11 @@ static sl_object *sl_builtin_string_join(sl_object *args) {
     // Check if list was proper
     if (!sl_is_nil(current)) {
         free(buffer);
-        sl_gc_remove_root(&current);
+        SL_GC_REMOVE_ROOT(&current);
         return sl_make_errorf("string-join: Expected a proper list, but encountered non-nil cdr");
     }
 
-    sl_gc_remove_root(&current);
+    SL_GC_REMOVE_ROOT(&current);
 
     // Finalize buffer
     if (!buffer) {  // Handle empty list case
@@ -639,7 +639,7 @@ static sl_object *sl_builtin_string_split(sl_object *args) {
     const char *ptr = input_str;
     const char *segment_start = input_str;
 
-    sl_gc_add_root(&head);  // Protect the list being built
+    SL_GC_ADD_ROOT(&head);  // Protect the list being built
 
     while (*ptr != '\0') {
         const char *char_start = ptr;
@@ -650,16 +650,16 @@ static sl_object *sl_builtin_string_split(sl_object *args) {
             size_t segment_len = (size_t)(char_start - segment_start);
             sl_object *sub_obj = make_substring_obj(segment_start, segment_len);
             if (sub_obj == SL_OUT_OF_MEMORY_ERROR) {
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return SL_OUT_OF_MEMORY_ERROR;
             }
-            sl_gc_add_root(&sub_obj);  // Protect substring
+            SL_GC_ADD_ROOT(&sub_obj);  // Protect substring
 
             sl_object *new_pair = sl_make_pair(sub_obj, SL_NIL);
-            sl_gc_remove_root(&sub_obj);  // Unroot substring
+            SL_GC_REMOVE_ROOT(&sub_obj);  // Unroot substring
 
             if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return SL_OUT_OF_MEMORY_ERROR;
             }
 
@@ -677,22 +677,22 @@ static sl_object *sl_builtin_string_split(sl_object *args) {
     size_t segment_len = (size_t)(ptr - segment_start);
     sl_object *sub_obj = make_substring_obj(segment_start, segment_len);
     if (sub_obj == SL_OUT_OF_MEMORY_ERROR) {
-        sl_gc_remove_root(&head);
+        SL_GC_REMOVE_ROOT(&head);
         return SL_OUT_OF_MEMORY_ERROR;
     }
-    sl_gc_add_root(&sub_obj);
+    SL_GC_ADD_ROOT(&sub_obj);
 
     sl_object *new_pair = sl_make_pair(sub_obj, SL_NIL);
-    sl_gc_remove_root(&sub_obj);
+    SL_GC_REMOVE_ROOT(&sub_obj);
 
     if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
-        sl_gc_remove_root(&head);
+        SL_GC_REMOVE_ROOT(&head);
         return SL_OUT_OF_MEMORY_ERROR;
     }
 
     *tail_ptr = new_pair;  // Append the last segment
 
-    sl_gc_remove_root(&head);
+    SL_GC_REMOVE_ROOT(&head);
     return head;
 }
 
@@ -731,7 +731,7 @@ static sl_object *sl_builtin_string_tokenize(sl_object *args) {
     const char *ptr = input_str;
     const char *segment_start = NULL;  // Start of current token (initially null)
 
-    sl_gc_add_root(&head);  // Protect the list being built
+    SL_GC_ADD_ROOT(&head);  // Protect the list being built
 
     while (*ptr != '\0') {
         const char *char_start = ptr;
@@ -746,16 +746,16 @@ static sl_object *sl_builtin_string_tokenize(sl_object *args) {
             size_t segment_len = (size_t)(char_start - segment_start);
             sl_object *sub_obj = make_substring_obj(segment_start, segment_len);
             if (sub_obj == SL_OUT_OF_MEMORY_ERROR) {
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return SL_OUT_OF_MEMORY_ERROR;
             }
-            sl_gc_add_root(&sub_obj);
+            SL_GC_ADD_ROOT(&sub_obj);
 
             sl_object *new_pair = sl_make_pair(sub_obj, SL_NIL);
-            sl_gc_remove_root(&sub_obj);
+            SL_GC_REMOVE_ROOT(&sub_obj);
 
             if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return SL_OUT_OF_MEMORY_ERROR;
             }
 
@@ -774,23 +774,23 @@ static sl_object *sl_builtin_string_tokenize(sl_object *args) {
         size_t segment_len = (size_t)(ptr - segment_start);
         sl_object *sub_obj = make_substring_obj(segment_start, segment_len);
         if (sub_obj == SL_OUT_OF_MEMORY_ERROR) {
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return SL_OUT_OF_MEMORY_ERROR;
         }
-        sl_gc_add_root(&sub_obj);
+        SL_GC_ADD_ROOT(&sub_obj);
 
         sl_object *new_pair = sl_make_pair(sub_obj, SL_NIL);
-        sl_gc_remove_root(&sub_obj);
+        SL_GC_REMOVE_ROOT(&sub_obj);
 
         if (new_pair == SL_OUT_OF_MEMORY_ERROR) {
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return SL_OUT_OF_MEMORY_ERROR;
         }
 
         *tail_ptr = new_pair;
     }
 
-    sl_gc_remove_root(&head);
+    SL_GC_REMOVE_ROOT(&head);
     return head;
 }
 
@@ -1351,9 +1351,9 @@ static sl_object *sl_builtin_string_to_infix_tokens(sl_object *args) {
     sl_object *token_list = SL_NIL;
     sl_object *tail_node = SL_NIL;
 
-    sl_gc_add_root(&str_obj);
-    sl_gc_add_root(&token_list);
-    sl_gc_add_root(&tail_node);
+    SL_GC_ADD_ROOT(&str_obj);
+    SL_GC_ADD_ROOT(&token_list);
+    SL_GC_ADD_ROOT(&tail_node);
 
     while (*p != '\0') {
         // 1. Skip whitespace
@@ -1430,21 +1430,21 @@ static sl_object *sl_builtin_string_to_infix_tokens(sl_object *args) {
 
         // Append token (which is always a string now)
         if (token) {
-            sl_gc_add_root(&token);
+            SL_GC_ADD_ROOT(&token);
             if (append_to_list(&token_list, &tail_node, token) == NULL) {
-                sl_gc_remove_root(&token);
+                SL_GC_REMOVE_ROOT(&token);
                 token_list = SL_OUT_OF_MEMORY_ERROR;
                 goto cleanup_tokenizer;
             }
-            sl_gc_remove_root(&token);
+            SL_GC_REMOVE_ROOT(&token);
         }
     }  // end while
 
 cleanup_tokenizer:
     // ... remove GC roots ...
-    sl_gc_remove_root(&tail_node);
-    sl_gc_remove_root(&token_list);
-    sl_gc_remove_root(&str_obj);
+    SL_GC_REMOVE_ROOT(&tail_node);
+    SL_GC_REMOVE_ROOT(&token_list);
+    SL_GC_REMOVE_ROOT(&str_obj);
     return token_list;
 }
 

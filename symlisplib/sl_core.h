@@ -128,6 +128,7 @@ extern sl_object *SL_UNDEFINED;        // <<< ADDED
         goto label;                                                                  \
     }
 
+// --- ADD DEBUG_GC_ROOTS Macro ---
 #define DEBUG_GC_ROOTS  // Enable debug GC root tracking
 
 #ifdef DEBUG_GC_ROOTS  // Make it conditional for release builds

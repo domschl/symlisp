@@ -4,7 +4,7 @@ import sys
 # --- Configuration ---
 # The bad pointer value seen in the crash (sl_gc_mark argument)
 # IMPORTANT: Update this if the crash address changes!
-bad_ptr_val = 0x7fffffffc280
+bad_ptr_val = 0x00000006000005d7
 # --- End Configuration ---
 
 debugger = lldb.debugger

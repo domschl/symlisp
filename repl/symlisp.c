@@ -6,6 +6,7 @@
 #include <readline/history.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <unistd.h>  // For getopt
 
 #include "sl_core.h"
 #include "sl_env.h"
@@ -209,6 +210,25 @@ void run_repl() {
 }
 
 int main(int argc, char *argv[]) {
+    bool load_stdlib = true;  // Default to loading stdlib
+    int opt;
+
+    // Simple argument parsing using getopt
+    while ((opt = getopt(argc, argv, "n")) != -1) {
+        switch (opt) {
+        case 'n':
+            load_stdlib = false;
+            break;
+        case '?':  // Unknown option or missing argument
+            fprintf(stderr, "Usage: %s [-n]\n", argv[0]);
+            fprintf(stderr, "  -n: Do not load standard library\n");
+            return 1;
+        default:
+            // Should not happen with this simple option string
+            break;
+        }
+    }
+
     // Initialize memory, GC, core objects (NIL, TRUE, FALSE, OOM)
     sl_mem_init(0);  // Use default heap size for now
 
@@ -226,23 +246,27 @@ int main(int argc, char *argv[]) {
     // Initialize built-in functions and add them to the global environment
     sl_builtins_init(sl_global_env);  // (NOW SAFE)
 
-    // --- Load Standard Library ---
-    printf("Loading standard library from: %s\n", DEFAULT_STDLIB_PATH);
-    sl_object *load_lib_result = sl_load_directory(DEFAULT_STDLIB_PATH, sl_global_env);
-    if (load_lib_result != SL_TRUE) {
-        fprintf(stderr, "Error loading standard library:\n");
-        // Print the error object returned by sl_load_directory
-        char *err_str = sl_object_to_string(load_lib_result);
-        if (err_str) {
-            fprintf(stderr, "  %s\n", err_str);
-            free(err_str);
-        } else {
-            fprintf(stderr, "  Unknown error during library loading.\n");
+    // --- Load Standard Library (conditionally) ---
+    if (load_stdlib) {
+        printf("Loading standard library from: %s\n", DEFAULT_STDLIB_PATH);
+        sl_object *load_lib_result = sl_load_directory(DEFAULT_STDLIB_PATH, sl_global_env);
+        if (load_lib_result != SL_TRUE) {
+            fprintf(stderr, "Error loading standard library:\n");
+            // Print the error object returned by sl_load_directory
+            char *err_str = sl_object_to_string(load_lib_result);
+            if (err_str) {
+                fprintf(stderr, "  %s\n", err_str);
+                free(err_str);
+            } else {
+                fprintf(stderr, "  Unknown error during library loading.\n");
+            }
+            sl_mem_shutdown();  // Use shutdown before exit
+            return 1;
         }
-        sl_mem_shutdown();  // Use shutdown before exit
-        return 1;
+        printf("Standard library loaded.\n");
+    } else {
+        printf("Skipping standard library loading (-n specified).\n");
     }
-    printf("Standard library loaded.\n");
     // ---------------------------
 
     // Load history

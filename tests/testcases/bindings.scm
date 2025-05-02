@@ -121,7 +121,8 @@
   (define (sum-all nums) (apply + nums)) ; Assumes apply and + work
   (assert-equal (sum-all '(1 2 3 4)) 10))) ; Note: This tests passing a list
 
-(define-test-thunked "apply-with-variadic" ; Test apply on a variadic lambda
+ ; Test apply on a variadic lambda
+(define-test-thunked "apply-with-variadic"
   (lambda ()
   (let ((f (lambda (a . rest) (list a rest))))
     (assert-equal (apply f '(1 2 3)) '(1 (2 3))))))

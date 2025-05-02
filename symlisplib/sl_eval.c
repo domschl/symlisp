@@ -47,7 +47,6 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     sl_gc_add_root(&body_start_node);
     sl_gc_add_root(&sequence_result);  // remove after GC analysis
 
-    printf("[DEBUG] eval_sequence_with_defines: seq=%p, env=%p, defines_list=%p, body_start_node=%p, sequence_result=%p\n", (void *)seq, (void *)env, (void *)defines_list, (void *)body_start_node, (void *)sequence_result);
     // --- Pass 1: Scan for defines and create placeholders ---
     bool defines_found = false;
     while (sl_is_pair(current_node)) {
@@ -105,7 +104,6 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     if (defines_found) {
         current_node = defines_list;
         sl_gc_add_root(&current_node);  // Root traversal pointer for defines
-        printf("[DEBUG] eval_sequence_with_defines: Found defines, current_node=%p\n", (void *)current_node);
         while (current_node != SL_NIL) {
             // We know current_node is a pair containing a define expression
             sl_object *define_expr = sl_car(current_node);
@@ -160,7 +158,6 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     // --- Pass 3: Evaluate body expressions ---
     current_node = body_start_node;
     sl_gc_add_root(&current_node);
-    printf("[DEBUG] eval_sequence_with_defines: Evaluating body, current_node=%p\n", (void *)current_node);
     sequence_result = SL_NIL;  // Default if body is empty
 
     if (current_node == SL_NIL) {
@@ -188,7 +185,6 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
                 // cleaned up within that pass or its error paths.
                 return SL_CONTINUE_EVAL;  // Signal TCO
             } else {                      // No TCO possible
-                printf("[DEBUG] eval_sequence_with_defines: expr_to_eval: %p, seq_result=%p\n", (void *)expr_to_eval, (void *)sequence_result);
                 sl_gc_add_root(&expr_to_eval);
                 sl_gc_remove_root(&sequence_result);           // Remove root before assigning final value
                 sequence_result = sl_eval(expr_to_eval, env);  // Evaluate final expression

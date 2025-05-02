@@ -128,6 +128,25 @@ extern sl_object *SL_UNDEFINED;        // <<< ADDED
         goto label;                                                                  \
     }
 
+#define DEBUG_GC_ROOTS  // Enable debug GC root tracking
+
+#ifdef DEBUG_GC_ROOTS  // Make it conditional for release builds
+#define SL_GC_ADD_ROOT(ptr) sl_gc_add_root_debug(ptr, __FILE__, __LINE__)
+#define SL_GC_REMOVE_ROOT(ptr) sl_gc_remove_root_debug(ptr, __FILE__, __LINE__)
+#else
+#define SL_GC_ADD_ROOT(ptr) sl_gc_add_root_impl(ptr)
+#define SL_GC_REMOVE_ROOT(ptr) sl_gc_remove_root_impl(ptr)
+#endif
+
+// Function declarations (implement in sl_core.c)
+#ifdef DEBUG_GC_ROOTS
+void sl_gc_add_root_debug(sl_object **root_ptr, const char *file, int line);
+void sl_gc_remove_root_debug(sl_object **root_ptr, const char *file, int line);  // Pass file/line for error messages
+#else
+void sl_gc_add_root_impl(sl_object **root_ptr);
+void sl_gc_remove_root_impl(sl_object **root_ptr);
+#endif
+
 // --- Memory Management ---
 // Initialize the memory management system (Must also initialize GMP if needed)
 void sl_mem_init(size_t initial_heap_size);

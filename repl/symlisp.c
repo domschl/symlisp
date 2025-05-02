@@ -41,6 +41,29 @@ int check_balance(const char *str) {
     return balance;
 }
 
+// Function to print the result or error of an evaluation
+void print_eval_result(sl_object *eval_result) {
+    if (eval_result && eval_result != SL_NIL) {
+        char *result_str = sl_object_to_string(eval_result);
+        if (result_str) {
+            if (sl_is_error(eval_result)) {
+                fprintf(stderr, "%s\n", result_str);
+            } else {
+                printf("%s\n", result_str);  // Print directly for -c/-f output
+            }
+            free(result_str);
+        } else {
+            if (eval_result == SL_OUT_OF_MEMORY_ERROR) {
+                fprintf(stderr, "Error: Out of memory during evaluation or result conversion.\n");
+            } else {
+                fprintf(stderr, "Error: Could not convert final result to string.\n");
+            }
+        }
+    } else if (eval_result == SL_NIL) {
+        // Don't print anything for NIL result in script/command mode
+    }
+}
+
 void run_repl() {
     char *home_dir = getenv("HOME");
     char history_dir[1024] = "";
@@ -211,21 +234,37 @@ void run_repl() {
 
 int main(int argc, char *argv[]) {
     bool load_stdlib = true;  // Default to loading stdlib
+    char *file_to_load = NULL;
+    char *expr_to_eval = NULL;
     int opt;
 
-    // Simple argument parsing using getopt
-    while ((opt = getopt(argc, argv, "n")) != -1) {
+    while ((opt = getopt(argc, argv, "nf:c:")) != -1) {
         switch (opt) {
         case 'n':
             load_stdlib = false;
             break;
-        case '?':  // Unknown option or missing argument
-            fprintf(stderr, "Usage: %s [-n]\n", argv[0]);
-            fprintf(stderr, "  -n: Do not load standard library\n");
-            return 1;
-        default:
-            // Should not happen with this simple option string
+        case 'f':
+            file_to_load = optarg;
             break;
+        case 'c':
+            expr_to_eval = optarg;
+            break;
+        case '?':  // Unknown option or missing argument
+            if (optopt == 'f' || optopt == 'c') {
+                fprintf(stderr, "Option -%c requires an argument.\n", optopt);
+            } else if (isprint(optopt)) {
+                fprintf(stderr, "Unknown option `-%c'.\n", optopt);
+            } else {
+                fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);
+            }
+            // Fall through to print usage
+        default:  // Also handles '?' after printing specific error
+            fprintf(stderr, "Usage: %s [-n] [-f <filename.scm>] [-c <scheme-expression>]\n", argv[0]);
+            fprintf(stderr, "  -n: Do not load standard library\n");
+            fprintf(stderr, "  -f <filename.scm>: Load file and exit\n");
+            fprintf(stderr, "  -c <scheme-expression>: Evaluate expression and exit\n");
+            fprintf(stderr, "If both -f and -c are given, -c takes precedence.\n");
+            return 1;
         }
     }
 
@@ -268,6 +307,50 @@ int main(int argc, char *argv[]) {
         printf("Skipping standard library loading (-n specified).\n");
     }
     // ---------------------------
+    // --- Handle -c or -f options ---
+    int exit_code = 0;
+
+    if (expr_to_eval) {
+        // Evaluate the expression from -c
+        sl_object *eval_result = sl_eval_string(expr_to_eval, sl_global_env);
+        print_eval_result(eval_result);
+        if (sl_is_error(eval_result)) {
+            exit_code = 1;  // Exit with error if evaluation resulted in error
+        }
+        sl_gc();  // Run GC before shutdown
+        sl_mem_shutdown();
+        return exit_code;
+    } else if (file_to_load) {
+        // Construct (load "filename") expression
+        // Max length: 6 (load ") + strlen + 2 (") + 1 (null) = 9 + strlen
+        size_t load_expr_len = strlen(file_to_load) + 10;
+        char *load_expr = malloc(load_expr_len);
+        if (!load_expr) {
+            fprintf(stderr, "Fatal: Failed to allocate memory for load expression.\n");
+            sl_mem_shutdown();
+            return 1;
+        }
+        // Need to escape backslashes and quotes within the filename for the string literal
+        // For simplicity here, we assume basic filenames. Robust handling would escape.
+        snprintf(load_expr, load_expr_len, "(load \"%s\")", file_to_load);
+
+        sl_object *eval_result = sl_eval_string(load_expr, sl_global_env);
+        free(load_expr);  // Free the constructed expression string
+        // Don't print the result of load itself unless it's an error
+        if (sl_is_error(eval_result)) {
+            print_eval_result(eval_result);
+            exit_code = 1;
+        } else if (eval_result == SL_OUT_OF_MEMORY_ERROR) {
+            print_eval_result(eval_result);  // Print OOM error
+            exit_code = 1;
+        }
+        sl_gc();  // Run GC before shutdown
+        sl_mem_shutdown();
+        return exit_code;
+    }
+    // ---------------------------
+
+    // --- If neither -c nor -f, run REPL ---
 
     // Load history
     char *home_dir = getenv("HOME");

@@ -59,12 +59,12 @@ void sl_env_define(sl_object *env_obj, sl_object *symbol, sl_object *value) {
     }
 
     // --- FIX: Root the intermediate pair before the next allocation ---
-    sl_gc_add_root(&new_binding_pair);
+    SL_GC_ADD_ROOT(&new_binding_pair);
 
     sl_object *new_bindings_head = sl_make_pair(new_binding_pair, sl_env_bindings(env_obj));
 
     // --- FIX: Unroot the intermediate pair ---
-    sl_gc_remove_root(&new_binding_pair);
+    SL_GC_REMOVE_ROOT(&new_binding_pair);
 
     if (!new_bindings_head || new_bindings_head == SL_OUT_OF_MEMORY_ERROR) {
         // Handle allocation failure for the outer pair

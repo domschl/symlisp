@@ -214,10 +214,10 @@ static sl_object *reverse_list_internal(sl_object *list) {
     sl_object *current = list;
     sl_object *temp_item = SL_NIL;
 
-    sl_gc_add_root(&list);  // Root input list
-    sl_gc_add_root(&reversed);
-    sl_gc_add_root(&current);
-    sl_gc_add_root(&temp_item);
+    SL_GC_ADD_ROOT(&list);  // Root input list
+    SL_GC_ADD_ROOT(&reversed);
+    SL_GC_ADD_ROOT(&current);
+    SL_GC_ADD_ROOT(&temp_item);
 
     while (sl_is_pair(current)) {
         temp_item = sl_car(current);
@@ -238,10 +238,10 @@ static sl_object *reverse_list_internal(sl_object *list) {
     }
 
 cleanup_reverse:
-    sl_gc_remove_root(&temp_item);
-    sl_gc_remove_root(&current);
-    sl_gc_remove_root(&reversed);  // Keep if it's the return value
-    sl_gc_remove_root(&list);
+    SL_GC_REMOVE_ROOT(&temp_item);
+    SL_GC_REMOVE_ROOT(&current);
+    SL_GC_REMOVE_ROOT(&reversed);  // Keep if it's the return value
+    SL_GC_REMOVE_ROOT(&list);
     return reversed;
 }
 
@@ -256,11 +256,11 @@ static sl_object *sl_builtin_cons_star(sl_object *args) {
     sl_object *iter = SL_NIL;
     sl_object *item = SL_NIL;
 
-    sl_gc_add_root(&args);
-    sl_gc_add_root(&result);
-    sl_gc_add_root(&reversed_args);
-    sl_gc_add_root(&iter);
-    sl_gc_add_root(&item);
+    SL_GC_ADD_ROOT(&args);
+    SL_GC_ADD_ROOT(&result);
+    SL_GC_ADD_ROOT(&reversed_args);
+    SL_GC_ADD_ROOT(&iter);
+    SL_GC_ADD_ROOT(&item);
 
     // Handle 1-argument case
     if (sl_cdr(args) == SL_NIL) {
@@ -298,11 +298,11 @@ static sl_object *sl_builtin_cons_star(sl_object *args) {
     // No need to check iter != SL_NIL, reverse_list_internal ensures proper list
 
 cleanup_cons_star:
-    sl_gc_remove_root(&item);
-    sl_gc_remove_root(&iter);
-    sl_gc_remove_root(&reversed_args);
-    sl_gc_remove_root(&result);  // Keep if it's the return value
-    sl_gc_remove_root(&args);
+    SL_GC_REMOVE_ROOT(&item);
+    SL_GC_REMOVE_ROOT(&iter);
+    SL_GC_REMOVE_ROOT(&reversed_args);
+    SL_GC_REMOVE_ROOT(&result);  // Keep if it's the return value
+    SL_GC_REMOVE_ROOT(&args);
     return result;
 }
 
@@ -598,7 +598,7 @@ static sl_object *sl_builtin_denominator(sl_object *args) {
     mpq_t num_q;
     mpz_t den_z;
 
-    sl_gc_add_root(&num_obj);  // Protect input during potential error allocation
+    SL_GC_ADD_ROOT(&num_obj);  // Protect input during potential error allocation
 
     if (!get_number_as_mpq(num_obj, num_q, "denominator")) {
         // Error already created by get_number_as_mpq
@@ -613,7 +613,7 @@ static sl_object *sl_builtin_denominator(sl_object *args) {
         mpz_clear(den_z);
     }
 
-    sl_gc_remove_root(&num_obj);
+    SL_GC_REMOVE_ROOT(&num_obj);
     return result;
 }
 
@@ -631,7 +631,7 @@ static sl_object *sl_builtin_numerator(sl_object *args) {
     mpq_t num_q;
     mpz_t num_z;
 
-    sl_gc_add_root(&num_obj);  // Protect input
+    SL_GC_ADD_ROOT(&num_obj);  // Protect input
 
     if (!get_number_as_mpq(num_obj, num_q, "numerator")) {
         result = sl_make_errorf("Error (numerator): Invalid number format.");  // Fallback
@@ -645,7 +645,7 @@ static sl_object *sl_builtin_numerator(sl_object *args) {
         mpz_clear(num_z);
     }
 
-    sl_gc_remove_root(&num_obj);
+    SL_GC_REMOVE_ROOT(&num_obj);
     return result;
 }
 
@@ -673,8 +673,8 @@ static sl_object *sl_builtin_quotient(sl_object *args) {
     sl_object *result = NULL;
     mpz_t n1_z, n2_z, quotient_z;
     mpz_inits(n1_z, n2_z, quotient_z, NULL);
-    sl_gc_add_root(&n1_obj);  // Protect inputs
-    sl_gc_add_root(&n2_obj);
+    SL_GC_ADD_ROOT(&n1_obj);  // Protect inputs
+    SL_GC_ADD_ROOT(&n2_obj);
 
     // Extract mpz values (we know they are integers)
     sl_number_get_z(n1_obj, n1_z);
@@ -686,8 +686,8 @@ static sl_object *sl_builtin_quotient(sl_object *args) {
     result = sl_make_number_from_mpz(quotient_z);
     CHECK_ALLOC(result);
 
-    sl_gc_remove_root(&n2_obj);
-    sl_gc_remove_root(&n1_obj);
+    SL_GC_REMOVE_ROOT(&n2_obj);
+    SL_GC_REMOVE_ROOT(&n1_obj);
     mpz_clears(n1_z, n2_z, quotient_z, NULL);
     return result;
 }
@@ -704,13 +704,13 @@ static sl_object *sl_builtin_gcd(sl_object *args) {
     mpz_inits(current_gcd, next_num_z, NULL);
 
     sl_object *current_node = args;
-    sl_gc_add_root(&current_node);  // Protect arg list traversal
+    SL_GC_ADD_ROOT(&current_node);  // Protect arg list traversal
 
     // Initialize with the absolute value of the first argument
     sl_object *first_arg = sl_car(current_node);
     if (!sl_is_number(first_arg) || !sl_number_is_integer(first_arg)) {
         mpz_clears(current_gcd, next_num_z, NULL);
-        sl_gc_remove_root(&current_node);
+        SL_GC_REMOVE_ROOT(&current_node);
         return sl_make_errorf("Error (gcd): Arguments must be integers.");
     }
     sl_number_get_z(first_arg, current_gcd);
@@ -723,7 +723,7 @@ static sl_object *sl_builtin_gcd(sl_object *args) {
         sl_object *next_arg = sl_car(current_node);
         if (!sl_is_number(next_arg) || !sl_number_is_integer(next_arg)) {
             mpz_clears(current_gcd, next_num_z, NULL);
-            sl_gc_remove_root(&current_node);
+            SL_GC_REMOVE_ROOT(&current_node);
             return sl_make_errorf("Error (gcd): Arguments must be integers.");
         }
         sl_number_get_z(next_arg, next_num_z);
@@ -737,7 +737,7 @@ static sl_object *sl_builtin_gcd(sl_object *args) {
     // Check for improper list
     if (current_node != SL_NIL) {
         mpz_clears(current_gcd, next_num_z, NULL);
-        sl_gc_remove_root(&current_node);
+        SL_GC_REMOVE_ROOT(&current_node);
         return sl_make_errorf("Error (gcd): Improper argument list.");
     }
 
@@ -745,7 +745,7 @@ static sl_object *sl_builtin_gcd(sl_object *args) {
     CHECK_ALLOC(result_obj);
 
     mpz_clears(current_gcd, next_num_z, NULL);
-    sl_gc_remove_root(&current_node);
+    SL_GC_REMOVE_ROOT(&current_node);
     return result_obj;
 }
 
@@ -761,13 +761,13 @@ static sl_object *sl_builtin_lcm(sl_object *args) {
     mpz_inits(current_lcm, next_num_z, NULL);
 
     sl_object *current_node = args;
-    sl_gc_add_root(&current_node);  // Protect arg list traversal
+    SL_GC_ADD_ROOT(&current_node);  // Protect arg list traversal
 
     // Initialize with the absolute value of the first argument
     sl_object *first_arg = sl_car(current_node);
     if (!sl_is_number(first_arg) || !sl_number_is_integer(first_arg)) {
         mpz_clears(current_lcm, next_num_z, NULL);
-        sl_gc_remove_root(&current_node);
+        SL_GC_REMOVE_ROOT(&current_node);
         return sl_make_errorf("Error (lcm): Arguments must be integers.");
     }
     sl_number_get_z(first_arg, current_lcm);
@@ -780,7 +780,7 @@ static sl_object *sl_builtin_lcm(sl_object *args) {
         sl_object *next_arg = sl_car(current_node);
         if (!sl_is_number(next_arg) || !sl_number_is_integer(next_arg)) {
             mpz_clears(current_lcm, next_num_z, NULL);
-            sl_gc_remove_root(&current_node);
+            SL_GC_REMOVE_ROOT(&current_node);
             return sl_make_errorf("Error (lcm): Arguments must be integers.");
         }
         sl_number_get_z(next_arg, next_num_z);
@@ -799,7 +799,7 @@ static sl_object *sl_builtin_lcm(sl_object *args) {
     // Check for improper list
     if (current_node != SL_NIL) {
         mpz_clears(current_lcm, next_num_z, NULL);
-        sl_gc_remove_root(&current_node);
+        SL_GC_REMOVE_ROOT(&current_node);
         return sl_make_errorf("Error (lcm): Improper argument list.");
     }
 
@@ -807,7 +807,7 @@ static sl_object *sl_builtin_lcm(sl_object *args) {
     CHECK_ALLOC(result_obj);
 
     mpz_clears(current_lcm, next_num_z, NULL);
-    sl_gc_remove_root(&current_node);
+    SL_GC_REMOVE_ROOT(&current_node);
     return result_obj;
 }
 
@@ -824,7 +824,7 @@ static sl_object *sl_builtin_abs(sl_object *args) {
     sl_object *result = NULL;
     mpq_t num_q, abs_q;
     // mpq_inits(num_q, abs_q, NULL);
-    sl_gc_add_root(&num_obj);  // Protect input
+    SL_GC_ADD_ROOT(&num_obj);  // Protect input
 
     if (!get_number_as_mpq(num_obj, num_q, "abs")) {
         result = sl_make_errorf("Error (abs): Invalid number format.");  // Fallback
@@ -837,7 +837,7 @@ static sl_object *sl_builtin_abs(sl_object *args) {
         mpq_clear(num_q);  // Free the original number mpq_t
     }
 
-    sl_gc_remove_root(&num_obj);
+    SL_GC_REMOVE_ROOT(&num_obj);
     // mpq_clears(num_q, abs_q, NULL);
     return result;
 }
@@ -855,25 +855,25 @@ static sl_object *sl_builtin_max(sl_object *args) {
 
     mpq_t max_q, current_q;
     // mpq_inits(max_q, current_q, NULL);
-    sl_gc_add_root(&max_obj);  // Protect current max object
+    SL_GC_ADD_ROOT(&max_obj);  // Protect current max object
 
     // Get the first number as mpq
     if (!get_number_as_mpq(max_obj, max_q, "max")) {
         // mpq_clears(max_q, current_q, NULL);
-        sl_gc_remove_root(&max_obj);
+        SL_GC_REMOVE_ROOT(&max_obj);
         return sl_make_errorf("Error (max): Invalid number format for first argument.");  // Fallback
     }
 
     sl_object *current_node = sl_cdr(args);
-    sl_gc_add_root(&current_node);  // Protect arg list traversal
+    SL_GC_ADD_ROOT(&current_node);  // Protect arg list traversal
 
     while (sl_is_pair(current_node)) {
         sl_object *current_arg = sl_car(current_node);
         if (!sl_is_number(current_arg)) {
             // mpq_clears(max_q, current_q, NULL);
             mpq_clear(max_q);  // Clear max_q
-            sl_gc_remove_root(&current_node);
-            sl_gc_remove_root(&max_obj);
+            SL_GC_REMOVE_ROOT(&current_node);
+            SL_GC_REMOVE_ROOT(&max_obj);
             return sl_make_errorf("Error (max): Arguments must be numbers.");
         }
 
@@ -881,8 +881,8 @@ static sl_object *sl_builtin_max(sl_object *args) {
         if (!get_number_as_mpq(current_arg, current_q, "max")) {
             // mpq_clears(max_q, current_q, NULL);
             mpq_clear(max_q);  // Clear max_q
-            sl_gc_remove_root(&current_node);
-            sl_gc_remove_root(&max_obj);
+            SL_GC_REMOVE_ROOT(&current_node);
+            SL_GC_REMOVE_ROOT(&max_obj);
             return sl_make_errorf("Error (max): Invalid number format for argument.");  // Fallback
         }
 
@@ -890,9 +890,9 @@ static sl_object *sl_builtin_max(sl_object *args) {
         if (mpq_cmp(current_q, max_q) > 0) {
             // mpq_clear(max_q);             // Clear old max_q
             mpq_set(max_q, current_q);    // Update max_q
-            sl_gc_remove_root(&max_obj);  // Unroot old max object
+            SL_GC_REMOVE_ROOT(&max_obj);  // Unroot old max object
             max_obj = current_arg;        // Update max_obj pointer
-            sl_gc_add_root(&max_obj);     // Root new max object
+            SL_GC_ADD_ROOT(&max_obj);     // Root new max object
         }
         mpq_clear(current_q);  // Clear current_q
 
@@ -903,15 +903,15 @@ static sl_object *sl_builtin_max(sl_object *args) {
     if (current_node != SL_NIL) {
         // mpq_clears(max_q, current_q, NULL);
         mpq_clear(max_q);  // Clear old max_q
-        sl_gc_remove_root(&current_node);
-        sl_gc_remove_root(&max_obj);
+        SL_GC_REMOVE_ROOT(&current_node);
+        SL_GC_REMOVE_ROOT(&max_obj);
         return sl_make_errorf("Error (max): Improper argument list.");
     }
 
     // mpq_clears(max_q, current_q, NULL);
     mpq_clear(max_q);  // Clear old max_q
-    sl_gc_remove_root(&current_node);
-    sl_gc_remove_root(&max_obj);  // Unroot the final max object
+    SL_GC_REMOVE_ROOT(&current_node);
+    SL_GC_REMOVE_ROOT(&max_obj);  // Unroot the final max object
     return max_obj;               // Return the object itself, not a copy
 }
 
@@ -928,25 +928,25 @@ static sl_object *sl_builtin_min(sl_object *args) {
 
     mpq_t min_q, current_q;
     // mpq_inits(min_q, current_q, NULL);
-    sl_gc_add_root(&min_obj);  // Protect current min object
+    SL_GC_ADD_ROOT(&min_obj);  // Protect current min object
 
     // Get the first number as mpq
     if (!get_number_as_mpq(min_obj, min_q, "min")) {
         // mpq_clears(min_q, current_q, NULL);
-        sl_gc_remove_root(&min_obj);
+        SL_GC_REMOVE_ROOT(&min_obj);
         return sl_make_errorf("Error (min): Invalid number format for first argument.");  // Fallback
     }
 
     sl_object *current_node = sl_cdr(args);
-    sl_gc_add_root(&current_node);  // Protect arg list traversal
+    SL_GC_ADD_ROOT(&current_node);  // Protect arg list traversal
 
     while (sl_is_pair(current_node)) {
         sl_object *current_arg = sl_car(current_node);
         if (!sl_is_number(current_arg)) {
             // mpq_clears(min_q, current_q, NULL);
             mpq_clear(min_q);  // Clear min_q
-            sl_gc_remove_root(&current_node);
-            sl_gc_remove_root(&min_obj);
+            SL_GC_REMOVE_ROOT(&current_node);
+            SL_GC_REMOVE_ROOT(&min_obj);
             return sl_make_errorf("Error (min): Arguments must be numbers.");
         }
 
@@ -954,17 +954,17 @@ static sl_object *sl_builtin_min(sl_object *args) {
         if (!get_number_as_mpq(current_arg, current_q, "min")) {
             // mpq_clears(min_q, current_q, NULL);
             mpq_clear(min_q);  // Clear min_q
-            sl_gc_remove_root(&current_node);
-            sl_gc_remove_root(&min_obj);
+            SL_GC_REMOVE_ROOT(&current_node);
+            SL_GC_REMOVE_ROOT(&min_obj);
             return sl_make_errorf("Error (min): Invalid number format for argument.");  // Fallback
         }
 
         // Compare and update min if current is smaller
         if (mpq_cmp(current_q, min_q) < 0) {
             mpq_set(min_q, current_q);    // Update min_q
-            sl_gc_remove_root(&min_obj);  // Unroot old min object
+            SL_GC_REMOVE_ROOT(&min_obj);  // Unroot old min object
             min_obj = current_arg;        // Update min_obj pointer
-            sl_gc_add_root(&min_obj);     // Root new min object
+            SL_GC_ADD_ROOT(&min_obj);     // Root new min object
         }
         mpq_clear(current_q);  // Clear current_q
 
@@ -975,15 +975,15 @@ static sl_object *sl_builtin_min(sl_object *args) {
     if (current_node != SL_NIL) {
         mpq_clear(min_q);  // Clear min_q
         // mpq_clears(min_q, current_q, NULL);
-        sl_gc_remove_root(&current_node);
-        sl_gc_remove_root(&min_obj);
+        SL_GC_REMOVE_ROOT(&current_node);
+        SL_GC_REMOVE_ROOT(&min_obj);
         return sl_make_errorf("Error (min): Improper argument list.");
     }
 
     mpq_clear(min_q);  // Clear min_q
     // mpq_clears(min_q, current_q, NULL);
-    sl_gc_remove_root(&current_node);
-    sl_gc_remove_root(&min_obj);  // Unroot the final min object
+    SL_GC_REMOVE_ROOT(&current_node);
+    SL_GC_REMOVE_ROOT(&min_obj);  // Unroot the final min object
     return min_obj;               // Return the object itself, not a copy
 }
 
@@ -1021,8 +1021,8 @@ static sl_object *sl_builtin_expt(sl_object *args) {
     mpz_init(result_den_z);
     // mpq_init(base_q);  // Init in get_number_as_mpq
 
-    sl_gc_add_root(&base_obj);  // Protect base_obj during potential allocations
-    sl_gc_add_root(&exp_obj);   // Protect exp_obj
+    SL_GC_ADD_ROOT(&base_obj);  // Protect base_obj during potential allocations
+    SL_GC_ADD_ROOT(&exp_obj);   // Protect exp_obj
 
     // Get exponent as mpz_t
     sl_number_get_z(exp_obj, exp_z);  // We know it's an integer
@@ -1093,8 +1093,8 @@ cleanup_expt:
     mpq_clear(base_q);
 
     // Unroot objects
-    sl_gc_remove_root(&exp_obj);
-    sl_gc_remove_root(&base_obj);
+    SL_GC_REMOVE_ROOT(&exp_obj);
+    SL_GC_REMOVE_ROOT(&base_obj);
     return result_obj;
 }
 
@@ -1110,7 +1110,7 @@ static sl_object *sl_builtin_square(sl_object *args) {
 
     sl_object *result_obj = NULL;
     mpq_t num_q, result_q;
-    sl_gc_add_root(&num_obj);  // Protect input
+    SL_GC_ADD_ROOT(&num_obj);  // Protect input
 
     if (!get_number_as_mpq(num_obj, num_q, "square")) {
         result_obj = sl_make_errorf("Error (square): Invalid number format.");  // Fallback
@@ -1123,7 +1123,7 @@ static sl_object *sl_builtin_square(sl_object *args) {
         mpq_clear(num_q);
     }
 
-    sl_gc_remove_root(&num_obj);
+    SL_GC_REMOVE_ROOT(&num_obj);
     return result_obj;
 }
 
@@ -1140,7 +1140,7 @@ static sl_object *sl_builtin_exact_integer_sqrt(sl_object *args) {
     sl_object *result_obj = NULL;
     mpz_t n_z, s_z, r_z;
     mpz_inits(n_z, s_z, r_z, NULL);
-    sl_gc_add_root(&n_obj);  // Protect input
+    SL_GC_ADD_ROOT(&n_obj);  // Protect input
 
     sl_number_get_z(n_obj, n_z);
 
@@ -1151,28 +1151,28 @@ static sl_object *sl_builtin_exact_integer_sqrt(sl_object *args) {
 
         sl_object *s_obj = sl_make_number_from_mpz(s_z);
         CHECK_ALLOC(s_obj);
-        sl_gc_add_root(&s_obj);  // Protect s_obj
+        SL_GC_ADD_ROOT(&s_obj);  // Protect s_obj
 
         sl_object *r_obj = sl_make_number_from_mpz(r_z);
         CHECK_ALLOC(r_obj);
-        sl_gc_add_root(&r_obj);  // Protect r_obj
+        SL_GC_ADD_ROOT(&r_obj);  // Protect r_obj
 
         // Build the result list (s r)
         sl_object *r_list = sl_make_pair(r_obj, SL_NIL);
         CHECK_ALLOC(r_list);
-        sl_gc_add_root(&r_list);  // Protect r_list
+        SL_GC_ADD_ROOT(&r_list);  // Protect r_list
 
         result_obj = sl_make_pair(s_obj, r_list);
         CHECK_ALLOC(result_obj);
 
         // Cleanup roots
-        sl_gc_remove_root(&r_list);
-        sl_gc_remove_root(&r_obj);
-        sl_gc_remove_root(&s_obj);
+        SL_GC_REMOVE_ROOT(&r_list);
+        SL_GC_REMOVE_ROOT(&r_obj);
+        SL_GC_REMOVE_ROOT(&s_obj);
     }
 
     mpz_clears(n_z, s_z, r_z, NULL);
-    sl_gc_remove_root(&n_obj);
+    SL_GC_REMOVE_ROOT(&n_obj);
     return result_obj;
 }
 
@@ -1181,10 +1181,10 @@ static bool add_factor_z(sl_object **head_root, sl_object **tail_root, mpz_t fac
     sl_object *factor_obj = sl_make_number_from_mpz(factor_z);              // Creates number object
     if (!factor_obj || factor_obj == SL_OUT_OF_MEMORY_ERROR) return false;  // Allocation failed
 
-    sl_gc_add_root(&factor_obj);  // Protect the new factor object
+    SL_GC_ADD_ROOT(&factor_obj);  // Protect the new factor object
     // append_to_list returns NULL on error (OOM or internal)
     bool success = (append_to_list(head_root, tail_root, factor_obj) != NULL);
-    sl_gc_remove_root(&factor_obj);  // Unroot (now reachable via list roots)
+    SL_GC_REMOVE_ROOT(&factor_obj);  // Unroot (now reachable via list roots)
     return success;
 }
 
@@ -1193,10 +1193,10 @@ static bool add_factor_ui(sl_object **head_root, sl_object **tail_root, unsigned
     sl_object *factor_obj = sl_make_number_si((int64_t)factor_ui, 1);       // Creates number object
     if (!factor_obj || factor_obj == SL_OUT_OF_MEMORY_ERROR) return false;  // Allocation failed
 
-    sl_gc_add_root(&factor_obj);  // Protect the new factor object
+    SL_GC_ADD_ROOT(&factor_obj);  // Protect the new factor object
     // append_to_list returns NULL on error (OOM or internal)
     bool success = (append_to_list(head_root, tail_root, factor_obj) != NULL);
-    sl_gc_remove_root(&factor_obj);  // Unroot (now reachable via list roots)
+    SL_GC_REMOVE_ROOT(&factor_obj);  // Unroot (now reachable via list roots)
     return success;
 }
 
@@ -1212,9 +1212,9 @@ static sl_object *sl_builtin_prime_factors(sl_object *args) {
     mpz_t n_z, factor_z, limit_z;  // Use mpz_t for the number and potential large factors/limit
     mpz_inits(n_z, factor_z, limit_z, NULL);
 
-    sl_gc_add_root(&n_obj);  // Protect input
-    sl_gc_add_root(&result_list);
-    sl_gc_add_root(&tail_node);
+    SL_GC_ADD_ROOT(&n_obj);  // Protect input
+    SL_GC_ADD_ROOT(&result_list);
+    SL_GC_ADD_ROOT(&tail_node);
 
     // 1. Get integer value and check type
     if (!get_number_as_mpz(n_obj, n_z, "prime-factors")) {
@@ -1263,9 +1263,9 @@ oom_prime_factors:
 
 cleanup_prime_factors:
     mpz_clears(n_z, factor_z, limit_z, NULL);
-    sl_gc_remove_root(&tail_node);
-    sl_gc_remove_root(&result_list);  // Keep if it's the return value
-    sl_gc_remove_root(&n_obj);
+    SL_GC_REMOVE_ROOT(&tail_node);
+    SL_GC_REMOVE_ROOT(&result_list);  // Keep if it's the return value
+    SL_GC_REMOVE_ROOT(&n_obj);
     return result_list;
 }
 
@@ -1280,7 +1280,7 @@ static sl_object *sl_builtin_next_prime(sl_object *args) {
     mpz_t n_z, result_z;
     mpz_inits(n_z, result_z, NULL);
 
-    sl_gc_add_root(&n_obj);  // Protect input
+    SL_GC_ADD_ROOT(&n_obj);  // Protect input
 
     // 1. Get integer value and check type
     if (!get_number_as_mpz(n_obj, n_z, "next-prime")) {
@@ -1300,7 +1300,7 @@ static sl_object *sl_builtin_next_prime(sl_object *args) {
 
 cleanup_next_prime:
     mpz_clears(n_z, result_z, NULL);
-    sl_gc_remove_root(&n_obj);
+    SL_GC_REMOVE_ROOT(&n_obj);
     // result_obj is the intended return value, no need to root/unroot here
     return result_obj;
 }
@@ -1356,8 +1356,8 @@ static sl_object *sl_builtin_float(sl_object *args) {
     // mpq_init(num_q);  // Init in get_number_as_mpq!
     mpz_inits(num_z, den_z, scale_factor, scaled_num, scaled_result, scaled_rem, two_rem, NULL);
 
-    sl_gc_add_root(&num_obj);                 // Protect input number
-    if (prec_obj) sl_gc_add_root(&prec_obj);  // Protect precision if it exists
+    SL_GC_ADD_ROOT(&num_obj);                 // Protect input number
+    if (prec_obj) SL_GC_ADD_ROOT(&prec_obj);  // Protect precision if it exists
 
     // Get the number as mpq_t
     if (!get_number_as_mpq(num_obj, num_q, "float")) {
@@ -1459,8 +1459,8 @@ cleanup_float:
     mpz_clears(num_z, den_z, scale_factor, scaled_num, scaled_result, scaled_rem, two_rem, NULL);
 
     // Unroot objects
-    sl_gc_remove_root(&num_obj);
-    if (prec_obj) sl_gc_remove_root(&prec_obj);
+    SL_GC_REMOVE_ROOT(&num_obj);
+    if (prec_obj) SL_GC_REMOVE_ROOT(&prec_obj);
     return result_obj;
 }
 
@@ -1628,8 +1628,8 @@ static sl_object *sl_builtin_list(sl_object *args) {
     sl_object **tail_ptr = &head;
     sl_object *current_arg = args;
 
-    sl_gc_add_root(&head);         // Protect the list being built
-    sl_gc_add_root(&current_arg);  // Protect the argument list traversal
+    SL_GC_ADD_ROOT(&head);         // Protect the list being built
+    SL_GC_ADD_ROOT(&current_arg);  // Protect the argument list traversal
 
     while (sl_is_pair(current_arg)) {
         sl_object *arg_val = sl_car(current_arg);  // Get the already evaluated argument
@@ -1644,13 +1644,13 @@ static sl_object *sl_builtin_list(sl_object *args) {
 
     // Check if the argument list itself was improper
     if (current_arg != SL_NIL) {
-        sl_gc_remove_root(&current_arg);
-        sl_gc_remove_root(&head);
+        SL_GC_REMOVE_ROOT(&current_arg);
+        SL_GC_REMOVE_ROOT(&head);
         return sl_make_errorf("Error (list): Improper argument list provided to list constructor.");
     }
 
-    sl_gc_remove_root(&current_arg);
-    sl_gc_remove_root(&head);
+    SL_GC_REMOVE_ROOT(&current_arg);
+    SL_GC_REMOVE_ROOT(&head);
     return head;  // Return the newly constructed list
 }
 
@@ -1664,7 +1664,7 @@ static sl_object *sl_builtin_length(sl_object *args) {
     sl_object *current = list;
 
     // Need to protect 'list' in case GC runs during error creation below
-    sl_gc_add_root(&list);
+    SL_GC_ADD_ROOT(&list);
 
     while (sl_is_pair(current)) {
         count++;
@@ -1672,11 +1672,11 @@ static sl_object *sl_builtin_length(sl_object *args) {
     }
 
     if (current != SL_NIL) {  // Check if it was a proper list
-        sl_gc_remove_root(&list);
+        SL_GC_REMOVE_ROOT(&list);
         return sl_make_errorf("Error (length): Argument must be a proper list.");
     }
 
-    sl_gc_remove_root(&list);
+    SL_GC_REMOVE_ROOT(&list);
 
     // Convert size_t count to an sl_object number
     // For simplicity, assume count fits in int64_t for now.
@@ -1698,8 +1698,8 @@ static sl_object *sl_builtin_reverse(sl_object *args) {
     sl_object *current = input_list;
 
     // Protect input and result during iteration/allocation
-    sl_gc_add_root(&input_list);
-    sl_gc_add_root(&reversed_list);
+    SL_GC_ADD_ROOT(&input_list);
+    SL_GC_ADD_ROOT(&reversed_list);
 
     while (sl_is_pair(current)) {
         sl_object *element = sl_car(current);
@@ -1711,13 +1711,13 @@ static sl_object *sl_builtin_reverse(sl_object *args) {
     }
 
     if (current != SL_NIL) {  // Check if input was a proper list
-        sl_gc_remove_root(&reversed_list);
-        sl_gc_remove_root(&input_list);
+        SL_GC_REMOVE_ROOT(&reversed_list);
+        SL_GC_REMOVE_ROOT(&input_list);
         return sl_make_errorf("Error (reverse): Argument must be a proper list.");
     }
 
-    sl_gc_remove_root(&reversed_list);
-    sl_gc_remove_root(&input_list);
+    SL_GC_REMOVE_ROOT(&reversed_list);
+    SL_GC_REMOVE_ROOT(&input_list);
     return reversed_list;
 }
 
@@ -1734,8 +1734,8 @@ static sl_object *sl_builtin_append(sl_object *args) {
     sl_object *current_arg_node = args;
 
     // Protect the list being built and the argument list traversal
-    sl_gc_add_root(&result_head);
-    sl_gc_add_root(&current_arg_node);
+    SL_GC_ADD_ROOT(&result_head);
+    SL_GC_ADD_ROOT(&current_arg_node);
 
     while (sl_is_pair(current_arg_node)) {
         sl_object *current_list_arg = sl_car(current_arg_node);
@@ -1750,7 +1750,7 @@ static sl_object *sl_builtin_append(sl_object *args) {
 
         // --- Process a list argument (not the last one) ---
         sl_object *current_element_node = current_list_arg;
-        sl_gc_add_root(&current_element_node);  // Protect inner loop traversal
+        SL_GC_ADD_ROOT(&current_element_node);  // Protect inner loop traversal
 
         while (sl_is_pair(current_element_node)) {
             sl_object *element = sl_car(current_element_node);
@@ -1765,12 +1765,12 @@ static sl_object *sl_builtin_append(sl_object *args) {
 
         // Check if the current list argument was proper
         if (current_element_node != SL_NIL) {
-            sl_gc_remove_root(&current_element_node);
-            sl_gc_remove_root(&current_arg_node);
-            sl_gc_remove_root(&result_head);
+            SL_GC_REMOVE_ROOT(&current_element_node);
+            SL_GC_REMOVE_ROOT(&current_arg_node);
+            SL_GC_REMOVE_ROOT(&result_head);
             return sl_make_errorf("Error (append): Argument before last must be a proper list.");
         }
-        sl_gc_remove_root(&current_element_node);
+        SL_GC_REMOVE_ROOT(&current_element_node);
         // --- End processing list argument ---
 
         current_arg_node = next_arg_node;  // Move to the next argument in the main list
@@ -1778,13 +1778,13 @@ static sl_object *sl_builtin_append(sl_object *args) {
 
     // Check if the main argument list itself was improper (shouldn't happen if called correctly)
     if (current_arg_node != SL_NIL && !sl_is_pair(current_arg_node)) {
-        sl_gc_remove_root(&current_arg_node);
-        sl_gc_remove_root(&result_head);
+        SL_GC_REMOVE_ROOT(&current_arg_node);
+        SL_GC_REMOVE_ROOT(&result_head);
         return sl_make_errorf("Error (append): Internal error - improper argument list structure.");
     }
 
-    sl_gc_remove_root(&current_arg_node);
-    sl_gc_remove_root(&result_head);
+    SL_GC_REMOVE_ROOT(&current_arg_node);
+    SL_GC_REMOVE_ROOT(&result_head);
     return result_head;
 }
 
@@ -1965,11 +1965,11 @@ static sl_object *sl_builtin_write(sl_object *args) {
     if (arity_check != SL_TRUE) return arity_check;
 
     sl_object *obj_to_write = sl_car(args);
-    sl_gc_add_root(&obj_to_write);  // Protect input
+    SL_GC_ADD_ROOT(&obj_to_write);  // Protect input
 
     char *str_repr = sl_object_to_string(obj_to_write);
     if (!str_repr) {
-        sl_gc_remove_root(&obj_to_write);
+        SL_GC_REMOVE_ROOT(&obj_to_write);
         // sl_object_to_string returns NULL on failure (e.g., OOM)
         return sl_make_errorf("write: Failed to convert object to string (allocation failed?)");
     }
@@ -1978,7 +1978,7 @@ static sl_object *sl_builtin_write(sl_object *args) {
     free(str_repr);  // Free the allocated string
     fflush(stdout);  // Ensure output is flushed
 
-    sl_gc_remove_root(&obj_to_write);
+    SL_GC_REMOVE_ROOT(&obj_to_write);
     // R7RS specifies write returns an unspecified value. Use SL_NIL.
     return SL_NIL;
 }
@@ -2019,14 +2019,14 @@ static sl_object *sl_builtin_eval(sl_object *args) {
     }
 
     // Root arguments and evaluate
-    sl_gc_add_root(&expr);
-    sl_gc_add_root(&env_obj);
+    SL_GC_ADD_ROOT(&expr);
+    SL_GC_ADD_ROOT(&env_obj);
 
     sl_object *result = sl_eval(expr, env_obj);  // Call the core evaluator
 
     // Result is already managed by sl_eval's rooting, just unroot args
-    sl_gc_remove_root(&env_obj);
-    sl_gc_remove_root(&expr);
+    SL_GC_REMOVE_ROOT(&env_obj);
+    SL_GC_REMOVE_ROOT(&expr);
 
     return result;  // Return the result of evaluation (could be value or error)
 }
@@ -2063,29 +2063,29 @@ static sl_object *sl_builtin_environment(sl_object *args) {
 // Helper to define a builtin function in an environment
 void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_ptr) {
     // --- FIX: Root env temporarily ---
-    sl_gc_add_root(&env);  // Protect env during allocations below
+    SL_GC_ADD_ROOT(&env);  // Protect env during allocations below
 
     sl_object *sym = sl_make_symbol(name);
     if (!sym || sym == SL_OUT_OF_MEMORY_ERROR) {
         fprintf(stderr, "FATAL: Failed to create symbol for builtin '%s'\n", name);
-        sl_gc_remove_root(&env);  // Unroot env before potentially exiting
+        SL_GC_REMOVE_ROOT(&env);  // Unroot env before potentially exiting
         // Consider exiting or handling more gracefully
         exit(EXIT_FAILURE);
     }
     // --- FIX: Root sym ---
-    sl_gc_add_root(&sym);
+    SL_GC_ADD_ROOT(&sym);
 
     sl_object *func = sl_make_builtin(name, func_ptr);
     if (!func || func == SL_OUT_OF_MEMORY_ERROR) {
         fprintf(stderr, "FATAL: Failed to create builtin object for '%s'\n", name);
         // --- FIX: Unroot sym and env ---
-        sl_gc_remove_root(&sym);
-        sl_gc_remove_root(&env);
+        SL_GC_REMOVE_ROOT(&sym);
+        SL_GC_REMOVE_ROOT(&env);
         // Consider exiting
         exit(EXIT_FAILURE);
     }
     // --- FIX: Root func ---
-    sl_gc_add_root(&func);
+    SL_GC_ADD_ROOT(&func);
 
     // Define the symbol-function pair in the environment
     // sl_env_define now handles its internal rooting correctly,
@@ -2093,9 +2093,9 @@ void define_builtin(sl_object *env, const char *name, sl_builtin_func_ptr func_p
     sl_env_define(env, sym, func);
 
     // --- FIX: Unroot temporary variables ---
-    sl_gc_remove_root(&func);
-    sl_gc_remove_root(&sym);
-    sl_gc_remove_root(&env);  // Unroot env
+    SL_GC_REMOVE_ROOT(&func);
+    SL_GC_REMOVE_ROOT(&sym);
+    SL_GC_REMOVE_ROOT(&env);  // Unroot env
 }
 
 // Helper to append an item to a list being built (handles GC rooting)
@@ -2106,7 +2106,7 @@ sl_object *append_to_list_bad(sl_object **head_root, sl_object **tail_root, sl_o
     sl_object *new_pair = sl_make_pair(item, SL_NIL);
     if (!new_pair) return NULL;  // OOM
 
-    sl_gc_add_root(&new_pair);  // Root the new pair
+    SL_GC_ADD_ROOT(&new_pair);  // Root the new pair
 
     if (*head_root == SL_NIL) {
         *head_root = new_pair;
@@ -2114,14 +2114,14 @@ sl_object *append_to_list_bad(sl_object **head_root, sl_object **tail_root, sl_o
     } else {
         // Ensure tail_root points to a valid pair before setting cdr
         if (!sl_is_pair(*tail_root)) {
-            sl_gc_remove_root(&new_pair);
+            SL_GC_REMOVE_ROOT(&new_pair);
             return NULL;  // Internal error
         }
         // TODO: Ensure sl_set_cdr exists and is GC-safe if needed
         sl_set_cdr(*tail_root, new_pair);
         *tail_root = new_pair;
     }
-    sl_gc_remove_root(&new_pair);  // Unroot new_pair (now reachable from head/tail roots)
+    SL_GC_REMOVE_ROOT(&new_pair);  // Unroot new_pair (now reachable from head/tail roots)
     return *head_root;
 }
 
@@ -2135,7 +2135,7 @@ sl_object *append_to_list(sl_object **head_root_var, sl_object **tail_node_root_
     sl_object *new_node = sl_make_pair(item, SL_NIL);  // This is the new list node (pair)
     if (!new_node) return NULL;                        // OOM
 
-    sl_gc_add_root(&new_node);  // Root the new node
+    SL_GC_ADD_ROOT(&new_node);  // Root the new node
 
     if (*head_root_var == SL_NIL) {
         // List was empty, new_node is both head and tail
@@ -2147,7 +2147,7 @@ sl_object *append_to_list(sl_object **head_root_var, sl_object **tail_node_root_
         // Ensure tail_node_root_var pointed to a valid pair before setting cdr
         if (!sl_is_pair(current_tail_node)) {
             fprintf(stderr, "[append_to_list] Internal Error: tail_node_root_var does not point to a pair.\n");
-            sl_gc_remove_root(&new_node);
+            SL_GC_REMOVE_ROOT(&new_node);
             return NULL;  // Internal error
         }
         // Modify the cdr of the *current* last node
@@ -2156,7 +2156,7 @@ sl_object *append_to_list(sl_object **head_root_var, sl_object **tail_node_root_
         // Update the tail_node_root_var variable itself to point to the new last node.
         *tail_node_root_var = new_node;
     }
-    sl_gc_remove_root(&new_node);  // Unroot new_node (now reachable from head/tail roots)
+    SL_GC_REMOVE_ROOT(&new_node);  // Unroot new_node (now reachable from head/tail roots)
     return *head_root_var;         // Return the head of the list
 }
 
@@ -2172,14 +2172,14 @@ sl_object *sl_builtin_apply(sl_object *args) {
     sl_object *result = SL_NIL;
 
     // Root everything that needs protection across allocations/calls
-    sl_gc_add_root(&args);
-    sl_gc_add_root(&proc);
-    sl_gc_add_root(&final_args_head);
-    sl_gc_add_root(&final_args_tail);
-    sl_gc_add_root(&current_arg_node);
-    sl_gc_add_root(&last_arg_node);
-    sl_gc_add_root(&last_arg_val);
-    sl_gc_add_root(&result);
+    SL_GC_ADD_ROOT(&args);
+    SL_GC_ADD_ROOT(&proc);
+    SL_GC_ADD_ROOT(&final_args_head);
+    SL_GC_ADD_ROOT(&final_args_tail);
+    SL_GC_ADD_ROOT(&current_arg_node);
+    SL_GC_ADD_ROOT(&last_arg_node);
+    SL_GC_ADD_ROOT(&last_arg_val);
+    SL_GC_ADD_ROOT(&result);
 
     // 1. Check arity (at least 2 args: proc and list)
     if (!sl_is_pair(args) || sl_cdr(args) == SL_NIL) {
@@ -2220,13 +2220,13 @@ sl_object *sl_builtin_apply(sl_object *args) {
             goto cleanup_apply_builtin;
         }
         sl_object *item = sl_car(current_arg_node);
-        sl_gc_add_root(&item);  // Root item before passing to helper
+        SL_GC_ADD_ROOT(&item);  // Root item before passing to helper
         if (append_to_list(&final_args_head, &final_args_tail, item) == NULL) {
-            sl_gc_remove_root(&item);
+            SL_GC_REMOVE_ROOT(&item);
             result = sl_make_errorf("apply: Failed to build argument list (OOM or internal error)");
             goto cleanup_apply_builtin;
         }
-        sl_gc_remove_root(&item);  // Unroot item (now part of final_args_head)
+        SL_GC_REMOVE_ROOT(&item);  // Unroot item (now part of final_args_head)
         current_arg_node = sl_cdr(current_arg_node);
     }
 
@@ -2238,13 +2238,13 @@ sl_object *sl_builtin_apply(sl_object *args) {
             goto cleanup_apply_builtin;
         }
         sl_object *item = sl_car(current_arg_node);
-        sl_gc_add_root(&item);  // Root item before passing to helper
+        SL_GC_ADD_ROOT(&item);  // Root item before passing to helper
         if (append_to_list(&final_args_head, &final_args_tail, item) == NULL) {
-            sl_gc_remove_root(&item);
+            SL_GC_REMOVE_ROOT(&item);
             result = sl_make_errorf("apply: Failed to build argument list (OOM or internal error)");
             goto cleanup_apply_builtin;
         }
-        sl_gc_remove_root(&item);  // Unroot item (now part of final_args_head)
+        SL_GC_REMOVE_ROOT(&item);  // Unroot item (now part of final_args_head)
         current_arg_node = sl_cdr(current_arg_node);
     }
 
@@ -2256,14 +2256,14 @@ sl_object *sl_builtin_apply(sl_object *args) {
 
 cleanup_apply_builtin:
     // Unroot everything
-    sl_gc_remove_root(&result);
-    sl_gc_remove_root(&last_arg_val);
-    sl_gc_remove_root(&last_arg_node);
-    sl_gc_remove_root(&current_arg_node);
-    sl_gc_remove_root(&final_args_tail);
-    sl_gc_remove_root(&final_args_head);
-    sl_gc_remove_root(&proc);
-    sl_gc_remove_root(&args);
+    SL_GC_REMOVE_ROOT(&result);
+    SL_GC_REMOVE_ROOT(&last_arg_val);
+    SL_GC_REMOVE_ROOT(&last_arg_node);
+    SL_GC_REMOVE_ROOT(&current_arg_node);
+    SL_GC_REMOVE_ROOT(&final_args_tail);
+    SL_GC_REMOVE_ROOT(&final_args_head);
+    SL_GC_REMOVE_ROOT(&proc);
+    SL_GC_REMOVE_ROOT(&args);
 
     return result;
 }

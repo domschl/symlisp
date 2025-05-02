@@ -696,12 +696,12 @@ static sl_object *parse_expression(const char **input) {
         // If we reach here, 'datum' is a valid object (including SL_NIL if '()' was parsed)
 
         sl_object *quote_sym = sl_make_symbol("quote");
-        sl_gc_add_root(&quote_sym);  // Protect symbol
+        SL_GC_ADD_ROOT(&quote_sym);  // Protect symbol
         sl_object *quoted_list = sl_make_pair(datum, SL_NIL);
-        sl_gc_add_root(&quoted_list);  // Protect list element pair
+        SL_GC_ADD_ROOT(&quoted_list);  // Protect list element pair
         sl_object *result = sl_make_pair(quote_sym, quoted_list);
-        sl_gc_remove_root(&quoted_list);
-        sl_gc_remove_root(&quote_sym);
+        SL_GC_REMOVE_ROOT(&quoted_list);
+        SL_GC_REMOVE_ROOT(&quote_sym);
         // Check allocation result for the final pair
         CHECK_ALLOC(result);  // Use CHECK_ALLOC which returns on failure
         return result;
@@ -727,7 +727,7 @@ static sl_object *parse_list(const char **input) {
 
     sl_object *head = SL_NIL;
     sl_object *tail = SL_NIL;
-    sl_gc_add_root(&head);  // Protect list head during construction
+    SL_GC_ADD_ROOT(&head);  // Protect list head during construction
 
     while (true) {
         skip_whitespace_and_comments(input);  // <<< Skip before checking element/end
@@ -736,13 +736,13 @@ static sl_object *parse_list(const char **input) {
         if (current_char == ')') {
             // End of list
             (*input)++;  // Consume ')'
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return head;
         }
 
         if (current_char == '\0') {
             fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return SL_NIL;  // Indicate error
         }
 
@@ -755,32 +755,32 @@ static sl_object *parse_list(const char **input) {
             sl_object *cdr_val = parse_expression(input);
             if (!cdr_val || cdr_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(cdr_val)) {
                 fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return cdr_val;  // Propagate error or OOM
             }
             if (cdr_val == SL_NIL) {  // Check if cdr parsing hit EOF unexpectedly
                 fprintf(stderr, "Error: Unexpected end of input after '.' in list.\n");
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return SL_NIL;
             }
 
             skip_whitespace_and_comments(input);  // <<< Skip before checking for ')'
             if (**input != ')') {
                 fprintf(stderr, "Error: Expected ')' after datum following '.' in list, got '%c'.\n", **input);
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return SL_NIL;  // Missing closing parenthesis
             }
             (*input)++;  // Consume ')'
 
             if (head == SL_NIL) {
                 fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return SL_NIL;
             }
 
             // Set the cdr of the last pair
             sl_set_cdr(tail, cdr_val);  // Assumes sl_set_cdr exists and handles GC if needed
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return head;  // Return the head of the now dotted list
         }
 
@@ -789,12 +789,12 @@ static sl_object *parse_list(const char **input) {
         sl_object *element = parse_expression(input);
         if (!element || element == SL_OUT_OF_MEMORY_ERROR || sl_is_error(element)) {
             // Error parsing element, or OOM
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return element;  // Propagate error or OOM
         }
         if (element == SL_NIL && 0) {  // Check if element parsing hit EOF unexpectedly
             fprintf(stderr, "Error: Unexpected end of input while parsing list element.\n");
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return SL_NIL;
         }
 
@@ -1191,13 +1191,13 @@ static sl_object *parse_stream_expression(FILE *stream) {
 
         sl_object *quote_sym = sl_make_symbol("quote");
         CHECK_ALLOC(quote_sym);
-        sl_gc_add_root(&quote_sym);
+        SL_GC_ADD_ROOT(&quote_sym);
         sl_object *quoted_list = sl_make_pair(datum, SL_NIL);
         CHECK_ALLOC(quoted_list);
-        sl_gc_add_root(&quoted_list);
+        SL_GC_ADD_ROOT(&quoted_list);
         sl_object *result = sl_make_pair(quote_sym, quoted_list);
-        sl_gc_remove_root(&quoted_list);
-        sl_gc_remove_root(&quote_sym);
+        SL_GC_REMOVE_ROOT(&quoted_list);
+        SL_GC_REMOVE_ROOT(&quote_sym);
         CHECK_ALLOC(result);
         return result;
     } else if (current_char == '"') {
@@ -1214,7 +1214,7 @@ static sl_object *parse_stream_list(FILE *stream) {
 
     sl_object *head = SL_NIL;
     sl_object *tail = SL_NIL;
-    sl_gc_add_root(&head);  // Protect list head
+    SL_GC_ADD_ROOT(&head);  // Protect list head
 
     while (true) {
         skip_stream_whitespace_and_comments(stream);
@@ -1222,13 +1222,13 @@ static sl_object *parse_stream_list(FILE *stream) {
 
         if (current_char == ')') {
             fgetc(stream);  // Consume ')'
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return head;
         }
 
         if (current_char == EOF) {
             fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return SL_PARSE_ERROR;
         }
 
@@ -1247,26 +1247,26 @@ static sl_object *parse_stream_list(FILE *stream) {
                 sl_object *cdr_val = parse_stream_expression(stream);
                 if (!cdr_val || cdr_val == SL_OUT_OF_MEMORY_ERROR || cdr_val == SL_PARSE_ERROR || cdr_val == SL_EOF_OBJECT) {
                     fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
-                    sl_gc_remove_root(&head);
+                    SL_GC_REMOVE_ROOT(&head);
                     return cdr_val;  // Propagate error, OOM, or EOF
                 }
 
                 skip_stream_whitespace_and_comments(stream);
                 if (peek_char(stream) != ')') {
                     fprintf(stderr, "Error: Expected ')' after datum following '.' in list.\n");
-                    sl_gc_remove_root(&head);
+                    SL_GC_REMOVE_ROOT(&head);
                     return SL_PARSE_ERROR;
                 }
                 fgetc(stream);  // Consume ')'
 
                 if (head == SL_NIL) {
                     fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
-                    sl_gc_remove_root(&head);
+                    SL_GC_REMOVE_ROOT(&head);
                     return SL_PARSE_ERROR;
                 }
 
                 sl_set_cdr(tail, cdr_val);
-                sl_gc_remove_root(&head);
+                SL_GC_REMOVE_ROOT(&head);
                 return head;
             }
         }
@@ -1277,7 +1277,7 @@ static sl_object *parse_stream_list(FILE *stream) {
             if (element == SL_EOF_OBJECT) {
                 fprintf(stderr, "Error: Unexpected end of input while parsing list element.\n");
             }
-            sl_gc_remove_root(&head);
+            SL_GC_REMOVE_ROOT(&head);
             return element;  // Propagate error, OOM, or EOF
         }
 

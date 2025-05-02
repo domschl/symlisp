@@ -434,7 +434,7 @@ void sl_mem_init(size_t first_chunk_size) {
     }
     root_count = 0;
     // Add permanent roots (global_env added in main after creation)
-    sl_gc_add_root(&sl_symbol_table);
+    SL_GC_ADD_ROOT(&sl_symbol_table);
 }
 
 void sl_mem_shutdown() {
@@ -762,38 +762,38 @@ sl_object *sl_make_char(uint32_t code_point) {
 sl_object *sl_make_symbol(const char *name) {
     // --- Symbol Interning Logic ---
     sl_object *current_node = sl_symbol_table;
-    sl_gc_add_root(&current_node);  // Root traversal pointer
+    SL_GC_ADD_ROOT(&current_node);  // Root traversal pointer
 
     while (current_node != SL_NIL) {
         if (!sl_is_pair(current_node)) {
             // Should not happen if table is managed correctly
             fprintf(stderr, "Internal Error: Symbol table corrupted (non-pair node).\n");
-            sl_gc_remove_root(&current_node);
+            SL_GC_REMOVE_ROOT(&current_node);
             return SL_OUT_OF_MEMORY_ERROR;  // Or a specific error
         }
         sl_object *sym_obj = sl_car(current_node);
         if (sl_is_symbol(sym_obj) && sym_obj->data.symbol_name != NULL &&
             strcmp(sym_obj->data.symbol_name, name) == 0) {
             // Found existing symbol, return it
-            sl_gc_remove_root(&current_node);
+            SL_GC_REMOVE_ROOT(&current_node);
             return sym_obj;
         }
         current_node = sl_cdr(current_node);
     }
-    sl_gc_remove_root(&current_node);  // Unroot traversal pointer
+    SL_GC_REMOVE_ROOT(&current_node);  // Unroot traversal pointer
     // --- End Symbol Interning Search ---
 
     // Symbol not found, create a new one
     sl_object *new_sym = sl_allocate_object();
     CHECK_ALLOC(new_sym);  // Checks for SL_OUT_OF_MEMORY_ERROR
 
-    sl_gc_add_root(&new_sym);  // Root the new symbol temporarily
+    SL_GC_ADD_ROOT(&new_sym);  // Root the new symbol temporarily
 
     new_sym->type = SL_TYPE_SYMBOL;
     new_sym->data.symbol_name = strdup(name);
     if (!new_sym->data.symbol_name) {
         return_object_to_free_list(new_sym);  // Cleanup allocated object
-        sl_gc_remove_root(&new_sym);
+        SL_GC_REMOVE_ROOT(&new_sym);
         return SL_OUT_OF_MEMORY_ERROR;
     }
 
@@ -804,14 +804,14 @@ sl_object *sl_make_symbol(const char *name) {
         // Failed to make pair, cleanup the symbol object too
         free(new_sym->data.symbol_name);      // Free the string
         return_object_to_free_list(new_sym);  // Return the object
-        sl_gc_remove_root(&new_sym);
+        SL_GC_REMOVE_ROOT(&new_sym);
         return SL_OUT_OF_MEMORY_ERROR;  // Propagate error
     }
 
     // Update global symbol table pointer *after* successful pair creation
     sl_symbol_table = new_table_node;
 
-    sl_gc_remove_root(&new_sym);  // Unroot the symbol, it's now reachable via sl_symbol_table
+    SL_GC_REMOVE_ROOT(&new_sym);  // Unroot the symbol, it's now reachable via sl_symbol_table
     return new_sym;               // Return the newly created and interned symbol
 }
 

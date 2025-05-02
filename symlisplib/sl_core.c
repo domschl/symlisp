@@ -515,7 +515,6 @@ void sl_gc_add_root_debug(sl_object **root_ptr, const char *filename, int line) 
             } else {
                 fprintf(stderr, "[GC ERROR] Attempted to add duplicate root for VarAddr=%p\n", (void *)root_ptr);
             }
-            fprintf(stderr, "[GC ERROR] Attempted to add duplicate root for VarAddr=%p\n", (void *)root_ptr);
             abort();
             return;  // Already rooted, do nothing
         }
@@ -537,12 +536,14 @@ void sl_gc_add_root_debug(sl_object **root_ptr, const char *filename, int line) 
         root_capacity = new_capacity;
     }
     gc_roots[root_count++] = root_ptr;
-
+    /*
+    // Uncomment in case duplicate root is encountered:
     if (filename != NULL && line > 0) {
         printf("[DEBUG] Added GC root for VarAddr=%p in %s:%d, new root_count: %zu\n", (void *)root_ptr, filename, line, root_count);
     } else {
         printf("[DEBUG] Added GC root for VarAddr=%p, new root_count: %zu\n", (void *)root_ptr, root_count);
     }
+    */
 }
 
 void sl_gc_add_root(sl_object **root_ptr) {
@@ -564,12 +565,14 @@ void sl_gc_remove_root_debug(sl_object **root_ptr, const char *filename, int lin
 
             debug_root_balance_counter--;
 
+            /*
+            // Uncomment in case non-existent root is encountered:
             if (filename != NULL && line > 0) {
                 printf("[DEBUG] Removed GC root for VarAddr=%p in %s:%d, new root_count: %zu\n", (void *)root_ptr, filename, line, root_count);
             } else {
                 printf("[DEBUG] Removed GC root for VarAddr=%p, new root_count: %zu\n", (void *)root_ptr, root_count);
             }
-
+            */
             return;
         }
     }

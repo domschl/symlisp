@@ -99,8 +99,8 @@ static sl_object *builtin_map(sl_object *args) {
             // Check if any list has ended
             if (!sl_is_pair(current_list_node)) {
                 stop_iteration = true;
-                sl_gc_remove_root(&next_nodes_tail);  // Break inner loop needs cleanup
-                sl_gc_remove_root(&next_nodes_head);
+                // sl_gc_remove_root(&next_nodes_tail);  // Break inner loop needs cleanup
+                // sl_gc_remove_root(&next_nodes_head);
                 break;  // Stop processing this iteration
             }
 
@@ -352,8 +352,8 @@ static sl_object *builtin_for_each(sl_object *args) {
             sl_object *current_list_node = sl_car(node_iter);
             if (!sl_is_pair(current_list_node)) {
                 stop_iteration = true;
-                sl_gc_remove_root(&next_nodes_tail);
-                sl_gc_remove_root(&next_nodes_head);
+                // sl_gc_remove_root(&next_nodes_tail);
+                // sl_gc_remove_root(&next_nodes_head);
                 break;
             }
             temp_item = sl_car(current_list_node);
@@ -507,8 +507,8 @@ static sl_object *builtin_fold_left(sl_object *args) {
             // Check if any list has ended
             if (!sl_is_pair(current_list_node)) {
                 stop_iteration = true;
-                sl_gc_remove_root(&next_nodes_tail);
-                sl_gc_remove_root(&next_nodes_head);
+                // sl_gc_remove_root(&next_nodes_tail);
+                // sl_gc_remove_root(&next_nodes_head);
                 break;  // Stop processing this iteration
             }
 

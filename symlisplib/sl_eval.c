@@ -45,7 +45,7 @@ static sl_object *eval_sequence_with_defines(sl_object *seq, sl_object *env, sl_
     sl_gc_add_root(&env);
     sl_gc_add_root(&defines_list);
     sl_gc_add_root(&body_start_node);
-    sl_gc_add_root(&result);
+    sl_gc_add_root(&result);  // remove after GC analysis
 
     // --- Pass 1: Scan for defines and create placeholders ---
     bool defines_found = false;
@@ -956,6 +956,7 @@ top_of_eval:;
                                 goto top_of_eval;               // Jump!
                             } else {
                                 // Not the last expression, evaluate normally
+                                sl_gc_remove_root(&result);           // Unroot previous result
                                 result = sl_eval(expr_to_eval, env);  // MIGHT GC
                                 sl_gc_add_root(&result);              // Root intermediate result
 

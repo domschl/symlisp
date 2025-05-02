@@ -442,7 +442,7 @@ void sl_mem_shutdown() {
     if (root_count != 2 || debug_root_balance_counter != 2) {
         fprintf(stderr, "[DEBUG] ERROR: GC root balance mismatch, expected 2, found %ld, root_count: %ld, expected 2.\n", root_count, debug_root_balance_counter);
     } else {
-        printf("[DEBUG] Shutting down memory, root_count: %ld (OK, symbol_table and global_env), root_balance: %ld (OK)\n", root_count, debug_root_balance_counter);
+        // printf("[DEBUG] Shutting down memory, root_count: %ld (OK, symbol_table and global_env), root_balance: %ld (OK)\n", root_count, debug_root_balance_counter);
     }
     heap_chunk *current_chunk = first_chunk;
     while (current_chunk != NULL) {

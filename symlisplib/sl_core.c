@@ -33,6 +33,7 @@ static size_t free_count = 0;
 static sl_object ***gc_roots = NULL;
 static size_t root_count = 0;
 static size_t root_capacity = 0;
+long debug_root_balance_counter = 0;
 
 // --- Global Constants / Singletons ---
 // Note: These objects themselves are not garbage collected, they live statically.
@@ -437,7 +438,12 @@ void sl_mem_init(size_t first_chunk_size) {
 }
 
 void sl_mem_shutdown() {
-    // printf("[DEBUG] Shutting down memory...\n");
+    // Expected count is 2: The two permanent global roots (sl_symbol_table and sl_global_env) are still present.
+    if (root_count != 2 || debug_root_balance_counter != 2) {
+        fprintf(stderr, "[DEBUG] ERROR: GC root balance mismatch, expected 2, found %ld, root_count: %ld, expected 2.\n", debug_root_balance_counter);
+    } else {
+        printf("[DEBUG] Shutting down memory, root_count: %ld (OK, symbol_table and global_env), root_balance: %ld (OK)\n", root_count, debug_root_balance_counter);
+    }
     heap_chunk *current_chunk = first_chunk;
     while (current_chunk != NULL) {
         heap_chunk *next = current_chunk->next_chunk;
@@ -504,10 +510,11 @@ void sl_gc_add_root(sl_object **root_ptr) {
     // <<< --- Check for duplicates --- >>>
     for (size_t i = 0; i < root_count; ++i) {
         if (gc_roots[i] == root_ptr) {
-            fprintf(stderr, "[GC WARNING] Attempted to add duplicate root for VarAddr=%p\n", (void *)root_ptr);
+            fprintf(stderr, "[GC ERROR] Attempted to add duplicate root for VarAddr=%p\n", (void *)root_ptr);
             return;  // Already rooted, do nothing
         }
     }
+    debug_root_balance_counter++;
     // <<< --- End check --- >>>
 
     if (root_count >= root_capacity) {
@@ -532,10 +539,11 @@ void sl_gc_remove_root(sl_object **root_ptr) {
         if (gc_roots[i] == root_ptr) {
             gc_roots[i] = gc_roots[root_count - 1];
             root_count--;
+            debug_root_balance_counter--;
             return;
         }
     }
-    fprintf(stderr, "[DEBUG] Warning: Attempted to remove non-existent GC root: varPtr: %p\n", (void *)root_ptr);
+    fprintf(stderr, "[DEBUG] ERROR: Attempted to remove non-existent GC root: varPtr: %p\n", (void *)root_ptr);
 }
 
 // Simple allocation from the free list
@@ -1113,7 +1121,7 @@ static void sl_gc_sweep() {
                         strcmp(obj->data.symbol_name, "lambda") == 0 ||
                         strcmp(obj->data.symbol_name, "assert-equal") == 0)  // Add others if needed
                     {
-                        printf("[DEBUG GC SWEEP] *** WARNING: Freeing critical SYMBOL '%s' (%p) ***\n", obj->data.symbol_name, (void *)obj);
+                        printf("[DEBUG GC SWEEP] *** ERROR: Freeing critical SYMBOL '%s' (%p) ***\n", obj->data.symbol_name, (void *)obj);
                         is_critical = true;
                     } else {
                         // Optional: Print non-critical symbols being freed
@@ -1125,7 +1133,7 @@ static void sl_gc_sweep() {
                 } else if (obj->type == SL_TYPE_FUNCTION && obj->data.function.is_builtin) {
                     // Check if a builtin function object itself is being freed
                     if (strcmp(obj->data.function.def.builtin.name, "set!") == 0) {  // Check name stored in builtin
-                        printf("[DEBUG GC SWEEP] *** WARNING: Freeing 'set!' BUILTIN function object (%p) ***\n", (void *)obj);
+                        printf("[DEBUG GC SWEEP] *** ERROR: Freeing 'set!' BUILTIN function object (%p) ***\n", (void *)obj);
                         is_critical = true;
                     }
                 }
@@ -1172,15 +1180,15 @@ static void sl_gc_sweep() {
 
 // Main GC function
 void sl_gc() {
-    printf("[DEBUG GC] Starting GC Mark Phase. Root count: %zu\n", root_count);
+    // printf("[DEBUG GC] Starting GC Mark Phase. Root count: %zu\n", root_count);
 
     // <<< --- ADD VALIDATION LOOP --- >>>
     for (size_t i = 0; i < root_count; ++i) {
         sl_object **root_var_addr = gc_roots[i];
         sl_object *root_obj_ptr = (root_var_addr != NULL) ? *root_var_addr : (sl_object *)0xDEADBEEF;  // Get the object pointer safely
 
-        printf("[DEBUG GC VALIDATE] Root %zu: VarAddr=%p, ObjPtr=%p\n",
-               i, (void *)root_var_addr, (void *)root_obj_ptr);
+        // printf("[DEBUG GC VALIDATE] Root %zu: VarAddr=%p, ObjPtr=%p\n",
+        //       i, (void *)root_var_addr, (void *)root_obj_ptr);
 
         // Basic sanity checks (add more specific checks if needed)
         if (root_var_addr == NULL) {

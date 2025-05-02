@@ -440,7 +440,7 @@ void sl_mem_init(size_t first_chunk_size) {
 void sl_mem_shutdown() {
     // Expected count is 2: The two permanent global roots (sl_symbol_table and sl_global_env) are still present.
     if (root_count != 2 || debug_root_balance_counter != 2) {
-        fprintf(stderr, "[DEBUG] ERROR: GC root balance mismatch, expected 2, found %ld, root_count: %ld, expected 2.\n", debug_root_balance_counter);
+        fprintf(stderr, "[DEBUG] ERROR: GC root balance mismatch, expected 2, found %ld, root_count: %ld, expected 2.\n", root_count, debug_root_balance_counter);
     } else {
         printf("[DEBUG] Shutting down memory, root_count: %ld (OK, symbol_table and global_env), root_balance: %ld (OK)\n", root_count, debug_root_balance_counter);
     }
@@ -506,11 +506,17 @@ void sl_mem_shutdown() {
 }
 
 // Add/Remove GC Roots (Implementation)
-void sl_gc_add_root(sl_object **root_ptr) {
+void sl_gc_add_root_debug(sl_object **root_ptr, const char *filename, int line) {
     // <<< --- Check for duplicates --- >>>
     for (size_t i = 0; i < root_count; ++i) {
         if (gc_roots[i] == root_ptr) {
+            if (filename != NULL && line > 0) {
+                fprintf(stderr, "[GC ERROR] Attempted to add duplicate root for VarAddr=%p in %s:%d\n", (void *)root_ptr, filename, line);
+            } else {
+                fprintf(stderr, "[GC ERROR] Attempted to add duplicate root for VarAddr=%p\n", (void *)root_ptr);
+            }
             fprintf(stderr, "[GC ERROR] Attempted to add duplicate root for VarAddr=%p\n", (void *)root_ptr);
+            abort();
             return;  // Already rooted, do nothing
         }
     }
@@ -533,7 +539,11 @@ void sl_gc_add_root(sl_object **root_ptr) {
     gc_roots[root_count++] = root_ptr;
 }
 
-void sl_gc_remove_root(sl_object **root_ptr) {
+void sl_gc_add_root(sl_object **root_ptr) {
+    sl_gc_add_root_debug(root_ptr, NULL, 0);
+}
+
+void sl_gc_remove_root_debug(sl_object **root_ptr, const char *filename, int line) {
     for (size_t i = 0; i < root_count; ++i) {
         // Cast root_ptr to sl_object** for comparison (though types match)
         if (gc_roots[i] == root_ptr) {
@@ -543,7 +553,15 @@ void sl_gc_remove_root(sl_object **root_ptr) {
             return;
         }
     }
-    fprintf(stderr, "[DEBUG] ERROR: Attempted to remove non-existent GC root: varPtr: %p\n", (void *)root_ptr);
+    if (filename != NULL && line > 0) {
+        fprintf(stderr, "[DEBUG] ERROR: Attempted to remove non-existent GC root for VarAddr=%p in %s:%d\n", (void *)root_ptr, filename, line);
+    } else {
+        fprintf(stderr, "[DEBUG] ERROR: Attempted to remove non-existent GC root for VarAddr=%p\n", (void *)root_ptr);
+    }
+}
+
+void sl_gc_remove_root(sl_object **root_ptr) {
+    sl_gc_remove_root_debug(root_ptr, NULL, 0);
 }
 
 // Simple allocation from the free list

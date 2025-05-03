@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <unistd.h>  // For getopt
+#include <getopt.h>
 
 #include "sl_core.h"
 #include "sl_env.h"

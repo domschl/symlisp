@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include <readline/readline.h>
 #include <readline/history.h>
-#include <ctype.h>
 #include <sys/stat.h>
 #include <unistd.h>  // For getopt
 #include <getopt.h>
@@ -12,7 +11,6 @@
 #include "sl_core.h"
 #include "sl_env.h"
 #include "sl_builtins.h"
-#include "sl_parse.h"
 #include "sl_eval.h"
 
 // Default path for standard library relative to executable location (adjust as needed)

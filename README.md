@@ -54,6 +54,7 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] math factorize
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
 - [x] Eval gc crash on string->prefix-expr tests. Fixed.
+- [x] Time and random numbers
 
 Additional Ideas:
 

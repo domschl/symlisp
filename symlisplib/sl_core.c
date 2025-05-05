@@ -5,6 +5,7 @@
 #include <stdarg.h>    // For va_list
 #include <inttypes.h>  // For PRId64
 #include <limits.h>
+#include <time.h>
 #include <gmp.h>
 
 #include "sl_core.h"
@@ -356,6 +357,8 @@ void sl_mem_init(size_t first_chunk_size) {
     if (first_chunk != NULL) {
         return;  // Already initialized
     }
+
+    srand(time(NULL));
 
     printf("Initializing SymLisp memory...\n");
     if (first_chunk_size == 0) first_chunk_size = DEFAULT_CHUNK_OBJECT_COUNT;

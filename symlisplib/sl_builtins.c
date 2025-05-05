@@ -1966,6 +1966,116 @@ static sl_object *sl_builtin_gettimeofday(sl_object *args) {
     return result;
 }
 
+static sl_object *sl_builtin_time(sl_object *args) {
+    sl_object *arity_check = check_arity("time", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *expr = sl_car(args);
+    struct timeval start_tv, end_tv, diff_tv;
+    sl_object *eval_result = NULL;  // Initialize to NULL
+    sl_object *result_pair = NULL;  // Initialize to NULL
+
+    // Root expr before potential allocations/eval
+    SL_GC_ADD_ROOT(&expr);
+
+    if (gettimeofday(&start_tv, NULL) != 0) {
+        result_pair = sl_make_errorf("time: gettimeofday failed before eval (%s)", strerror(errno));
+        goto cleanup_time;
+    }
+
+    // Evaluate the expression
+    // Assuming sl_eval needs the current environment. Builtins don't easily get
+    // the caller's env. Using sl_global_env might be incorrect if 'time'
+    // is used inside a local scope. A better approach would require passing
+    // the environment to builtins. Using global_env for now as a placeholder.
+    // If your sl_apply passes the env, use that instead of sl_global_env.
+    if (!sl_global_env) {  // Check if global env is available
+        result_pair = sl_make_errorf("time: Global environment not available for evaluation");
+        goto cleanup_time;
+    }
+    eval_result = sl_eval(expr, sl_global_env);  // Use appropriate env if available
+    SL_GC_ADD_ROOT(&eval_result);                // Protect result during time calculation
+
+    if (gettimeofday(&end_tv, NULL) != 0) {
+        result_pair = sl_make_errorf("time: gettimeofday failed after eval (%s)", strerror(errno));
+        SL_GC_REMOVE_ROOT(&eval_result);  // Unroot eval_result before returning error
+        goto cleanup_time;
+    }
+
+    // Check if evaluation resulted in an error AFTER getting end time
+    if (sl_is_error(eval_result)) {
+        result_pair = eval_result;        // Propagate the error
+        SL_GC_REMOVE_ROOT(&eval_result);  // Unroot eval_result before returning error
+        goto cleanup_time;
+    }
+    SL_GC_REMOVE_ROOT(&eval_result);  // Unroot eval_result, no longer needed
+
+    // Calculate time difference
+    diff_tv.tv_sec = end_tv.tv_sec - start_tv.tv_sec;
+    diff_tv.tv_usec = end_tv.tv_usec - start_tv.tv_usec;
+    if (diff_tv.tv_usec < 0) {
+        diff_tv.tv_sec--;
+        diff_tv.tv_usec += 1000000;
+    }
+
+    sl_object *s_obj = sl_make_number_si((int64_t)diff_tv.tv_sec, 1);
+    CHECK_ALLOC(s_obj);
+    SL_GC_ADD_ROOT(&s_obj);
+
+    sl_object *us_obj = sl_make_number_si((int64_t)diff_tv.tv_usec, 1);
+    CHECK_ALLOC(us_obj);
+    SL_GC_ADD_ROOT(&us_obj);
+
+    result_pair = sl_make_pair(s_obj, us_obj);
+    CHECK_ALLOC(result_pair);
+
+    SL_GC_REMOVE_ROOT(&us_obj);
+    SL_GC_REMOVE_ROOT(&s_obj);
+
+cleanup_time:
+    SL_GC_REMOVE_ROOT(&expr);  // Unroot expr
+    return result_pair;        // Return either the pair or an error object
+}
+
+static sl_object *sl_builtin_random_integer(sl_object *args) {
+    sl_object *arity_check = check_arity("random-integer", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *n_obj = sl_car(args);
+    int64_t n_val;
+
+    // Use helper to get int64_t, checking type and range
+    if (!get_number_as_int64(n_obj, &n_val, "random-integer")) {
+        // Error message printed by helper or type check failed
+        // Need to return an error object consistent with the helper's failure
+        // Let's create a specific one if the helper didn't.
+        if (!sl_is_number(n_obj) || !sl_number_is_integer(n_obj)) {
+            return sl_make_errorf("random-integer: Argument must be an integer.");
+        } else {
+            // Assume helper printed range error, but return one just in case
+            return sl_make_errorf("random-integer: Argument out of range or invalid.");
+        }
+    }
+
+    if (n_val <= 0) {
+        return sl_make_errorf("random-integer: Argument must be a positive integer.");
+    }
+
+    // rand() returns int. Ensure n_val fits in int range for modulo.
+    // This check might be too strict depending on RAND_MAX vs INT_MAX vs int64_t
+    if (n_val > INT_MAX) {
+        return sl_make_errorf("random-integer: Argument exceeds maximum value supported by rand() (%d).", INT_MAX);
+    }
+
+    // Use rand() % n. Note potential bias for large n close to RAND_MAX.
+    // Cast n_val to int for the modulo operation.
+    int random_val = rand() % (int)n_val;
+
+    sl_object *result = sl_make_number_si((int64_t)random_val, 1);
+    CHECK_ALLOC(result);
+    return result;
+}
+
 // (load filename-string)
 static sl_object *sl_builtin_load(sl_object *args) {
     sl_object *arity_check = check_arity("load", args, 1);
@@ -2364,6 +2474,14 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "load", sl_builtin_load);
     define_builtin(global_env, "write", sl_builtin_write);  // <<< ADDED
     define_builtin(global_env, "read", sl_builtin_read);    // <<< ADDED
+
+    // Time
+    define_builtin(global_env, "current-time", sl_builtin_current_time);  // <<< ADDED
+    define_builtin(global_env, "gettimeofday", sl_builtin_gettimeofday);  // <<< ADDED
+    define_builtin(global_env, "time", sl_builtin_time);                  // <<< ADDED
+
+    // Random
+    define_builtin(global_env, "random-integer", sl_builtin_random_integer);  // <<< ADDED
 
     // Evaluation
     define_builtin(global_env, "eval", sl_builtin_eval);                                        // <<< ADDED

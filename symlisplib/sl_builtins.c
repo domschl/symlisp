@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <gmp.h>
 #include <errno.h>  // For errno used with fopen
+#include <time.h>
+#include <sys/time.h>
 
 #include "sl_builtins.h"
 #include "sl_core.h"
@@ -1923,6 +1925,45 @@ static sl_object *sl_builtin_newline(sl_object *args) {
 
     // R7RS specifies newline returns an unspecified value. Use SL_NIL.
     return SL_NIL;
+}
+
+static sl_object *sl_builtin_current_time(sl_object *args) {
+    sl_object *arity_check = check_arity("current-time", args, 0);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    // Get the current time in seconds since epoch
+    time_t now = time(NULL);
+    if (now == (time_t)-1) {
+        return sl_make_errorf("Error (current-time): Failed to get current time.");
+    }
+
+    // Convert to a Scheme number object
+    sl_object *result = sl_make_number_si((int64_t)now, 1);
+    CHECK_ALLOC(result);
+
+    return result;
+}
+
+static sl_object *sl_builtin_gettimeofday(sl_object *args) {
+    sl_object *arity_check = check_arity("gettimeofday", args, 0);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) == -1) {
+        return sl_make_errorf("Error (gettimeofday): Failed to get time.");
+    }
+
+    // Create a list of two numbers: seconds and microseconds
+    sl_object *seconds = sl_make_number_si((int64_t)tv.tv_sec, 1);
+    CHECK_ALLOC(seconds);
+    sl_object *microseconds = sl_make_number_si((int64_t)tv.tv_usec, 1);
+    CHECK_ALLOC(microseconds);
+
+    // Create the list (seconds . microseconds)
+    sl_object *result = sl_make_pair(seconds, microseconds);
+    CHECK_ALLOC(result);
+
+    return result;
 }
 
 // (load filename-string)

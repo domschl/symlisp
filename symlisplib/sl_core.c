@@ -527,7 +527,7 @@ void sl_gc_add_root_debug(sl_object **root_ptr, const char *filename, int line) 
 
     if (root_count >= root_capacity) {
         // Resize roots array
-        printf("[DEBUG] Resizing GC roots array from %zu to %zu\n", root_capacity, root_capacity * 2);
+        // printf("[DEBUG] Resizing GC roots array from %zu to %zu\n", root_capacity, root_capacity * 2);
         size_t new_capacity = root_capacity == 0 ? 16 : root_capacity * 2;
         sl_object ***new_roots = realloc(gc_roots, new_capacity * sizeof(sl_object **));
         if (!new_roots) {

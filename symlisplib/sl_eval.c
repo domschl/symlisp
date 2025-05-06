@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <inttypes.h>  // For PRId64
 #include <dirent.h>    // <<< For directory listing (POSIX)
 #include <errno.h>     // <<< For strerror
 #include <sys/stat.h>  // <<< For stat to check if it's a file
@@ -28,6 +29,75 @@ static const char *safe_symbol_name(sl_object *obj) {
     return "invalid-symbol";
 }
 
+static char sl_eval_debug_str_buffer[128];  // Static buffer for debug strings
+
+// Provides a simple string representation of an object for debugging.
+// Uses a static buffer, so it's not re-entrant or thread-safe.
+static const char *sl_to_string_debug(sl_object *obj) {
+    if (!obj) {
+        strncpy(sl_eval_debug_str_buffer, "<null_obj>", sizeof(sl_eval_debug_str_buffer) - 1);
+        sl_eval_debug_str_buffer[sizeof(sl_eval_debug_str_buffer) - 1] = '\0';
+        return sl_eval_debug_str_buffer;
+    }
+
+    switch (obj->type) {
+    case SL_TYPE_NIL:
+        snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "()");
+        break;
+    case SL_TYPE_BOOLEAN:
+        snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), obj->data.boolean ? "#t" : "#f");
+        break;
+    case SL_TYPE_SYMBOL:
+        snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "'%s", sl_symbol_name(obj) ? sl_symbol_name(obj) : "<?SYM?>");
+        break;
+    case SL_TYPE_NUMBER:
+        // For a full representation, you'd call mpq_get_str or similar.
+        // This is a simplified placeholder for debugging.
+        if (obj->data.number.is_bignum) {
+            // Note: mpq_get_str allocates memory that would need to be freed.
+            // For a static buffer debug function, a placeholder is safer.
+            snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "#<bignum>");
+        } else {
+            if (obj->data.number.value.small_num.den == 1) {
+                snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "%" PRId64, obj->data.number.value.small_num.num);
+            } else {
+                snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "%" PRId64 "/%" PRId64, obj->data.number.value.small_num.num, obj->data.number.value.small_num.den);
+            }
+        }
+        break;
+    case SL_TYPE_STRING:
+        snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "\"%.50s%s\"", sl_string_value(obj) ? sl_string_value(obj) : "", (sl_string_value(obj) && strlen(sl_string_value(obj)) > 50) ? "..." : "");
+        break;
+    case SL_TYPE_CHAR:
+        // This is a very basic representation. A full one would handle named chars.
+        if (isprint(obj->data.code_point)) {
+            snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "#\\%c", (char)obj->data.code_point);
+        } else {
+            snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "#\\x%x", obj->data.code_point);
+        }
+        break;
+    case SL_TYPE_PAIR:
+        snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "(...)");  // Simplified
+        break;
+    case SL_TYPE_FUNCTION:
+        if (obj->data.function.is_builtin) {
+            snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "#<builtin:%s>", obj->data.function.def.builtin.name ? obj->data.function.def.builtin.name : "UNKNOWN> ");
+        } else {
+            snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "#<procedure>");
+        }
+        break;
+    case SL_TYPE_ERROR:
+        snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "#<error: %.50s%s>", sl_error_message(obj) ? sl_error_message(obj) : "", (sl_error_message(obj) && strlen(sl_error_message(obj)) > 50) ? "..." : "");
+        break;
+    default:
+        snprintf(sl_eval_debug_str_buffer, sizeof(sl_eval_debug_str_buffer), "#<type:%d>", obj->type);
+        break;
+    }
+    // Ensure null-termination in all cases, as snprintf might truncate.
+    sl_eval_debug_str_buffer[sizeof(sl_eval_debug_str_buffer) - 1] = '\0';
+    return sl_eval_debug_str_buffer;
+}
+
 // eval_quasiquote_template:
 // Processes a quasiquoted template.
 // 'level' tracks the quasiquote nesting. level 1 is the outermost active quasiquote.
@@ -35,7 +105,7 @@ static const char *safe_symbol_name(sl_object *obj) {
 // expressions at the current level is handled by the list-building part.
 static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, int level) {
     sl_object *result = SL_NIL;
-    sl_object *processed_part = SL_NIL;  // For parts of lists
+    sl_object *processed_part = SL_NIL;
 
     SL_GC_ADD_ROOT(&template);
     SL_GC_ADD_ROOT(&env);
@@ -43,7 +113,7 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
     SL_GC_ADD_ROOT(&processed_part);
 
     if (!sl_is_pair(template)) {
-        result = template;  // Atoms are returned as is by the transformer.
+        result = template;  // Atoms are returned as is
         goto cleanup_qqt;
     }
 
@@ -58,49 +128,99 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
                 result = sl_make_errorf("Eval: Malformed unquote (expected one argument)");
                 goto cleanup_qqt;
             }
-            sl_object *unquote_arg = sl_car(template_args);
+            sl_object *arg = sl_car(template_args);
+            SL_GC_ADD_ROOT(&arg);
 
-            if (level == 1) {
-                // At active unquote level, transformer returns the argument.
-                // The list builder will identify this as from an unquote and eval it.
-                result = unquote_arg;
-                goto cleanup_qqt;
-            } else {  // level > 1, unquote is "dormant"
-                SL_GC_ADD_ROOT(&unquote_arg);
-                processed_part = eval_quasiquote_template(unquote_arg, env, level - 1);
-                SL_GC_REMOVE_ROOT(&unquote_arg);
+            // This is when template IS (unquote ARG) and level is 1.
+            if (sl_is_pair(arg) && sl_is_symbol(sl_car(arg))) {
+                const char *arg_op_name = safe_symbol_name(sl_car(arg));
+                sl_object *arg_op_args = sl_cdr(arg);
+                if (sl_is_pair(arg_op_args) && sl_cdr(arg_op_args) == SL_NIL) {  // (op actual_arg)
+                    sl_object *actual_inner_arg = sl_car(arg_op_args);
+                    SL_GC_ADD_ROOT(&actual_inner_arg);
+                    if (strcmp(arg_op_name, "unquote") == 0) {  // template is ,,INNER_ARG
+                        // Result is ('unquote INNER_ARG_symbol)
+                        sl_object *unquote_sym_lit = sl_make_symbol("unquote");
+                        SL_GC_ADD_ROOT(&unquote_sym_lit);
+                        sl_object *inner_arg_list = sl_make_pair(actual_inner_arg, SL_NIL);
+                        SL_GC_ADD_ROOT(&inner_arg_list);
+                        result = sl_make_pair(unquote_sym_lit, inner_arg_list);
+                        SL_GC_REMOVE_ROOT(&inner_arg_list);
+                        SL_GC_REMOVE_ROOT(&unquote_sym_lit);
+                    } else if (strcmp(arg_op_name, "quasiquote") == 0) {  // template is ,`INNER_TMPL
+                        // Result is (`INNER_TMPL) which is arg itself
+                        result = arg;
+                    } else {                         // template is ,X where X is other (op actual_arg)
+                        result = sl_eval(arg, env);  // << CHANGED: Evaluate if it's a simple unquoted expression
+                    }
+                    SL_GC_REMOVE_ROOT(&actual_inner_arg);
+                    goto cleanup_qqt_remove_arg;  // arg is already rooted and will be unrooted
+                }
+            }
+            // template is ,X where X is atom or other list not matching ,, or ,`
+            result = sl_eval(arg, env);  // << CHANGED: Evaluate if it's a simple unquoted atom/var
 
-                if (processed_part == SL_OUT_OF_MEMORY_ERROR || sl_is_error(processed_part)) {
-                    result = processed_part;
-                    goto cleanup_qqt;
-                }
-                sl_object *unquote_sym_literal = sl_make_symbol("unquote");
-                SL_GC_ADD_ROOT(&unquote_sym_literal);
-                sl_object *arg_list = sl_make_pair(processed_part, SL_NIL);
-                SL_GC_ADD_ROOT(&arg_list);
-                result = sl_make_pair(unquote_sym_literal, arg_list);
-                SL_GC_REMOVE_ROOT(&arg_list);
-                SL_GC_REMOVE_ROOT(&unquote_sym_literal);
-                if (result == SL_OUT_OF_MEMORY_ERROR) { /* OOM already set */
-                }
+        cleanup_qqt_remove_arg:
+            SL_GC_REMOVE_ROOT(&arg);
+            goto cleanup_qqt;
+
+        } else if (strcmp(op_name, "quasiquote") == 0) {  // Nested quasiquote: `ARG
+            if (!sl_is_pair(template_args) || sl_cdr(template_args) != SL_NIL) {
+                result = sl_make_errorf("Eval: Malformed nested quasiquote (expected one argument)");
                 goto cleanup_qqt;
             }
-        } else if (strcmp(op_name, "unquote-splicing") == 0) {
+            sl_object *nested_qq_arg = sl_car(template_args);
+            SL_GC_ADD_ROOT(&nested_qq_arg);
+            processed_part = eval_quasiquote_template(nested_qq_arg, env, level + 1);
+            SL_GC_REMOVE_ROOT(&nested_qq_arg);
+            if (processed_part == SL_OUT_OF_MEMORY_ERROR || sl_is_error(processed_part)) {
+                result = processed_part;
+                goto cleanup_qqt;
+            }
+            sl_object *quasiquote_sym_lit = sl_make_symbol("quasiquote");
+            SL_GC_ADD_ROOT(&quasiquote_sym_lit);
+            sl_object *arg_list = sl_make_pair(processed_part, SL_NIL);
+            SL_GC_ADD_ROOT(&arg_list);
+            result = sl_make_pair(quasiquote_sym_lit, arg_list);
+            SL_GC_REMOVE_ROOT(&arg_list);
+            SL_GC_REMOVE_ROOT(&quasiquote_sym_lit);
+            goto cleanup_qqt;
+
+        } else if (strcmp(op_name, "unquote-splicing") == 0) {  // ,@ARG
             if (!sl_is_pair(template_args) || sl_cdr(template_args) != SL_NIL) {
                 result = sl_make_errorf("Eval: Malformed unquote-splicing (expected one argument)");
                 goto cleanup_qqt;
             }
-            sl_object *unquote_splice_arg = sl_car(template_args);
-            if (level == 1) {
-                // At active unquote-splicing level, transformer returns the argument.
-                // List builder evals and checks type.
-                result = unquote_splice_arg;
-                goto cleanup_qqt;
-            } else {  // level > 1
-                SL_GC_ADD_ROOT(&unquote_splice_arg);
-                processed_part = eval_quasiquote_template(unquote_splice_arg, env, level - 1);
-                SL_GC_REMOVE_ROOT(&unquote_splice_arg);
-
+            if (level == 1) {  // Active unquote-splicing ,@ARG (template is (unquote-splicing ARG))
+                sl_object *arg = sl_car(template_args);
+                // Check if ARG is itself a qq-control form, which is an error for splicing
+                if (sl_is_pair(arg) && sl_is_symbol(sl_car(arg))) {
+                    const char *arg_op_name = safe_symbol_name(sl_car(arg));
+                    sl_object *arg_op_args = sl_cdr(arg);
+                    if (sl_is_pair(arg_op_args) && sl_cdr(arg_op_args) == SL_NIL &&
+                        (strcmp(arg_op_name, "unquote") == 0 ||
+                         strcmp(arg_op_name, "unquote-splicing") == 0 ||
+                         strcmp(arg_op_name, "quasiquote") == 0)) {
+                        result = sl_make_errorf("Eval: unquote-splicing argument cannot be a literal quasiquote control form: %s", sl_to_string_debug(arg));
+                        goto cleanup_qqt;
+                    }
+                }
+                result = sl_eval(arg, env);  // Evaluate to get the list to splice
+                if (!(result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result) || sl_is_list(result))) {
+                    result = sl_make_errorf("Eval: unquote-splicing did not evaluate to a list: %s", sl_to_string_debug(result));
+                }
+                // The caller (list builder) will handle the actual splicing if this was an item.
+                // If this was the *entire* template, e.g. eval(`,@foo`), it's an error at sl_eval stage.
+                // This path is for eval_qq( (unquote-splicing ARG), 1)
+                // The list builder handles items of this form. If this is the whole template, sl_eval should error.
+                // For now, this returns the evaluated list. sl_eval will need to reject it if it's not part of a list construction.
+                // This specific error "cannot be at the head" is better handled by sl_eval if it gets a list from here.
+                // For now, let eval_qq return the list, and the list builder will use it.
+            } else {  // level > 1, dormant unquote-splicing
+                sl_object *arg = sl_car(template_args);
+                SL_GC_ADD_ROOT(&arg);
+                processed_part = eval_quasiquote_template(arg, env, level - 1);
+                SL_GC_REMOVE_ROOT(&arg);
                 if (processed_part == SL_OUT_OF_MEMORY_ERROR || sl_is_error(processed_part)) {
                     result = processed_part;
                     goto cleanup_qqt;
@@ -112,102 +232,102 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
                 result = sl_make_pair(uqs_sym_lit, arg_list);
                 SL_GC_REMOVE_ROOT(&arg_list);
                 SL_GC_REMOVE_ROOT(&uqs_sym_lit);
-                if (result == SL_OUT_OF_MEMORY_ERROR) { /* OOM already set */
-                }
                 goto cleanup_qqt;
             }
-        } else if (strcmp(op_name, "quasiquote") == 0) {  // Nested quasiquote
-            if (!sl_is_pair(template_args) || sl_cdr(template_args) != SL_NIL) {
-                result = sl_make_errorf("Eval: Malformed nested quasiquote (expected one argument)");
-                goto cleanup_qqt;
-            }
-            sl_object *nested_qq_arg = sl_car(template_args);
-            SL_GC_ADD_ROOT(&nested_qq_arg);
-            processed_part = eval_quasiquote_template(nested_qq_arg, env, level + 1);
-            SL_GC_REMOVE_ROOT(&nested_qq_arg);
-
-            if (processed_part == SL_OUT_OF_MEMORY_ERROR || sl_is_error(processed_part)) {
-                result = processed_part;
-                goto cleanup_qqt;
-            }
-            sl_object *quasiquote_sym_literal = sl_make_symbol("quasiquote");
-            SL_GC_ADD_ROOT(&quasiquote_sym_literal);
-            sl_object *arg_list = sl_make_pair(processed_part, SL_NIL);
-            SL_GC_ADD_ROOT(&arg_list);
-            result = sl_make_pair(quasiquote_sym_literal, arg_list);
-            SL_GC_REMOVE_ROOT(&arg_list);
-            SL_GC_REMOVE_ROOT(&quasiquote_sym_literal);
-            if (result == SL_OUT_OF_MEMORY_ERROR) { /* OOM already set */
-            }
-            goto cleanup_qqt;
         }
     }
 
-    // General pair: (item . rest_of_template). Recursively process car and cdr.
+    // General pair: (item . rest_of_template). Build list.
     sl_object *result_head_local = SL_NIL;
     sl_object **result_tail_ptr = &result_head_local;
     sl_object *current_template_node = template;
 
     SL_GC_ADD_ROOT(&result_head_local);
-    // current_template_node is already rooted via template
 
     while (sl_is_pair(current_template_node)) {
         sl_object *item_in_template = sl_car(current_template_node);
-        sl_object *item_to_eval_if_unquoted = NULL;
-        sl_object *transformed_item;      // Result of eval_quasiquote_template for item_in_template
-        sl_object *final_value_for_list;  // Result after potential sl_eval
+        sl_object *final_value_for_list = SL_NIL;
+        bool spliced = false;
 
-        bool needs_eval_for_unquote = false;
-        bool needs_eval_and_splice = false;
+        SL_GC_ADD_ROOT(&item_in_template);
 
-        // Check if item_in_template is (unquote X) or (unquote-splicing X)
-        // These are forms that eval_quasiquote_template (level 1) would return X for.
         if (sl_is_pair(item_in_template) && sl_is_symbol(sl_car(item_in_template))) {
-            const char *item_op_name = sl_symbol_name(sl_car(item_in_template));
-            if (level == 1 && strcmp(item_op_name, "unquote") == 0) {
-                sl_object *uq_args = sl_cdr(item_in_template);
-                if (sl_is_pair(uq_args) && sl_cdr(uq_args) == SL_NIL) {
-                    item_to_eval_if_unquoted = sl_car(uq_args);
-                    needs_eval_for_unquote = true;
-                } else {
-                    result = sl_make_errorf("Malformed unquote in list");
-                    goto list_build_error;
+            const char *item_op_name = safe_symbol_name(sl_car(item_in_template));
+            sl_object *item_op_args_list = sl_cdr(item_in_template);
+
+            if (level == 1 && sl_is_pair(item_op_args_list) && sl_cdr(item_op_args_list) == SL_NIL) {
+                sl_object *x_arg = sl_car(item_op_args_list);  // This is the argument to unquote or unquote-splicing
+                SL_GC_ADD_ROOT(&x_arg);
+
+                if (strcmp(item_op_name, "unquote") == 0) {                  // item is ,X_arg
+                    if (sl_is_pair(x_arg) && sl_is_symbol(sl_car(x_arg))) {  // If X_arg is (op ...)
+                        const char *x_arg_op_name_inner = safe_symbol_name(sl_car(x_arg));
+                        sl_object *x_arg_op_args_inner = sl_cdr(x_arg);
+                        if (sl_is_pair(x_arg_op_args_inner) && sl_cdr(x_arg_op_args_inner) == SL_NIL) {
+                            sl_object *innermost_arg = sl_car(x_arg_op_args_inner);
+                            SL_GC_ADD_ROOT(&innermost_arg);
+                            if (strcmp(x_arg_op_name_inner, "unquote") == 0) {       // item is ,,INNERMOST_ARG
+                                final_value_for_list = sl_eval(innermost_arg, env);  // Ensures INNERMOST_ARG is evaluated
+                                // Result is (unquote INNERMOST_ARG_symbol)
+                                sl_object *unquote_sym = sl_make_symbol("unquote");
+                                SL_GC_ADD_ROOT(&unquote_sym);
+                                sl_object *val_list = sl_make_pair(innermost_arg, SL_NIL);
+                                SL_GC_ADD_ROOT(&val_list);
+                                final_value_for_list = sl_make_pair(unquote_sym, val_list);
+                                SL_GC_REMOVE_ROOT(&val_list);
+                                SL_GC_REMOVE_ROOT(&unquote_sym);
+                            } else if (strcmp(x_arg_op_name_inner, "quasiquote") == 0) {  // item is ,`INNER_TMPL
+                                final_value_for_list = sl_eval(x_arg, env);
+                            } else {  // item is ,(op Y)
+                                final_value_for_list = sl_eval(x_arg, env);
+                            }
+                            SL_GC_REMOVE_ROOT(&innermost_arg);
+                        } else {  // item is ,(op Y Z ...) or ,(op)
+                            final_value_for_list = sl_eval(x_arg, env);
+                        }
+                    } else {                                         // item is ,ATOM or ,(non-op-led-list ...)
+                        final_value_for_list = sl_eval(x_arg, env);  // Ensures X_arg (atom/var) is evaluated
+                    }
+                } else if (strcmp(item_op_name, "unquote-splicing") == 0) {  // item is ,@X_arg
+                    // X_arg cannot be ,,Y or ,`Y or ,@Y for splicing
+                    if (sl_is_pair(x_arg) && sl_is_symbol(sl_car(x_arg))) {
+                        const char *x_arg_op_name_inner = safe_symbol_name(sl_car(x_arg));
+                        sl_object *x_arg_op_args_inner = sl_cdr(x_arg);
+                        if (sl_is_pair(x_arg_op_args_inner) && sl_cdr(x_arg_op_args_inner) == SL_NIL &&
+                            (strcmp(x_arg_op_name_inner, "unquote") == 0 ||
+                             strcmp(x_arg_op_name_inner, "unquote-splicing") == 0 ||
+                             strcmp(x_arg_op_name_inner, "quasiquote") == 0)) {
+                            result = sl_make_errorf("Eval: unquote-splicing argument cannot be a literal quasiquote control form: %s", sl_to_string_debug(x_arg));
+                            goto list_build_error;
+                        }
+                    }
+                    final_value_for_list = sl_eval(x_arg, env);  // This is correct
+                    spliced = true;
+                } else {  // item is (op ...) but not active unquote/unquote-splicing
+                    final_value_for_list = eval_quasiquote_template(item_in_template, env, level);
                 }
-            } else if (level == 1 && strcmp(item_op_name, "unquote-splicing") == 0) {
-                if (sl_is_pair(sl_cdr(item_in_template)) && sl_cdr(sl_cdr(item_in_template)) == SL_NIL) {
-                    item_to_eval_if_unquoted = sl_car(sl_cdr(item_in_template));
-                    needs_eval_and_splice = true;
-                } else {
-                    result = sl_make_errorf("Malformed unquote-splicing in list");
-                    goto list_build_error;
-                }
+                SL_GC_REMOVE_ROOT(&x_arg);
+            } else {  // item is (op Y Z...) or (op) or not level 1 unquote/unquote-splicing
+                final_value_for_list = eval_quasiquote_template(item_in_template, env, level);
             }
+        } else {  // item_in_template is atom or list not starting with symbol
+            final_value_for_list = eval_quasiquote_template(item_in_template, env, level);
+        }
+        SL_GC_REMOVE_ROOT(&item_in_template);
+        SL_GC_ADD_ROOT(&final_value_for_list);
+
+        if (final_value_for_list == SL_OUT_OF_MEMORY_ERROR || sl_is_error(final_value_for_list)) {
+            result = final_value_for_list;
+            SL_GC_REMOVE_ROOT(&final_value_for_list);
+            goto list_build_error;
         }
 
-        if (needs_eval_for_unquote || needs_eval_and_splice) {
-            // The item was (unquote X) or (unquote-splicing X) at the current active level.
-            // item_to_eval_if_unquoted is X. Evaluate it.
-            final_value_for_list = sl_eval(item_to_eval_if_unquoted, env);
-            if (final_value_for_list == SL_OUT_OF_MEMORY_ERROR || sl_is_error(final_value_for_list)) {
-                result = final_value_for_list;
+        if (spliced) {
+            if (!sl_is_list(final_value_for_list)) {
+                result = sl_make_errorf("Eval: unquote-splicing did not evaluate to a list: %s", sl_to_string_debug(final_value_for_list));
+                SL_GC_REMOVE_ROOT(&final_value_for_list);
                 goto list_build_error;
             }
-            if (needs_eval_and_splice && !sl_is_list(final_value_for_list)) {
-                result = sl_make_errorf("Eval: unquote-splicing did not evaluate to a list");
-                goto list_build_error;
-            }
-        } else {
-            // Not an active unquote/splice for this level, so transform the template item.
-            transformed_item = eval_quasiquote_template(item_in_template, env, level);
-            if (transformed_item == SL_OUT_OF_MEMORY_ERROR || sl_is_error(transformed_item)) {
-                result = transformed_item;
-                goto list_build_error;
-            }
-            final_value_for_list = transformed_item;  // Use the transformed structure directly
-        }
-        SL_GC_ADD_ROOT(&final_value_for_list);  // Protect after potential eval or transformation
-
-        if (needs_eval_and_splice) {
             sl_object *splice_node = final_value_for_list;
             while (sl_is_pair(splice_node)) {
                 sl_object *val_to_add = sl_car(splice_node);
@@ -221,8 +341,8 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
                 result_tail_ptr = &new_cell->data.pair.cdr;
                 splice_node = sl_cdr(splice_node);
             }
-            if (splice_node != SL_NIL) {
-                result = sl_make_errorf("unquote-splicing argument was not a proper list");
+            if (splice_node != SL_NIL) {  // Improper list from splice
+                result = sl_make_errorf("Eval: unquote-splicing argument was not a proper list: %s", sl_to_string_debug(final_value_for_list));
                 SL_GC_REMOVE_ROOT(&final_value_for_list);
                 goto list_build_error;
             }
@@ -240,18 +360,71 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
         current_template_node = sl_cdr(current_template_node);
     }
 
-    if (current_template_node != SL_NIL) {  // Handle dotted pair tail
-        sl_object *processed_final_cdr = eval_quasiquote_template(current_template_node, env, level);
-        if (processed_final_cdr == SL_OUT_OF_MEMORY_ERROR || sl_is_error(processed_final_cdr)) {
-            result = processed_final_cdr;
+    // Tail processing for dotted pairs:
+    if (current_template_node != SL_NIL) {
+        sl_object *final_cdr_value = SL_NIL;  // Initialize
+        SL_GC_ADD_ROOT(&final_cdr_value);     // Protect this local
+
+        if (level == 1 && sl_is_pair(current_template_node) && sl_is_symbol(sl_car(current_template_node))) {
+            const char *tail_op_name = safe_symbol_name(sl_car(current_template_node));
+            sl_object *tail_op_args = sl_cdr(current_template_node);
+
+            if (strcmp(tail_op_name, "unquote") == 0 && sl_is_pair(tail_op_args) && sl_cdr(tail_op_args) == SL_NIL) {
+                sl_object *unquote_arg = sl_car(tail_op_args);  // This is Y from `,Y`
+                SL_GC_ADD_ROOT(&unquote_arg);
+
+                // Check if Y itself is ,,Z or ,`Z
+                if (sl_is_pair(unquote_arg) && sl_is_symbol(sl_car(unquote_arg))) {
+                    const char *uq_arg_op_inner = safe_symbol_name(sl_car(unquote_arg));
+                    sl_object *uq_arg_args_inner = sl_cdr(unquote_arg);
+
+                    if (sl_is_pair(uq_arg_args_inner) && sl_cdr(uq_arg_args_inner) == SL_NIL) {
+                        sl_object *innermost_arg_val = sl_car(uq_arg_args_inner);
+                        SL_GC_ADD_ROOT(&innermost_arg_val);
+                        if (strcmp(uq_arg_op_inner, "unquote") == 0) {  // cdr is ,,INNERMOST_ARG_VAL
+                            sl_object *unquote_sym = sl_make_symbol("unquote");
+                            SL_GC_ADD_ROOT(&unquote_sym);
+                            sl_object *val_list = sl_make_pair(innermost_arg_val, SL_NIL);
+                            SL_GC_ADD_ROOT(&val_list);
+                            final_cdr_value = sl_make_pair(unquote_sym, val_list);
+                            SL_GC_REMOVE_ROOT(&val_list);
+                            SL_GC_REMOVE_ROOT(&unquote_sym);
+                        } else if (strcmp(uq_arg_op_inner, "quasiquote") == 0) {  // cdr is ,`INNERMOST_ARG_VAL
+                            final_cdr_value = sl_eval(unquote_arg, env);          // unquote_arg is (`INNERMOST_ARG_VAL)
+                        } else {                                                  // cdr is ,(op INNERMOST_ARG_VAL)
+                            final_cdr_value = sl_eval(unquote_arg, env);
+                        }
+                        SL_GC_REMOVE_ROOT(&innermost_arg_val);
+                    } else {  // cdr is ,(op Z W...)
+                        final_cdr_value = sl_eval(unquote_arg, env);
+                    }
+                } else {                                          // cdr is ,ATOM (like `,y`), unquote_arg is the ATOM (e.g. symbol y)
+                    final_cdr_value = sl_eval(unquote_arg, env);  // This should evaluate the atom
+                }
+                SL_GC_REMOVE_ROOT(&unquote_arg);
+            } else if (strcmp(tail_op_name, "unquote-splicing") == 0) {
+                result = sl_make_errorf("Eval: unquote-splicing cannot appear in cdr of a pair");
+                SL_GC_REMOVE_ROOT(&final_cdr_value);  // Remove before goto
+                goto list_build_error;
+            } else {  // Not an active unquote for the cdr, or not (unquote X) form
+                final_cdr_value = eval_quasiquote_template(current_template_node, env, level);
+            }
+        } else {  // Not a form like (unquote X) at level 1 for the cdr, or cdr is not a pair
+            final_cdr_value = eval_quasiquote_template(current_template_node, env, level);
+        }
+
+        if (final_cdr_value == SL_OUT_OF_MEMORY_ERROR || sl_is_error(final_cdr_value)) {
+            result = final_cdr_value;
+            SL_GC_REMOVE_ROOT(&final_cdr_value);  // Remove before goto
             goto list_build_error;
         }
-        *result_tail_ptr = processed_final_cdr;
+        *result_tail_ptr = final_cdr_value;
+        SL_GC_REMOVE_ROOT(&final_cdr_value);  // Remove after use
     }
     result = result_head_local;
 
 list_build_error:
-    SL_GC_REMOVE_ROOT(&result_head_local);  // result_head_local is now in result or error
+    SL_GC_REMOVE_ROOT(&result_head_local);
 
 cleanup_qqt:
     SL_GC_REMOVE_ROOT(&processed_part);
@@ -1618,7 +1791,7 @@ top_of_eval:;
                 while (v_iter != SL_NIL) {
                     // Assumes lists are same length
                     sl_env_define(loop_env, sl_car(v_iter), sl_car(iv_iter));
-                    // Check OOM?
+                    // Check for OOM from define?
                     v_iter = sl_cdr(v_iter);
                     iv_iter = sl_cdr(iv_iter);
                 }

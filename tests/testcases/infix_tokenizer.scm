@@ -72,3 +72,16 @@
 (define-test "left-associativity"
   (assert-equal (string->prefix-expr "x-y+z") '(+ (- x y) z)))
   
+(define-test "string->prefix-1" 
+  (assert-equal (string->prefix-expr "1 + 2")  '(+ 1 2)))
+
+(define-test "string->prefix-2"
+  (assert-equal (string->prefix-expr "a * b")  '(* a b)))
+(define-test "string->prefix-3"
+  (assert-equal (string->prefix-expr "1 + 2 * 3")  '(+ 1 (* 2 3))))
+(define-test "string->prefix-4"
+  (assert-equal (string->prefix-expr "(1 + 2) * 3")  '(* (+ 1 2) 3)))
+(define-test "string->prefix-5"
+  (assert-equal (string->prefix-expr "a ^ b ^ c")  '(^ a (^ b c)))) ; right associative
+(define-test "string->prefix-6"
+  (assert-equal (string->prefix-expr "3 - 4 + 5")  '(+ (- 3 4) 5))) ; left associative

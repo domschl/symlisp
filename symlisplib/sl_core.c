@@ -1291,35 +1291,104 @@ char *dynamic_sprintf(const char *format, ...) {
     return buffer;
 }
 
+// --- Helper for string building in sl_object_to_string ---
+typedef struct {
+    char *buffer;
+    size_t length;
+    size_t capacity;
+} sl_string_builder;
+
+static void sl_sb_init(sl_string_builder *sb) {
+    sb->capacity = 64; // Initial capacity, can be tuned
+    sb->buffer = (char *)malloc(sb->capacity);
+    if (sb->buffer) {
+        sb->buffer[0] = '\0';
+    }
+    sb->length = 0;
+}
+
+static bool sl_sb_ensure_capacity(sl_string_builder *sb, size_t additional_needed) {
+    if (!sb->buffer) return false;
+    if (sb->length + additional_needed + 1 > sb->capacity) { // +1 for null terminator
+        size_t new_capacity = sb->capacity;
+        while (sb->length + additional_needed + 1 > new_capacity) {
+            new_capacity = (new_capacity == 0) ? 64 : new_capacity * 2;
+        }
+        char *new_buffer = (char *)realloc(sb->buffer, new_capacity);
+        if (!new_buffer) {
+            // Original buffer is still valid if realloc fails, but we can't proceed
+            return false;
+        }
+        sb->buffer = new_buffer;
+        sb->capacity = new_capacity;
+    }
+    return true;
+}
+
+static bool sl_sb_append_str(sl_string_builder *sb, const char *str) {
+    if (!str || !sb->buffer) return false;
+    size_t len = strlen(str);
+    if (!sl_sb_ensure_capacity(sb, len)) {
+        return false;
+    }
+    // Use memcpy for potentially better performance and to avoid issues if str overlaps
+    // (though not expected here). strcpy_s or strlcpy would be safer if available and desired.
+    // strcat is fine here because capacity is ensured.
+    strcat(sb->buffer, str);
+    sb->length += len;
+    return true;
+}
+
+static bool sl_sb_append_char(sl_string_builder *sb, char c) {
+    if (!sb->buffer) return false;
+    if (!sl_sb_ensure_capacity(sb, 1)) {
+        return false;
+    }
+    sb->buffer[sb->length++] = c;
+    sb->buffer[sb->length] = '\0';
+    return true;
+}
+
+static char *sl_sb_finalize(sl_string_builder *sb) {
+    if (!sb->buffer) return NULL;
+    // Return a copy of the exact size, consistent with other strdup uses
+    char *result = strdup(sb->buffer);
+    free(sb->buffer);
+    sb->buffer = NULL; // Invalidate builder
+    sb->length = 0;
+    sb->capacity = 0;
+    return result;
+}
+// --- End Helper for string building ---
+
 char *sl_object_to_string(sl_object *obj) {
     if (!obj) {
         return strdup("InternalError:NULL_Object");
     }
-    if (obj == SL_UNDEFINED) {          // <<< ADDED
-        return strdup("#<undefined>");  // <<< ADDED
-    }  // <<< ADDED
+    if (obj == SL_UNDEFINED) {
+        return strdup("#<undefined>");
+    }
+    // SL_NIL, SL_TRUE, SL_FALSE are handled by their types.
+    // SL_EOF_OBJECT is handled by its type.
 
     switch (obj->type) {
     case SL_TYPE_NIL:
         return strdup("()");
     case SL_TYPE_BOOLEAN:
-        return strdup(obj == SL_TRUE ? "#t" : "#f");
+        return strdup(obj == SL_TRUE ? "#t" : "#f"); // Assumes SL_TRUE and SL_FALSE are the only boolean objects
     case SL_TYPE_NUMBER:
         if (obj->data.number.is_bignum) {
-            // Use gmp_asprintf correctly
             char *gmp_str = NULL;
-            // gmp_asprintf allocates memory using GMP's allocator
             if (gmp_asprintf(&gmp_str, "%Qd", obj->data.number.value.big_num) < 0) {
-                return NULL;  // Allocation or formatting failed
+                return NULL;
             }
-            // Copy to standard malloc'd memory for consistency
             char *result = strdup(gmp_str);
-            // Free the GMP-allocated string
-            // Assuming GMP uses a compatible free function. If not, use GMP's free.
+            // Assuming gmp_asprintf uses GMP's allocator, gmp_str should be freed
+            // with GMP's free function. For now, using standard free as in original code.
+            // Consider using mp_free_func if available and appropriate.
             free(gmp_str);
             return result;
         } else {
-            // Small number (code as before)
             if (obj->data.number.value.small_num.den == 1) {
                 return dynamic_sprintf("%lld", (long long)obj->data.number.value.small_num.num);
             } else {
@@ -1334,13 +1403,12 @@ char *sl_object_to_string(sl_object *obj) {
         const char *s = obj->data.string_val;
         if (!s) return strdup("\"\"");
 
-        // Calculate required size first (consider escapes)
         size_t len = strlen(s);
-        size_t needed = len + 2;  // Quotes
+        size_t needed = len + 2; // Quotes
         for (size_t i = 0; i < len; ++i) {
             if (s[i] == '"' || s[i] == '\\') needed++;
         }
-        char *buf = malloc(needed + 1);  // buf declared here
+        char *buf = (char*)malloc(needed + 1);
         if (!buf) return NULL;
         char *p = buf;
         *p++ = '"';
@@ -1352,71 +1420,93 @@ char *sl_object_to_string(sl_object *obj) {
         }
         *p++ = '"';
         *p = '\0';
-        return buf;  // Correct: buf is valid here
+        return buf;
     }
     case SL_TYPE_CHAR: {
         uint32_t cp = obj->data.code_point;
-        // Handle named characters first
         if (cp == '\n') return strdup("#\\newline");
         if (cp == ' ') return strdup("#\\space");
         if (cp == '\t') return strdup("#\\tab");
-        // Add other named characters if desired (#\return, etc.)
+        // Add other named characters if desired
 
-        // Handle printable ASCII characters (excluding space, handled above)
-        if (cp >= 33 && cp <= 126) {
+        if (cp >= 33 && cp <= 126) { // Printable ASCII
             return dynamic_sprintf("#\\%c", (char)cp);
         }
-
-        // Handle other characters using hex representation
-        // Use \xHH for values up to FF, \xHHHH for larger values (like R7RS)
-        // Adjust format if you prefer #\uXXXX or #\UXXXXXXXX
-        if (cp <= 0xFF) {
-            return dynamic_sprintf("#\\x%02X", cp);
-        } else if (cp <= 0xFFFF) {
-            return dynamic_sprintf("#\\x%04X", cp);
-        } else {  // Up to 0x10FFFF
-            // R7RS doesn't specify > 4 hex digits, but this is unambiguous
-            return dynamic_sprintf("#\\x%X", cp);
-        }
-        // Note: No 'break' needed as all paths return.
+        // Hex representation for others
+        if (cp <= 0xFF) return dynamic_sprintf("#\\x%02X", cp);
+        if (cp <= 0xFFFF) return dynamic_sprintf("#\\x%04X", cp);
+        return dynamic_sprintf("#\\x%X", cp); // Up to 0x10FFFF
     }
     case SL_TYPE_PAIR: {
-        char *car_str = sl_object_to_string(sl_car(obj));
-        char *cdr_str = sl_object_to_string(sl_cdr(obj));
-        if (!car_str || !cdr_str) {
+        sl_string_builder sb;
+        sl_sb_init(&sb);
+        if (!sb.buffer) return NULL; // Initial allocation failed
+
+        if (!sl_sb_append_char(&sb, '(')) { free(sb.buffer); return NULL; }
+
+        sl_object *current = obj;
+        bool first_item = true;
+
+        // Basic protection against very deep recursion / simple cycles for printing:
+        // This is not a full cycle detector but can help prevent trivial infinite loops.
+        // A more robust solution would involve a visited set or depth limit.
+        for (int i = 0; i < 1000; ++i) { // Limit depth to 1000 for printing
+            if (!first_item) {
+                if (!sl_sb_append_char(&sb, ' ')) { free(sb.buffer); return NULL; }
+            }
+            first_item = false;
+
+            char *car_str = sl_object_to_string(sl_car(current));
+            if (!car_str) { free(sb.buffer); return NULL; } // Propagate error
+            if (!sl_sb_append_str(&sb, car_str)) {
+                free(car_str); free(sb.buffer); return NULL;
+            }
             free(car_str);
-            free(cdr_str);
-            return NULL;
+
+            sl_object *next_cdr = sl_cdr(current);
+            if (next_cdr == SL_NIL) { // Proper end of list
+                current = NULL; // Signal to break loop
+                break;
+            } else if (sl_is_pair(next_cdr)) { // Continue list
+                current = next_cdr;
+            } else { // Improper list
+                if (!sl_sb_append_str(&sb, " . ")) { free(sb.buffer); return NULL; }
+                char *cdr_atom_str = sl_object_to_string(next_cdr);
+                if (!cdr_atom_str) { free(sb.buffer); return NULL; } // Propagate error
+                if (!sl_sb_append_str(&sb, cdr_atom_str)) {
+                    free(cdr_atom_str); free(sb.buffer); return NULL;
+                }
+                free(cdr_atom_str);
+                current = NULL; // Signal to break loop
+                break;
+            }
         }
-        char *result = dynamic_sprintf("(%s . %s)", car_str, cdr_str);  // result declared here
-        free(car_str);
-        free(cdr_str);
-        return result;  // Correct: result is valid here
+        if (current != NULL) { // Loop exited due to depth limit
+             if (!sl_sb_append_str(&sb, " ...")) { free(sb.buffer); return NULL;}
+        }
+
+        if (!sl_sb_append_char(&sb, ')')) { free(sb.buffer); return NULL; }
+        return sl_sb_finalize(&sb);
     }
     case SL_TYPE_FUNCTION:
         if (obj->data.function.is_builtin) {
-            // Builtin: return name
             return dynamic_sprintf("#<builtin:%s>", obj->data.function.def.builtin.name ? obj->data.function.def.builtin.name : "unnamed");
         } else {
-            // Closure: return generic representation
             return strdup("#<closure>");
         }
-        // <<< Implicit break/return was missing here >>>
-        // No break needed after return
-    case SL_TYPE_EOF:
+    case SL_TYPE_EOF: // Handled by SL_EOF_OBJECT check if it's a singleton, otherwise by type
         return strdup("#<eof>");
     case SL_TYPE_ENV:
         return strdup("#<environment>");
     case SL_TYPE_ERROR:
         return dynamic_sprintf("Error: %s", obj->data.error_str ? obj->data.error_str : "Unknown Error");
-    case SL_TYPE_UNDEFINED:
-        return strdup("#<undefined>");  // <<< ADDED (for completeness)
-
+    // SL_TYPE_UNDEFINED is handled by the check 'if (obj == SL_UNDEFINED)' at the top.
+    // No case SL_TYPE_UNDEFINED needed here if SL_UNDEFINED is a unique singleton.
     default:
         return dynamic_sprintf("#<unknown_type:%d>", obj->type);
     }
-    // Should not be reachable if all cases return or break
-    return strdup("#<InternalError:UnhandledTypeInToString>");
+    // Should be unreachable
+    return strdup("InternalError:UnhandledTypeInToStringSwitch");
 }
 
 // Helper to create a number object from mpz_t, simplifying if possible

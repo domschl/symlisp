@@ -1292,14 +1292,8 @@ char *dynamic_sprintf(const char *format, ...) {
 }
 
 // --- Helper for string building in sl_object_to_string ---
-typedef struct {
-    char *buffer;
-    size_t length;
-    size_t capacity;
-} sl_string_builder;
-
-static void sl_sb_init(sl_string_builder *sb) {
-    sb->capacity = 64; // Initial capacity, can be tuned
+void sl_sb_init(sl_string_builder *sb) {
+    sb->capacity = 64;  // Initial capacity, can be tuned
     sb->buffer = (char *)malloc(sb->capacity);
     if (sb->buffer) {
         sb->buffer[0] = '\0';
@@ -1307,9 +1301,9 @@ static void sl_sb_init(sl_string_builder *sb) {
     sb->length = 0;
 }
 
-static bool sl_sb_ensure_capacity(sl_string_builder *sb, size_t additional_needed) {
+bool sl_sb_ensure_capacity(sl_string_builder *sb, size_t additional_needed) {
     if (!sb->buffer) return false;
-    if (sb->length + additional_needed + 1 > sb->capacity) { // +1 for null terminator
+    if (sb->length + additional_needed + 1 > sb->capacity) {  // +1 for null terminator
         size_t new_capacity = sb->capacity;
         while (sb->length + additional_needed + 1 > new_capacity) {
             new_capacity = (new_capacity == 0) ? 64 : new_capacity * 2;
@@ -1325,7 +1319,7 @@ static bool sl_sb_ensure_capacity(sl_string_builder *sb, size_t additional_neede
     return true;
 }
 
-static bool sl_sb_append_str(sl_string_builder *sb, const char *str) {
+bool sl_sb_append_str(sl_string_builder *sb, const char *str) {
     if (!str || !sb->buffer) return false;
     size_t len = strlen(str);
     if (!sl_sb_ensure_capacity(sb, len)) {
@@ -1339,7 +1333,7 @@ static bool sl_sb_append_str(sl_string_builder *sb, const char *str) {
     return true;
 }
 
-static bool sl_sb_append_char(sl_string_builder *sb, char c) {
+bool sl_sb_append_char(sl_string_builder *sb, char c) {
     if (!sb->buffer) return false;
     if (!sl_sb_ensure_capacity(sb, 1)) {
         return false;
@@ -1349,12 +1343,12 @@ static bool sl_sb_append_char(sl_string_builder *sb, char c) {
     return true;
 }
 
-static char *sl_sb_finalize(sl_string_builder *sb) {
+char *sl_sb_finalize(sl_string_builder *sb) {
     if (!sb->buffer) return NULL;
     // Return a copy of the exact size, consistent with other strdup uses
     char *result = strdup(sb->buffer);
     free(sb->buffer);
-    sb->buffer = NULL; // Invalidate builder
+    sb->buffer = NULL;  // Invalidate builder
     sb->length = 0;
     sb->capacity = 0;
     return result;
@@ -1375,7 +1369,7 @@ char *sl_object_to_string(sl_object *obj) {
     case SL_TYPE_NIL:
         return strdup("()");
     case SL_TYPE_BOOLEAN:
-        return strdup(obj == SL_TRUE ? "#t" : "#f"); // Assumes SL_TRUE and SL_FALSE are the only boolean objects
+        return strdup(obj == SL_TRUE ? "#t" : "#f");  // Assumes SL_TRUE and SL_FALSE are the only boolean objects
     case SL_TYPE_NUMBER:
         if (obj->data.number.is_bignum) {
             char *gmp_str = NULL;
@@ -1404,11 +1398,11 @@ char *sl_object_to_string(sl_object *obj) {
         if (!s) return strdup("\"\"");
 
         size_t len = strlen(s);
-        size_t needed = len + 2; // Quotes
+        size_t needed = len + 2;  // Quotes
         for (size_t i = 0; i < len; ++i) {
             if (s[i] == '"' || s[i] == '\\') needed++;
         }
-        char *buf = (char*)malloc(needed + 1);
+        char *buf = (char *)malloc(needed + 1);
         if (!buf) return NULL;
         char *p = buf;
         *p++ = '"';
@@ -1429,20 +1423,23 @@ char *sl_object_to_string(sl_object *obj) {
         if (cp == '\t') return strdup("#\\tab");
         // Add other named characters if desired
 
-        if (cp >= 33 && cp <= 126) { // Printable ASCII
+        if (cp >= 33 && cp <= 126) {  // Printable ASCII
             return dynamic_sprintf("#\\%c", (char)cp);
         }
         // Hex representation for others
         if (cp <= 0xFF) return dynamic_sprintf("#\\x%02X", cp);
         if (cp <= 0xFFFF) return dynamic_sprintf("#\\x%04X", cp);
-        return dynamic_sprintf("#\\x%X", cp); // Up to 0x10FFFF
+        return dynamic_sprintf("#\\x%X", cp);  // Up to 0x10FFFF
     }
     case SL_TYPE_PAIR: {
         sl_string_builder sb;
         sl_sb_init(&sb);
-        if (!sb.buffer) return NULL; // Initial allocation failed
+        if (!sb.buffer) return NULL;  // Initial allocation failed
 
-        if (!sl_sb_append_char(&sb, '(')) { free(sb.buffer); return NULL; }
+        if (!sl_sb_append_char(&sb, '(')) {
+            free(sb.buffer);
+            return NULL;
+        }
 
         sl_object *current = obj;
         bool first_item = true;
@@ -1450,42 +1447,64 @@ char *sl_object_to_string(sl_object *obj) {
         // Basic protection against very deep recursion / simple cycles for printing:
         // This is not a full cycle detector but can help prevent trivial infinite loops.
         // A more robust solution would involve a visited set or depth limit.
-        for (int i = 0; i < 1000; ++i) { // Limit depth to 1000 for printing
+        for (int i = 0; i < 1000; ++i) {  // Limit depth to 1000 for printing
             if (!first_item) {
-                if (!sl_sb_append_char(&sb, ' ')) { free(sb.buffer); return NULL; }
+                if (!sl_sb_append_char(&sb, ' ')) {
+                    free(sb.buffer);
+                    return NULL;
+                }
             }
             first_item = false;
 
             char *car_str = sl_object_to_string(sl_car(current));
-            if (!car_str) { free(sb.buffer); return NULL; } // Propagate error
+            if (!car_str) {
+                free(sb.buffer);
+                return NULL;
+            }  // Propagate error
             if (!sl_sb_append_str(&sb, car_str)) {
-                free(car_str); free(sb.buffer); return NULL;
+                free(car_str);
+                free(sb.buffer);
+                return NULL;
             }
             free(car_str);
 
             sl_object *next_cdr = sl_cdr(current);
-            if (next_cdr == SL_NIL) { // Proper end of list
-                current = NULL; // Signal to break loop
+            if (next_cdr == SL_NIL) {  // Proper end of list
+                current = NULL;        // Signal to break loop
                 break;
-            } else if (sl_is_pair(next_cdr)) { // Continue list
+            } else if (sl_is_pair(next_cdr)) {  // Continue list
                 current = next_cdr;
-            } else { // Improper list
-                if (!sl_sb_append_str(&sb, " . ")) { free(sb.buffer); return NULL; }
+            } else {  // Improper list
+                if (!sl_sb_append_str(&sb, " . ")) {
+                    free(sb.buffer);
+                    return NULL;
+                }
                 char *cdr_atom_str = sl_object_to_string(next_cdr);
-                if (!cdr_atom_str) { free(sb.buffer); return NULL; } // Propagate error
+                if (!cdr_atom_str) {
+                    free(sb.buffer);
+                    return NULL;
+                }  // Propagate error
                 if (!sl_sb_append_str(&sb, cdr_atom_str)) {
-                    free(cdr_atom_str); free(sb.buffer); return NULL;
+                    free(cdr_atom_str);
+                    free(sb.buffer);
+                    return NULL;
                 }
                 free(cdr_atom_str);
-                current = NULL; // Signal to break loop
+                current = NULL;  // Signal to break loop
                 break;
             }
         }
-        if (current != NULL) { // Loop exited due to depth limit
-             if (!sl_sb_append_str(&sb, " ...")) { free(sb.buffer); return NULL;}
+        if (current != NULL) {  // Loop exited due to depth limit
+            if (!sl_sb_append_str(&sb, " ...")) {
+                free(sb.buffer);
+                return NULL;
+            }
         }
 
-        if (!sl_sb_append_char(&sb, ')')) { free(sb.buffer); return NULL; }
+        if (!sl_sb_append_char(&sb, ')')) {
+            free(sb.buffer);
+            return NULL;
+        }
         return sl_sb_finalize(&sb);
     }
     case SL_TYPE_FUNCTION:
@@ -1494,7 +1513,7 @@ char *sl_object_to_string(sl_object *obj) {
         } else {
             return strdup("#<closure>");
         }
-    case SL_TYPE_EOF: // Handled by SL_EOF_OBJECT check if it's a singleton, otherwise by type
+    case SL_TYPE_EOF:  // Handled by SL_EOF_OBJECT check if it's a singleton, otherwise by type
         return strdup("#<eof>");
     case SL_TYPE_ENV:
         return strdup("#<environment>");

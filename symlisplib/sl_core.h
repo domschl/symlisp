@@ -335,4 +335,16 @@ sl_object *make_number_from_mpq(mpq_t val);
 // --- Error Handling Accessors ---
 #define sl_error_message(obj) ((obj)->data.error_str)  // <<< CORRECTED
 
+typedef struct {
+    char *buffer;
+    size_t length;
+    size_t capacity;
+} sl_string_builder;
+
+void sl_sb_init(sl_string_builder *sb);
+bool sl_sb_ensure_capacity(sl_string_builder *sb, size_t additional_needed);
+bool sl_sb_append_str(sl_string_builder *sb, const char *str);
+bool sl_sb_append_char(sl_string_builder *sb, char c);
+char *sl_sb_finalize(sl_string_builder *sb);
+
 #endif  // SL_CORE_H

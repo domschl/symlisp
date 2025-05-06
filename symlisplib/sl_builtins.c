@@ -12,7 +12,7 @@
 #include "sl_parse.h"
 #include "sl_eval.h"  // <<< ADDED for sl_eval_stream
 #include "sl_predicates.h"
-#include "sl_strings.h"
+#include "sl_strings.h"  // <<< ADDED for string functions if needed by error
 #include "sl_higher_order.h"
 
 // Helper to check arity.
@@ -2335,6 +2335,71 @@ sl_object *append_to_list(sl_object **head_root_var, sl_object **tail_node_root_
 
 // --- Control Primitives ---
 
+static sl_object *sl_builtin_error(sl_object *args) {
+    sl_object *arity_check = check_arity_min("error", args, 1);  // Must have at least a reason string
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *reason_obj = sl_car(args);
+    if (!sl_is_string(reason_obj)) {
+        return sl_make_errorf("error: First argument (reason) must be a string, got %s.",
+                              sl_type_name(reason_obj ? reason_obj->type : -1));
+    }
+
+    const char *reason_str = sl_string_value(reason_obj);
+    sl_string_builder sb;
+    sl_sb_init(&sb);
+
+    if (!sb.buffer) {  // Allocation failed for string builder
+        // Fallback to a simpler error message if string builder fails
+        return sl_make_errorf("error: (Internal OOM) %s", reason_str);
+    }
+
+    // Append the main reason
+    sl_sb_append_str(&sb, reason_str);
+
+    // Append irritants
+    sl_object *irritants = sl_cdr(args);
+    SL_GC_ADD_ROOT(&irritants);  // Protect irritant list during loop
+
+    if (sl_is_pair(irritants)) {
+        sl_sb_append_str(&sb, ":");  // Separator before first irritant
+    }
+
+    while (sl_is_pair(irritants)) {
+        sl_sb_append_char(&sb, ' ');
+        sl_object *irritant = sl_car(irritants);
+        SL_GC_ADD_ROOT(&irritant);  // Protect current irritant
+
+        char *irritant_str = sl_object_to_string(irritant);
+        if (irritant_str) {
+            sl_sb_append_str(&sb, irritant_str);
+            free(irritant_str);
+        } else {
+            sl_sb_append_str(&sb, "#<unprintable-irritant>");
+        }
+
+        SL_GC_REMOVE_ROOT(&irritant);
+        irritants = sl_cdr(irritants);
+    }
+    SL_GC_REMOVE_ROOT(&irritants);
+
+    // Check if the irritant list was proper
+    if (irritants != SL_NIL) {
+        sl_sb_append_str(&sb, " (Warning: improper irritant list)");
+    }
+
+    char *full_error_message = sl_sb_finalize(&sb);  // Frees sb.buffer
+    if (!full_error_message) {
+        // Finalize failed (e.g. strdup OOM), fallback
+        return sl_make_errorf("error: (Internal OOM creating full message) %s", reason_str);
+    }
+
+    sl_object *error_obj = sl_make_errorf(full_error_message);  // sl_make_error will copy/strdup
+    free(full_error_message);                                   // Free the string returned by sl_sb_finalize
+
+    return error_obj;
+}
+
 sl_object *sl_builtin_apply(sl_object *args) {
     sl_object *proc = SL_NIL;
     sl_object *final_args_head = SL_NIL;  // Head of the final list to pass to proc
@@ -2510,6 +2575,7 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "interaction-environment", sl_builtin_interaction_environment);  // <<< ADDED
     define_builtin(global_env, "environment", sl_builtin_environment);                          // <<< ADDED
     define_builtin(global_env, "apply", sl_builtin_apply);
+    define_builtin(global_env, "error", sl_builtin_error);  // <<< ADDED
 
     sl_predicates_init(global_env);
     sl_strings_init(global_env);

@@ -2157,16 +2157,38 @@ static sl_object *sl_builtin_read(sl_object *args) {
 }
 
 // (eval expr env) -> Evaluates expr in the context of env.
+// (eval expr) -> Evaluates expr in the context of the interaction-environment.
 static sl_object *sl_builtin_eval(sl_object *args) {
-    sl_object *arity_check = check_arity("eval", args, 2);
-    if (arity_check != SL_TRUE) return arity_check;
+    // Check arity for 1 or 2 arguments
+    size_t arg_count = 0;
+    sl_object *current_arg_node_for_count = args;
+    while (sl_is_pair(current_arg_node_for_count)) {
+        arg_count++;
+        current_arg_node_for_count = sl_cdr(current_arg_node_for_count);
+    }
+    if (current_arg_node_for_count != SL_NIL) {  // Improper list
+        return sl_make_errorf("eval: Improper argument list provided.");
+    }
+
+    if (arg_count < 1 || arg_count > 2) {
+        return sl_make_errorf("eval: Expected 1 or 2 arguments, got %zu.", arg_count);
+    }
 
     sl_object *expr = sl_car(args);
-    sl_object *env_obj = sl_cadr(args);
+    sl_object *env_obj = NULL;
 
-    // Check if the second argument is actually an environment
-    if (!sl_is_env(env_obj)) {
-        return sl_make_errorf("eval: Second argument must be an environment, got %s.", sl_type_name(env_obj ? env_obj->type : -1));
+    if (arg_count == 2) {
+        env_obj = sl_cadr(args);
+        // Check if the second argument is actually an environment
+        if (!sl_is_env(env_obj)) {
+            return sl_make_errorf("eval: Second argument must be an environment, got %s.", sl_type_name(env_obj ? env_obj->type : -1));
+        }
+    } else {  // arg_count == 1
+        // Use interaction-environment (global environment)
+        if (!sl_global_env) {
+            return sl_make_errorf("eval: Interaction environment not available and no environment provided.");
+        }
+        env_obj = sl_global_env;
     }
 
     // Root arguments and evaluate

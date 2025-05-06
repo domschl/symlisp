@@ -88,6 +88,7 @@ typedef struct sl_object {
         struct {
             struct sl_object *bindings;
             struct sl_object *outer;
+            struct sl_object *macros;
         } env;
         char *error_str;      // <<< CORRECTED
         uint32_t code_point;  // Store Unicode code point for char

@@ -1108,6 +1108,7 @@ static void sl_gc_mark(sl_object *root) {
     case SL_TYPE_ENV:
         sl_gc_mark(root->data.env.bindings);
         sl_gc_mark(root->data.env.outer);
+        sl_gc_mark(root->data.env.macros);
         break;
     case SL_TYPE_NUMBER:  // Numbers don't reference other sl_objects
     case SL_TYPE_STRING:  // String data is freed in sweep, no sl_object refs

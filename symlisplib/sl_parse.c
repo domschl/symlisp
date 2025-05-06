@@ -705,6 +705,70 @@ static sl_object *parse_expression(const char **input) {
         // Check allocation result for the final pair
         CHECK_ALLOC(result);  // Use CHECK_ALLOC which returns on failure
         return result;
+    } else if (current_char == '`') {  // <<< NEW: Quasiquote reader macro
+        (*input)++;                    // Consume the backtick character
+        const char *datum_start_ptr = *input;
+        sl_object *datum = parse_expression(input);  // Parse the datum
+
+        if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || sl_is_error(datum)) {
+            return datum;  // Propagate error or OOM
+        }
+        if (datum == SL_NIL && *input == datum_start_ptr) {
+            fprintf(stderr, "Error: Unexpected end of input after quasiquote (`).\n");
+            return SL_NIL;
+        }
+
+        sl_object *quasiquote_sym = sl_make_symbol("quasiquote");
+        if (quasiquote_sym == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        SL_GC_ADD_ROOT(&quasiquote_sym);
+        sl_object *list_arg = sl_make_pair(datum, SL_NIL);
+        if (list_arg == SL_OUT_OF_MEMORY_ERROR) {
+            SL_GC_REMOVE_ROOT(&quasiquote_sym);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        SL_GC_ADD_ROOT(&list_arg);
+        sl_object *result = sl_make_pair(quasiquote_sym, list_arg);
+        SL_GC_REMOVE_ROOT(&list_arg);
+        SL_GC_REMOVE_ROOT(&quasiquote_sym);
+        if (result == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;  // Propagate OOM
+        return result;
+    } else if (current_char == ',') {  // <<< NEW: Unquote or Unquote-Splicing reader macro
+        (*input)++;                    // Consume the comma character
+        const char *op_name_str;
+        char next_char_for_splice = **input;
+
+        if (next_char_for_splice == '@') {
+            (*input)++;  // Consume the '@' character
+            op_name_str = "unquote-splicing";
+        } else {
+            op_name_str = "unquote";
+        }
+
+        const char *datum_start_ptr = *input;
+        sl_object *datum = parse_expression(input);  // Parse the datum
+
+        if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || sl_is_error(datum)) {
+            return datum;  // Propagate error or OOM
+        }
+        if (datum == SL_NIL && *input == datum_start_ptr) {
+            fprintf(stderr, "Error: Unexpected end of input after %s.\n", op_name_str);
+            return SL_NIL;
+        }
+
+        sl_object *op_sym = sl_make_symbol(op_name_str);
+        if (op_sym == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        SL_GC_ADD_ROOT(&op_sym);
+        sl_object *list_arg = sl_make_pair(datum, SL_NIL);
+        if (list_arg == SL_OUT_OF_MEMORY_ERROR) {
+            SL_GC_REMOVE_ROOT(&op_sym);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        SL_GC_ADD_ROOT(&list_arg);
+        sl_object *result = sl_make_pair(op_sym, list_arg);
+        SL_GC_REMOVE_ROOT(&list_arg);
+        SL_GC_REMOVE_ROOT(&op_sym);
+        if (result == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;  // Propagate OOM
+        return result;
     } else if (current_char == '"') {
         // Start of a string literal
         return parse_string_literal(input);
@@ -1199,6 +1263,64 @@ static sl_object *parse_stream_expression(FILE *stream) {
         SL_GC_REMOVE_ROOT(&quoted_list);
         SL_GC_REMOVE_ROOT(&quote_sym);
         CHECK_ALLOC(result);
+        return result;
+    } else if (current_char == '`') {  // <<< NEW: Quasiquote for stream
+        fgetc(stream);                 // Consume `
+        sl_object *datum = parse_stream_expression(stream);
+
+        if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || datum == SL_PARSE_ERROR || datum == SL_EOF_OBJECT) {
+            if (datum == SL_EOF_OBJECT) {
+                fprintf(stderr, "Error: Unexpected end of input after quasiquote (`).\n");
+            }
+            return datum;
+        }
+        sl_object *quasiquote_sym = sl_make_symbol("quasiquote");
+        if (quasiquote_sym == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        SL_GC_ADD_ROOT(&quasiquote_sym);
+        sl_object *list_arg = sl_make_pair(datum, SL_NIL);
+        if (list_arg == SL_OUT_OF_MEMORY_ERROR) {
+            SL_GC_REMOVE_ROOT(&quasiquote_sym);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        SL_GC_ADD_ROOT(&list_arg);
+        sl_object *result = sl_make_pair(quasiquote_sym, list_arg);
+        SL_GC_REMOVE_ROOT(&list_arg);
+        SL_GC_REMOVE_ROOT(&quasiquote_sym);
+        if (result == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        return result;
+    } else if (current_char == ',') {  // <<< NEW: Unquote or Unquote-Splicing for stream
+        fgetc(stream);                 // Consume ,
+        const char *op_name_str;
+        int next_char_peek = peek_char(stream);
+
+        if (next_char_peek == '@') {
+            fgetc(stream);  // Consume @
+            op_name_str = "unquote-splicing";
+        } else {
+            op_name_str = "unquote";
+        }
+
+        sl_object *datum = parse_stream_expression(stream);
+        if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || datum == SL_PARSE_ERROR || datum == SL_EOF_OBJECT) {
+            if (datum == SL_EOF_OBJECT) {
+                fprintf(stderr, "Error: Unexpected end of input after %s.\n", op_name_str);
+            }
+            return datum;
+        }
+
+        sl_object *op_sym = sl_make_symbol(op_name_str);
+        if (op_sym == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        SL_GC_ADD_ROOT(&op_sym);
+        sl_object *list_arg = sl_make_pair(datum, SL_NIL);
+        if (list_arg == SL_OUT_OF_MEMORY_ERROR) {
+            SL_GC_REMOVE_ROOT(&op_sym);
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+        SL_GC_ADD_ROOT(&list_arg);
+        sl_object *result = sl_make_pair(op_sym, list_arg);
+        SL_GC_REMOVE_ROOT(&list_arg);
+        SL_GC_REMOVE_ROOT(&op_sym);
+        if (result == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
         return result;
     } else if (current_char == '"') {
         return parse_stream_string_literal(stream);

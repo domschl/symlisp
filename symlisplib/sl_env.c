@@ -23,6 +23,8 @@ sl_object *sl_env_create(sl_object *outer_env_obj) {
     env_obj->data.env.bindings = SL_NIL;  // Start with an empty list of bindings
     // Store NULL or SL_NIL if passed, otherwise the valid outer env
     env_obj->data.env.outer = outer_env_obj;
+    env_obj->data.env.macros = SL_NIL;  // <<< ADDED: Initialize macros list
+
     // env_obj->marked is set to false by sl_allocate_object
 
     return env_obj;
@@ -212,7 +214,87 @@ sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol) {
     return SL_NIL;  // Indicate not found
 }
 
-// sl_gc_mark_env is removed as its logic is now in sl_gc_mark
+// Defines a macro in the given environment.
+// Overwrites if keyword_sym already exists as a macro in this frame.
+void sl_env_define_macro(sl_object *env_obj, sl_object *keyword_sym, sl_object *transformer_proc) {
+    if (!sl_is_env(env_obj) || !sl_is_symbol(keyword_sym) || !sl_is_function(transformer_proc)) {
+        fprintf(stderr, "Error (define-macro): Invalid environment, keyword, or transformer procedure.\n");
+        // Consider returning an error object or signaling failure differently if this can be user-triggered.
+        return;
+    }
+
+    // Check if the macro keyword already exists *in this specific frame*
+    sl_object *current_macro_binding = env_obj->data.env.macros;
+    while (sl_is_pair(current_macro_binding)) {
+        sl_object *pair = sl_car(current_macro_binding);  // (keyword . transformer)
+        if (sl_is_pair(pair) && sl_is_symbol(sl_car(pair)) &&
+            strcmp(sl_symbol_name(sl_car(pair)), sl_symbol_name(keyword_sym)) == 0) {
+            // Found existing macro in this frame, update its transformer
+            sl_set_cdr(pair, transformer_proc);
+            return;
+        }
+        current_macro_binding = sl_cdr(current_macro_binding);
+    }
+
+    // Not found in this frame, create a new macro binding pair and prepend it
+    sl_object *new_macro_pair = sl_make_pair(keyword_sym, transformer_proc);
+    if (!new_macro_pair || new_macro_pair == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "Error (define-macro): Failed to allocate macro binding pair.\n");
+        return;
+    }
+
+    SL_GC_ADD_ROOT(&new_macro_pair);  // Protect before next allocation
+
+    sl_object *new_macros_head = sl_make_pair(new_macro_pair, env_obj->data.env.macros);
+
+    SL_GC_REMOVE_ROOT(&new_macro_pair);  // Unroot
+
+    if (!new_macros_head || new_macros_head == SL_OUT_OF_MEMORY_ERROR) {
+        fprintf(stderr, "Error (define-macro): Failed to allocate updated macros list head.\n");
+        // The inner new_macro_pair might leak here until next GC if not handled
+        return;
+    }
+
+    // Update the environment's macros list
+    env_obj->data.env.macros = new_macros_head;
+}
+
+// Looks up a macro transformer, searching outwards from the given environment.
+// Returns the transformer procedure object or SL_NIL if not found.
+sl_object *sl_env_lookup_macro(sl_object *env_obj, sl_object *keyword_sym) {
+    if (!sl_is_symbol(keyword_sym)) {
+        // This should ideally not happen if called correctly
+        fprintf(stderr, "Internal Error (lookup-macro): Target must be a symbol.\n");
+        return SL_NIL;
+    }
+    const char *target_name = sl_symbol_name(keyword_sym);
+
+    sl_object *current_env_obj = env_obj;
+    while (current_env_obj != NULL && current_env_obj != SL_NIL) {
+        if (!sl_is_env(current_env_obj)) {
+            fprintf(stderr, "Error (lookup-macro): Invalid environment structure encountered.\n");
+            return SL_NIL;  // Or an error object
+        }
+
+        sl_object *current_macro_binding_node = current_env_obj->data.env.macros;
+        while (sl_is_pair(current_macro_binding_node)) {
+            sl_object *pair = sl_car(current_macro_binding_node);  // (keyword . transformer)
+            if (sl_is_pair(pair)) {
+                sl_object *current_keyword_sym = sl_car(pair);
+                if (sl_is_symbol(current_keyword_sym) &&
+                    strcmp(sl_symbol_name(current_keyword_sym), target_name) == 0) {
+                    return sl_cdr(pair);  // Return the transformer procedure
+                }
+            } else {
+                fprintf(stderr, "Warning (lookup-macro): Malformed macro binding list in env %p.\n", (void *)current_env_obj);
+                break;  // Stop searching this malformed frame
+            }
+            current_macro_binding_node = sl_cdr(current_macro_binding_node);
+        }
+        current_env_obj = current_env_obj->data.env.outer;  // Move to outer environment
+    }
+    return SL_NIL;  // Macro not found
+}
 
 // --- Environment API for C Clients ---
 

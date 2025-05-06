@@ -18,6 +18,10 @@ bool sl_env_set(sl_object *env_obj, sl_object *symbol, sl_object *value);
 /** @brief Looks up a variable's value, searching outwards from the given environment. */
 sl_object *sl_env_lookup(sl_object *env_obj, sl_object *symbol);
 
+// Macro specific functions
+void sl_env_define_macro(sl_object *env_obj, sl_object *keyword_sym, sl_object *transformer_proc);
+sl_object *sl_env_lookup_macro(sl_object *env_obj, sl_object *keyword_sym);
+
 // --- Environment API for C Clients ---
 
 /**

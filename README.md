@@ -55,11 +55,11 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Refine error handling and GC integration for environments. (Initial error object mechanism added)
 - [x] Eval gc crash on string->prefix-expr tests. Fixed.
 - [x] Time and random numbers
+- [x] Macros: define-syntax (limited scape, non-hygienic)
 
 Additional Ideas:
 
 - [ ] String and infix<->prefix
-- [ ] Macros: define-syntax, let-syntax
 - [ ] Check against r7rs
 - [ ] Standard library
 - [ ] Symbolics libs

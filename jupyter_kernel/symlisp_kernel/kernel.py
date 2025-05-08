@@ -66,6 +66,7 @@ class SymLispKernel(Kernel):
             if not silent:
                 if result.has_error:
                     error_message = result.error_message
+                    # Send the error as stderr output
                     self.send_response(self.iopub_socket, 'stream', {
                         'name': 'stderr',
                         'text': f"Error: {error_message}"
@@ -76,12 +77,16 @@ class SymLispKernel(Kernel):
                             'evalue': error_message,
                             'traceback': [error_message]}
                 
+                # Track if we've displayed any content
+                content_displayed = False
+                
                 if result.standard_output:
                     self.log.info(f"Sending stdout: {result.standard_output!r}")
                     self.send_response(self.iopub_socket, 'stream', {
                         'name': 'stdout',
                         'text': result.standard_output
                     })
+                    content_displayed = True
                 
                 if result.html_content:
                     self.log.info(f"Sending HTML content")
@@ -89,6 +94,9 @@ class SymLispKernel(Kernel):
                         'data': {'text/html': result.html_content},
                         'metadata': {}
                     })
+                    content_displayed = True
+                    # Skip showing the return value since we've displayed HTML content
+                    result.return_value = None
                 
                 if result.markdown_content:
                     self.log.info(f"Sending Markdown content")
@@ -96,9 +104,12 @@ class SymLispKernel(Kernel):
                         'data': {'text/markdown': result.markdown_content},
                         'metadata': {}
                     })
+                    content_displayed = True
+                    # Skip showing the return value since we've displayed Markdown content
+                    result.return_value = None
                 
-                # Send the return value if it exists
-                if result.return_value:
+                # Send the return value if it exists and it's not just "()" after a display function
+                if result.return_value and not (content_displayed and result.return_value.strip() in ["()", "#<unspecified>"]):
                     self.log.info(f"Sending return value: {result.return_value!r}")
                     data = {'text/plain': result.return_value}
                     self.send_response(self.iopub_socket, 'execute_result', {
@@ -106,7 +117,7 @@ class SymLispKernel(Kernel):
                         'data': data,
                         'metadata': {}
                     })
-                
+        
             return {'status': 'ok',
                     'execution_count': self.execution_count,
                     'payload': [],

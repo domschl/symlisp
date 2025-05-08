@@ -1837,7 +1837,7 @@ static sl_object *sl_builtin_set_cdr(sl_object *args) {
     if (arity_check != SL_TRUE) return arity_check;
 
     sl_object *pair = sl_car(args);
-    sl_object *new_val = sl_cadr(args);
+    sl_object *new_val = sl_cdr(args);
 
     if (!sl_is_pair(pair)) {
         return sl_make_errorf("Error (set-cdr!): First argument must be a pair, got type %d.", pair ? pair->type : -1);
@@ -1942,8 +1942,11 @@ static sl_object *sl_builtin_newline(sl_object *args) {
     sl_object *arity_check = check_arity("newline", args, 0);
     if (arity_check != SL_TRUE) return arity_check;
 
-    putchar('\n');
-    fflush(stdout);  // Ensure it appears immediately
+    sl_output_char('\n');  // Use redirectable output function instead of putchar
+
+    if (!sl_output_redirected) {
+        fflush(stdout);  // Only flush if using real stdout
+    }
 
     // R7RS specifies newline returns an unspecified value. Use SL_NIL.
     return SL_NIL;
@@ -2147,9 +2150,12 @@ static sl_object *sl_builtin_write(sl_object *args) {
         return sl_make_errorf("write: Failed to convert object to string (allocation failed?)");
     }
 
-    fputs(str_repr, stdout);
-    free(str_repr);  // Free the allocated string
-    fflush(stdout);  // Ensure output is flushed
+    sl_output_string(str_repr);  // Use redirectable output function instead of fputs
+    free(str_repr);              // Free the allocated string
+
+    if (!sl_output_redirected) {
+        fflush(stdout);  // Only flush if using real stdout
+    }
 
     SL_GC_REMOVE_ROOT(&obj_to_write);
     // R7RS specifies write returns an unspecified value. Use SL_NIL.

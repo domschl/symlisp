@@ -219,7 +219,7 @@ void sl_mem_shutdown();
 #define sl_is_closure(obj) (sl_is_function(obj) && !(obj)->data.function.is_builtin)
 #define sl_is_builtin(obj) (sl_is_function(obj) && (obj)->data.function.is_builtin)
 #define sl_is_env(obj) ((obj) && (obj)->type == SL_TYPE_ENV)
-#define sl_is_error(obj) ((obj) && (obj)->type == SL_TYPE_ERROR)
+// #define sl_is_error(obj) ((obj) && (obj)->type == SL_TYPE_ERROR)
 bool sl_is_list(sl_object *obj);  // <<< ADD DECLARATION
 
 // Types
@@ -340,7 +340,7 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop);
 bool fits_int64(const mpz_t val);
 sl_object *make_number_from_mpq(mpq_t val);
 // --- Error Handling Accessors ---
-#define sl_error_message(obj) ((obj)->data.error_str)  // <<< CORRECTED
+// #define sl_error_message(obj) ((obj)->data.error_str)  // <<< CORRECTED
 
 typedef struct {
     char *buffer;
@@ -367,7 +367,8 @@ char *sl_sb_finalize(sl_string_builder *sb);
 #define SL_EXPORT __attribute__((visibility("default")))
 #endif
 
-// ... existing typedefs ...
+SL_EXPORT bool sl_is_error(sl_object *obj);              // <<< ADD FUNCTION DECLARATION
+SL_EXPORT const char *sl_error_message(sl_object *obj);  // <<< ADD FUNCTION DECLARATION
 
 SL_EXPORT sl_object_type sl_get_object_type(sl_object *obj);
 SL_EXPORT const char *sl_get_rich_content_html(sl_object *obj);

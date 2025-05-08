@@ -1625,6 +1625,17 @@ sl_object *sl_add(sl_object *args) {
 }
 
 // Jupyter kernel apis
+bool sl_is_error(sl_object *obj) {
+    return (obj && obj->type == SL_TYPE_ERROR);
+}
+
+const char *sl_error_message(sl_object *obj) {
+    if (sl_is_error(obj) && obj->data.error_str) {
+        return obj->data.error_str;
+    }
+    // Could return a default "Unknown error" or NULL if not an error or no message
+    return "Not an error object or no message";
+}
 
 sl_object_type sl_get_object_type(sl_object *obj) {
     if (!obj) return SL_TYPE_NIL;  // Default or error type

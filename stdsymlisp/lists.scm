@@ -28,6 +28,55 @@
     ((pred (car lst)) (pred (car lst))) ; Return the true value from pred
     (else (exists pred (cdr lst)))))
 
+;; (list-take lst k)
+;; Returns a new list containing the first k elements of lst.
+;; If k is 0, returns '().
+;; If k is >= (length lst), returns a copy of lst.
+(define (list-take lst k)
+  (if (or (<= k 0) (null? lst))
+      '()
+      (cons (car lst) (list-take (cdr lst) (- k 1)))))
+
+;; (list-drop lst k)
+;; Returns the sublist of lst after dropping the first k elements.
+;; If k is 0, returns lst.
+;; If k is >= (length lst), returns '().
+(define (list-drop lst k)
+  (if (or (<= k 0) (null? lst))
+      lst
+      (list-drop (cdr lst) (- k 1))))
+
+;; (merge-sorted-lists list1 list2 pred)
+;; Merges two lists, list1 and list2, that are already sorted
+;; according to the predicate pred. Pred should return #t if its
+;; first argument is "less than" its second.
+(define (merge-sorted-lists list1 list2 pred)
+  (cond
+    ((null? list1) list2)
+    ((null? list2) list1)
+    ((pred (car list1) (car list2))
+     (cons (car list1) (merge-sorted-lists (cdr list1) list2 pred)))
+    (else
+     (cons (car list2) (merge-sorted-lists list1 (cdr list2) pred)))))
+
+;; (list-sort pred lst)
+;; Returns a new list containing the elements of lst, sorted
+;; according to the predicate pred. This is a non-destructive
+;; merge sort. Pred should return #t if its first argument is
+;; "less than" its second.
+(define (list-sort pred lst)
+  (if (or (null? lst) (null? (cdr lst))) ; Base case: 0 or 1 element
+      lst
+      (let* ((len (length lst))
+             (mid (quotient len 2))
+             (left-half (list-take lst mid))
+             (right-half (list-drop lst mid)))
+        (merge-sorted-lists
+         (list-sort pred left-half)
+         (list-sort pred right-half)
+         pred))))
+
+
 ;;;-----------------------------------------------------------------------------
 ;;; Numeric Predicates (can be moved to a numbers.scm later)
 ;;;-----------------------------------------------------------------------------

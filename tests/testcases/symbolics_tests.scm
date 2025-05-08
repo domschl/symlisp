@@ -365,7 +365,7 @@
 (define-test "simplify-combo-sum-prod-identities"
   (assert-equal (simplify '(+ (* x 1) (* y 0) z)) '(+ x z)))
 (define-test "simplify-combo-diff-prod-negation" ; (- (* 5 x) (- 0 y)) -> (+ (* 5 x) (- (- y))) -> (+ (* 5 x) y)
-  (assert-equal (simplify '(- (* 5 x) (- 0 y))) '(+ (* 5 x) y)))
+  (assert-equal (simplify '(- (* 5 x) (- 0 y))) '(+ y (* 5 x))))
 (define-test "simplify-combo-quotient-power"
   (assert-equal (simplify '(/ (^ x 1) (^ y 0))) 'x)) ; (/ x 1) -> x
 
@@ -385,7 +385,7 @@
 
 ;; Test canonicalization of difference via sum
 (define-test "simplify-difference-complex-to-canonical"
-  (assert-equal (simplify '(- (+ x 1) (+ y 2))) '(+ (+ 1 x) (- (+ 2 y))))) ; Adapted expectation
+  (assert-equal (simplify '(- (+ x 1) (+ y 2))) '(+ 1 x (- (+ 2 y))))) ; Adapted expectation
 
 ;; Test product with -1 constant factor
 (define-test "simplify-product-with-minus-one-constant"
@@ -434,3 +434,68 @@
   (assert-equal (simplify '(- 5 b)) '(+ 5 (- b))))
 (define-test "simplify-diff-a-minus-neg-b" ; (- a (- b)) -> (+ a (- (* -1 (- b)))) -> (+ a (- (- b))) -> (+ a b)
   (assert-equal (simplify '(- a (- b))) '(+ a b)))
+
+;;; --- Tests for Canonical Forms: Flattening and Ordering ---
+
+;; Flattening Sums
+(define-test "simplify-flatten-sum-simple"
+  (assert-equal (simplify '(+ x (+ y z))) '(+ x y z))) ; Assuming x < y < z
+(define-test "simplify-flatten-sum-nested-right"
+  (assert-equal (simplify '(+ a (+ b (+ c d)))) '(+ a b c d))) ; Assuming a < b < c < d
+(define-test "simplify-flatten-sum-nested-left"
+  (assert-equal (simplify '(+ (+ (+ a b) c) d)) '(+ a b c d)))
+(define-test "simplify-flatten-sum-with-constants"
+  (assert-equal (simplify '(+ 1 (+ x 2 (+ y 3)))) '(+ 6 x y))) ; Constants collected, then sorted with vars
+(define-test "simplify-flatten-sum-identities-involved"
+  (assert-equal (simplify '(+ x (+ 0 y (+ z 0)))) '(+ x y z)))
+
+;; Flattening Products
+(define-test "simplify-flatten-product-simple"
+  (assert-equal (simplify '(* x (* y z))) '(* x y z))) ; Assuming x < y < z
+(define-test "simplify-flatten-product-nested-right"
+  (assert-equal (simplify '(* a (* b (* c d)))) '(* a b c d))) ; Assuming a < b < c < d
+(define-test "simplify-flatten-product-nested-left"
+  (assert-equal (simplify '(* (* (* a b) c) d)) '(* a b c d)))
+(define-test "simplify-flatten-product-with-constants"
+  (assert-equal (simplify '(* 2 (* x 3 (* y 4)))) '(* 24 x y))) ; Constants collected, then sorted
+(define-test "simplify-flatten-product-identities-involved"
+  (assert-equal (simplify '(* x (* 1 y (* z 1)))) '(* x y z)))
+(define-test "simplify-flatten-product-zero-involved"
+  (assert-equal (simplify '(* x (* 0 y (* z 1)))) 0))
+
+;; Ordering Terms in Sums (relies on term<?)
+(define-test "simplify-order-sum-vars"
+  (assert-equal (simplify '(+ z y x)) '(+ x y z)))
+(define-test "simplify-order-sum-const-vars"
+  (assert-equal (simplify '(+ y 10 x 5)) '(+ 15 x y)))
+(define-test "simplify-order-sum-const-vars-compounds"
+  (assert-equal (simplify '(+ (foo b) z 20 y 10 x (bar a)))
+                '(+ 30 x y z (bar a) (foo b)))) ; Order of (bar a) (foo b) depends on object->string
+
+;; Ordering Factors in Products (relies on term<?)
+(define-test "simplify-order-product-vars"
+  (assert-equal (simplify '(* z y x)) '(* x y z)))
+(define-test "simplify-order-product-const-vars"
+  (assert-equal (simplify '(* y 10 x 5)) '(* 50 x y)))
+(define-test "simplify-order-product-const-vars-compounds"
+  (assert-equal (simplify '(* (foo b) z 20 y 10 x (bar a)))
+                '(* 200 x y z (bar a) (foo b)))) ; Order of (bar a) (foo b) depends on object->string
+
+;; Combined Flattening and Ordering
+(define-test "simplify-flatten-order-sum-complex"
+  (assert-equal (simplify '(+ c (+ 10 a) 5 (+ b x))) '(+ 15 a b c x)))
+(define-test "simplify-flatten-order-product-complex"
+  (assert-equal (simplify '(* c (* 10 a) 5 (* b x))) '(* 50 a b c x)))
+
+;; Interaction with (- a b) -> (+ a (* -1 b))
+(define-test "simplify-flatten-order-after-difference-conversion"
+  ;; (- (+ z 3) (+ x 1)) -> (+ (+ z 3) (* -1 (+ x 1)))
+  ;; -> (+ (+ 3 z) (- (+ 1 x)))
+  ;; Flattened terms: 3, z, (- (+ 1 x))
+  ;; Sorted: (+ 3 z (- (+ 1 x)))
+  (assert-equal (simplify '(- (+ z 3) (+ x 1))) '(+ 3 z (- (+ 1 x)))))
+(define-test "simplify-flatten-order-sum-with-negations"
+  ;; (+ c (- b) a) -> (+ a (- b) c) (if a < c and (- b) is treated as compound after vars)
+  ;; or (+ (- b) a c) (if (-b) comes before a and c due to term<?)
+  ;; Assuming variables first, then compounds:
+  (assert-equal (simplify '(+ c (- b) a)) '(+ a c (- b))))

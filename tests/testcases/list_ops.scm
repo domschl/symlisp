@@ -104,3 +104,67 @@
 (define set-cdr-test-list-2 (list 'p 'q 'r))
 (define-test "set-cdr!-last-pair" (assert-equal (set-cdr! (cdr set-cdr-test-list-2) '()) '())) ; Make (cdr '(q r)) -> '()
 (define-test "set-cdr!-effect-last-pair" (assert-equal set-cdr-test-list-2 '(p q))) ; List is now shorter
+
+;; --- LENGTH (from stdsymlisp/lists.scm if not builtin) ---
+;; Assuming length tests from above are for a builtin or previously defined one.
+;; If length was just added to lists.scm, these are the primary tests for it.
+(define-test "length-new-simple" (assert-equal (length '(a b c d)) 4))
+(define-test "length-new-nested" (assert-equal (length '((1 2) (3 4))) 2))
+(define-test "length-new-empty" (assert-equal (length '()) 0))
+(define-test "length-new-single" (assert-equal (length '(1)) 1))
+(define-test "length-new-dotted-pair" (assert-equal (length '(1 . 2)) 1)) ; Length counts pairs up to non-pair cdr
+(define-test "length-new-improper-list" (assert-equal (length '(1 2 . 3)) 2))
+
+;; --- LIST-TAKE ---
+(define-test "list-take-simple" (assert-equal (list-take '(a b c d e) 3) '(a b c)))
+(define-test "list-take-zero" (assert-equal (list-take '(a b c) 0) '()))
+(define-test "list-take-more-than-length" (assert-equal (list-take '(a b) 5) '(a b)))
+(define-test "list-take-exact-length" (assert-equal (list-take '(a b c) 3) '(a b c)))
+(define-test "list-take-from-empty" (assert-equal (list-take '() 3) '()))
+(define-test "list-take-negative-k" (assert-equal (list-take '(a b c) -1) '()))
+(define-test "list-take-non-destructive"
+  (let ((original '(1 2 3 4)))
+    (list-take original 2)
+    (assert-equal original '(1 2 3 4))))
+
+;; --- LIST-DROP ---
+(define-test "list-drop-simple" (assert-equal (list-drop '(a b c d e) 2) '(c d e)))
+(define-test "list-drop-zero" (assert-equal (list-drop '(a b c) 0) '(a b c)))
+(define-test "list-drop-more-than-length" (assert-equal (list-drop '(a b) 5) '()))
+(define-test "list-drop-exact-length" (assert-equal (list-drop '(a b c) 3) '()))
+(define-test "list-drop-from-empty" (assert-equal (list-drop '() 3) '()))
+(define-test "list-drop-negative-k" (assert-equal (list-drop '(a b c) -1) '(a b c)))
+(define-test "list-drop-non-destructive"
+  (let ((original '(1 2 3 4)))
+    (list-drop original 2)
+    (assert-equal original '(1 2 3 4))))
+
+;; --- MERGE-SORTED-LISTS ---
+(define num-pred <)
+(define-test "merge-sorted-empty-both" (assert-equal (merge-sorted-lists '() '() num-pred) '()))
+(define-test "merge-sorted-empty-left" (assert-equal (merge-sorted-lists '() '(1 3 5) num-pred) '(1 3 5)))
+(define-test "merge-sorted-empty-right" (assert-equal (merge-sorted-lists '(2 4 6) '() num-pred) '(2 4 6)))
+(define-test "merge-sorted-interleaved" (assert-equal (merge-sorted-lists '(1 3 5) '(2 4 6) num-pred) '(1 2 3 4 5 6)))
+(define-test "merge-sorted-list1-first" (assert-equal (merge-sorted-lists '(1 2 3) '(4 5 6) num-pred) '(1 2 3 4 5 6)))
+(define-test "merge-sorted-list2-first" (assert-equal (merge-sorted-lists '(4 5 6) '(1 2 3) num-pred) '(1 2 3 4 5 6)))
+(define-test "merge-sorted-with-duplicates" (assert-equal (merge-sorted-lists '(1 3 3 5) '(2 3 4 6) num-pred) '(1 2 3 3 3 4 5 6)))
+(define-test "merge-sorted-one-each" (assert-equal (merge-sorted-lists '(1) '(2) num-pred) '(1 2)))
+(define-test "merge-sorted-one-each-reverse-pred" (assert-equal (merge-sorted-lists '(2) '(1) num-pred) '(1 2)))
+
+;; --- LIST-SORT ---
+(define-test "list-sort-empty" (assert-equal (list-sort num-pred '()) '()))
+(define-test "list-sort-single" (assert-equal (list-sort num-pred '(1)) '(1)))
+(define-test "list-sort-sorted" (assert-equal (list-sort num-pred '(1 2 3 4 5)) '(1 2 3 4 5)))
+(define-test "list-sort-reverse-sorted" (assert-equal (list-sort num-pred '(5 4 3 2 1)) '(1 2 3 4 5)))
+(define-test "list-sort-unsorted" (assert-equal (list-sort num-pred '(3 1 4 1 5 9 2 6)) '(1 1 2 3 4 5 6 9)))
+(define-test "list-sort-with-duplicates" (assert-equal (list-sort num-pred '(5 2 8 2 5 1)) '(1 2 2 5 5 8)))
+(define-test "list-sort-non-destructive"
+  (let ((original '(3 1 2)))
+    (list-sort num-pred original)
+    (assert-equal original '(3 1 2))))
+(define symbol-pred (lambda (s1 s2) (string<? (symbol->string s1) (symbol->string s2))))
+(define-test "list-sort-symbols" (assert-equal (list-sort symbol-pred '(c a b d)) '(a b c d)))
+(define term<-pred term<?) ; Assuming term<? is available from symbolics
+(define-test "list-sort-terms"
+  (assert-equal (list-sort term<-pred '(b 10 (* x y) a 5 (+ 1 z)))
+                '(5 10 a b (* x y) (+ 1 z)))) ; Example order, actual depends on expr->string for compounds

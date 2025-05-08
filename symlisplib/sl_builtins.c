@@ -1678,35 +1678,36 @@ static sl_object *sl_builtin_list(sl_object *args) {
     return head;  // Return the newly constructed list
 }
 
-// (length list) -> Returns the number of elements in a proper list.
+// (length list) -> Returns the number of pairs in the main spine of a list.
+// For a proper list, this is the number of elements.
+// For an improper list like (a b . c), it returns 2.
+// For an atom (not a pair and not NIL), it returns 0.
 static sl_object *sl_builtin_length(sl_object *args) {
     sl_object *arity_check = check_arity("length", args, 1);
     if (arity_check != SL_TRUE) return arity_check;
 
-    sl_object *list = sl_car(args);
+    sl_object *list_arg = sl_car(args);  // Renamed to avoid conflict with 'list' type/var if any
     size_t count = 0;
-    sl_object *current = list;
+    sl_object *current = list_arg;
 
-    // Need to protect 'list' in case GC runs during error creation below
-    SL_GC_ADD_ROOT(&list);
+    // Protect 'list_arg' in case GC runs (though not strictly needed in this loop if no allocations)
+    SL_GC_ADD_ROOT(&list_arg);
 
     while (sl_is_pair(current)) {
         count++;
         current = sl_cdr(current);
     }
 
-    if (current != SL_NIL) {  // Check if it was a proper list
-        SL_GC_REMOVE_ROOT(&list);
-        return sl_make_errorf("Error (length): Argument must be a proper list.");
-    }
+    // Removed the check: if (current != SL_NIL) { ... error ... }
+    // The loop naturally stops, and 'count' will hold the number of pairs encountered.
 
-    SL_GC_REMOVE_ROOT(&list);
+    SL_GC_REMOVE_ROOT(&list_arg);
 
     // Convert size_t count to an sl_object number
-    // For simplicity, assume count fits in int64_t for now.
-    // A robust implementation might use mpz_set_ui if count is large.
+    // Ensure count fits in int64_t for sl_make_number_si.
+    // For extremely large counts, a bignum representation would be needed.
     if (count > INT64_MAX) {
-        return sl_make_errorf("Error (length): List length exceeds maximum representable integer.");
+        return sl_make_errorf("Error (length): List length exceeds maximum representable small integer.");
     }
 
     return sl_make_number_si((int64_t)count, 1);

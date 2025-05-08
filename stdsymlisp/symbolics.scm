@@ -189,6 +189,29 @@
       (and (constant? (car exprs))
            (all-constants? (cdr exprs)))))
 
+;; --- Helper for Canonical Ordering ---
+
+;; (term<? t1 t2) -> #t if t1 should come before t2 in canonical order.
+;; Order: constants (numeric) < variables (alphabetic) < compound expressions (string representation)
+(define (term<? t1 t2)
+  (cond
+    ;; Both constants
+    ((and (constant? t1) (constant? t2)) (< t1 t2))
+    ;; t1 is constant, t2 is not
+    ((constant? t1) #t)
+    ;; t2 is constant, t1 is not
+    ((constant? t2) #f)
+    ;; Both variables
+    ((and (variable? t1) (variable? t2)) (string<? (symbol->string t1) (symbol->string t2)))
+    ;; t1 is variable, t2 is not (compound)
+    ((variable? t1) #t)
+    ;; t2 is variable, t1 is not (compound)
+    ((variable? t2) #f)
+    ;; Both compound expressions (or other types not yet specifically handled)
+    ;; Fallback to string comparison for a stable, somewhat arbitrary order.
+    ;; Assumes expr->string provides a consistent representation.
+    (else (string<? (expr->string t1) (expr->string t2)))))
+
 ;; Helper: Construct a sum expression, simplifying if possible
 ;; (make-sum '(term1 term2 ...))
 (define (make-sum terms)
@@ -208,41 +231,61 @@
 ;; Forward declaration for simplify, as helpers might call it or be called by it.
 (define simplify #f)
 
-;; Simplification for sums
+;; Simplification for sums (with flattening and ordering)
 (define (simplify-sum expr)
-  (let* ((s-operands (map simplify (operands expr)))
-         (constants (filter constant? s-operands))
-         (non-constants (filter (lambda (x) (not (constant? x))) s-operands))
-         (sum-const (if (null? constants) 0 (apply + constants))))
-    (cond
-      ;; No non-constant terms left
-      ((null? non-constants) sum-const)
-      ;; Non-constant terms exist, and sum-const is 0 (identity for +)
-      ((zero? sum-const) (make-sum non-constants))
-      ;; Non-constant terms exist, and sum-const is non-zero
-      (else (make-sum (cons sum-const non-constants))))))
-
-;; Simplification for products
-(define (simplify-product expr)
-  (let ((s-operands (map simplify (operands expr))))
-    ;; If any factor simplifies to 0, the entire product is 0
-    (if (exists (lambda (op) (and (constant? op) (zero? op))) s-operands)
-        0
-        (let* ((s-operands-no-ones (filter (lambda (op) (not (and (constant? op) (= op 1)))) s-operands))
-               (constants (filter constant? s-operands-no-ones))
-               (non-constants (filter (lambda (x) (not (constant? x))) s-operands-no-ones))
-               (prod-const (if (null? constants) 1 (apply * constants))))
+  (let collect-and-flatten-terms ((ops (operands expr)) (accumulated-terms '()))
+    (if (null? ops)
+        ;; All operands processed and flattened, now process the collected terms
+        (let* ((constants (filter constant? accumulated-terms))
+               (non-constants (filter (lambda (x) (not (constant? x))) accumulated-terms))
+               (sum-const (if (null? constants) 0 (apply + constants)))
+               (sorted-non-constants (list-sort term<? non-constants)))
           (cond
-            ;; If after removing 1s, prod-const became 0 (e.g. (* 0 x) but 0 was not caught above - should not happen)
-            ((zero? prod-const) 0)
-            ;; No non-constant factors left
-            ((null? non-constants) prod-const)
-            ;; Non-constant factors exist, and prod-const is 1 (identity for *)
-            ((= prod-const 1) (make-product non-constants))
-            ;; Non-constant factors exist, and prod-const is -1
-            ((= prod-const -1) (simplify (make-negation (make-product non-constants))))
-            ;; Non-constant factors exist, and prod-const is something else
-            (else (make-product (cons prod-const non-constants))))))))
+            ((null? sorted-non-constants) sum-const) ; Result is purely constant
+            ((and (not (null? sorted-non-constants)) (zero? sum-const))
+             (make-sum sorted-non-constants)) ; Constants summed to 0, only non-constants left
+            (else
+             (make-sum (cons sum-const sorted-non-constants))))) ; Mix of non-zero constant and non-constants
+        ;; Process next operand
+        (let ((simplified-op (simplify (car ops))))
+          (if (sum? simplified-op) ; Flatten if the simplified operand is a sum
+              (collect-and-flatten-terms (cdr ops) (append accumulated-terms (operands simplified-op)))
+              (collect-and-flatten-terms (cdr ops) (append accumulated-terms (list simplified-op))))))))
+
+;; Simplification for products (with flattening and ordering)
+(define (simplify-product expr)
+  (let collect-and-flatten-factors ((ops (operands expr)) (accumulated-factors '()))
+    (if (null? ops)
+        ;; All operands processed and flattened, now process the collected factors
+        (cond
+          ;; If any factor was simplified to 0 earlier (should be caught by simplify itself)
+          ;; or if 0 is present in accumulated_factors
+          ((exists (lambda (f) (and (constant? f) (zero? f))) accumulated-factors) 0)
+          (else
+           (let* ((factors-no-ones (filter (lambda (f) (not (and (constant? f) (= f 1)))) accumulated-factors))
+                  (constants (filter constant? factors-no-ones))
+                  (non-constants (filter (lambda (x) (not (constant? x))) factors-no-ones))
+                  (prod-const (if (null? constants) 1 (apply * constants)))
+                  (sorted-non-constants (list-sort term<? non-constants)))
+             (cond
+               ((zero? prod-const) 0) ; Product of constants is 0
+               ((null? sorted-non-constants) prod-const) ; Result is purely constant
+               ((= prod-const 1)
+                (make-product sorted-non-constants)) ; Constants product to 1
+               ((= prod-const -1)
+                ;; Canonical form for (- X) is preferred over (* -1 X)
+                (simplify (make-negation (make-product sorted-non-constants))))
+               (else
+                (make-product (cons prod-const sorted-non-constants)))))))
+        ;; Process next operand
+        (let ((simplified-op (simplify (car ops))))
+          ;; If simplified_op itself became 0, the whole product is 0
+          (if (and (constant? simplified-op) (zero? simplified-op))
+              0 ; Short-circuit
+              (if (product? simplified-op) ; Flatten if the simplified operand is a product
+                  (collect-and-flatten-factors (cdr ops) (append accumulated-factors (operands simplified-op)))
+                  (collect-and-flatten-factors (cdr ops) (append accumulated-factors (list simplified-op)))))))))
+
 
 ;; Simplification for powers
 (define (simplify-power expr)

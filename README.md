@@ -2,7 +2,10 @@
 
 T.B.D.
 
-Again another Scheme, this time by Gemini 2.5 Pro (preview)
+Again another Scheme, this time:
+
+- Main interpreter by Gemini 2.5 Pro (preview)
+- Jupyter kernel by Claude 3.7 thinking
 
 ## todos
 
@@ -60,11 +63,11 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Jupyter Kernel
   - [x] Jupyter kernel sub-project
   - [x] output for stdio and `(display)` stderr (error-messages), extra output-modes `(display-markdown)` and `(display-html)`
+- [x] String and infix<->prefix (vars, functions)
 
 Larger steps:
 
 - [ ] Symbolics libs
-  - [ ] String and infix<->prefix (vars, functions)
   - [ ] Symbolic math
 - [ ] review against standard(s)
 - [ ] single-page doc suitable as instruction for LLMs (language description and limitations) 

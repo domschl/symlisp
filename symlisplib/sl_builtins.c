@@ -14,6 +14,7 @@
 #include "sl_predicates.h"
 #include "sl_strings.h"  // <<< ADDED for string functions if needed by error
 #include "sl_higher_order.h"
+#include "sl_output.h"  // <<< ADDED for output functions
 
 // Helper to check arity.
 // Returns SL_TRUE if arity matches and list is proper.
@@ -1591,29 +1592,26 @@ static sl_object *sl_builtin_display(sl_object *args) {
     if (arity_check != SL_TRUE) return arity_check;
 
     sl_object *obj_to_display = sl_car(args);  // Get the first argument
-
-    char *str_repr = NULL;  // Initialize to NULL
+    char *str_repr = NULL;                     // Initialize to NULL
 
     // Special handling for string objects to print contents without quotes
     if (sl_is_string(obj_to_display)) {
-        // Use the accessor macro from sl_core.h
-        fputs(sl_string_value(obj_to_display), stdout);
+        // Use sl_output_string instead of fputs
+        sl_output_string(sl_string_value(obj_to_display));
     } else {
-        // For non-strings, get the standard representation using the function
-        // declared in sl_core.h
+        // For non-strings, get the standard representation
         str_repr = sl_object_to_string(obj_to_display);
         if (!str_repr) {
-            // sl_object_to_string returns NULL on failure according to sl_core.h comment
             return sl_make_errorf("display: Failed to convert object to string (allocation failed?)");
         }
-        fputs(str_repr, stdout);
-        // Free the string allocated by sl_object_to_string
-        // Note: The comment in sl_core.h says caller must free().
+        sl_output_string(str_repr);
         free(str_repr);
     }
-    fflush(stdout);  // Ensure output is flushed
 
-    // R7RS specifies display returns an unspecified value. Use SL_NIL.
+    if (!sl_output_redirected) {
+        fflush(stdout);  // Only flush if using real stdout
+    }
+
     return SL_NIL;
 }
 
@@ -1839,7 +1837,8 @@ static sl_object *sl_builtin_set_cdr(sl_object *args) {
     if (arity_check != SL_TRUE) return arity_check;
 
     sl_object *pair = sl_car(args);
-    sl_object *new_val = sl_cadr(args);
+    // sl_object *new_val = sl_cdr(args);
+    sl_object *new_val = sl_car(sl_cdr(args));  // Explicitly sl_car(sl_cdr(args))
 
     if (!sl_is_pair(pair)) {
         return sl_make_errorf("Error (set-cdr!): First argument must be a pair, got type %d.", pair ? pair->type : -1);
@@ -1944,8 +1943,11 @@ static sl_object *sl_builtin_newline(sl_object *args) {
     sl_object *arity_check = check_arity("newline", args, 0);
     if (arity_check != SL_TRUE) return arity_check;
 
-    putchar('\n');
-    fflush(stdout);  // Ensure it appears immediately
+    sl_output_char('\n');  // Use redirectable output function instead of putchar
+
+    if (!sl_output_redirected) {
+        fflush(stdout);  // Only flush if using real stdout
+    }
 
     // R7RS specifies newline returns an unspecified value. Use SL_NIL.
     return SL_NIL;
@@ -2149,9 +2151,12 @@ static sl_object *sl_builtin_write(sl_object *args) {
         return sl_make_errorf("write: Failed to convert object to string (allocation failed?)");
     }
 
-    fputs(str_repr, stdout);
-    free(str_repr);  // Free the allocated string
-    fflush(stdout);  // Ensure output is flushed
+    sl_output_string(str_repr);  // Use redirectable output function instead of fputs
+    free(str_repr);              // Free the allocated string
+
+    if (!sl_output_redirected) {
+        fflush(stdout);  // Only flush if using real stdout
+    }
 
     SL_GC_REMOVE_ROOT(&obj_to_write);
     // R7RS specifies write returns an unspecified value. Use SL_NIL.

@@ -11,9 +11,6 @@ target_link_libraries(symlisp_tester PRIVATE symlisplib)
 # Include directories for the tester if it needs headers from the library
 target_include_directories(symlisp_tester PRIVATE ${CMAKE_SOURCE_DIR}/symlisplib) # Adjust if your library headers are elsewhere
 
-# --- Testing Support ---
-enable_testing()
-
 # Find leak checking tools
 find_program(VALGRIND_COMMAND valgrind)
 find_program(LEAKS_COMMAND leaks)

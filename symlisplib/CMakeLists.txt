@@ -15,11 +15,11 @@ set(SYMLISPLIB_SOURCES
 
 # Define the static library for the core components
 add_library(symlisplib_static STATIC ${SYMLISPLIB_SOURCES})
-set_target_properties(symlisplib_static PROPERTIES OUTPUT_NAME symlisplib) # Keep original name for static lib
+set_target_properties(symlisplib_static PROPERTIES OUTPUT_NAME symlisp) # Keep original name for static lib
 
 # Define the shared library for the core components
 add_library(symlisplib_shared SHARED ${SYMLISPLIB_SOURCES})
-set_target_properties(symlisplib_shared PROPERTIES OUTPUT_NAME symlisplib) # Keep original name for shared lib
+set_target_properties(symlisplib_shared PROPERTIES OUTPUT_NAME symlisp) # Keep original name for shared lib
 set_target_properties(symlisplib_shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 

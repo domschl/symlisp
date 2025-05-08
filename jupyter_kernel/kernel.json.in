@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "@PYTHON_EXECUTABLE@",
+    "-m", "symlisp_kernel",
+    "-f", "{connection_file}"
+  ],
+  "display_name": "SymLisp",
+  "language": "scheme",
+  "env": {
+    "SYMLISP_LIB_PATH": "@CMAKE_BINARY_DIR@/symlisplib"
+  }
+}

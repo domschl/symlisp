@@ -12,6 +12,16 @@
      (car alist)) ; Found, return the pair
     (else (assoc key (cdr alist))))) ; Recurse on the rest of the list
 
+;; (memq obj list)
+;; Searches list for an occurrence of obj using eq?.
+;; If obj is found, returns the sublist of list starting with the first occurrence of obj.
+;; Otherwise, returns #f.
+(define (memq obj lst)
+  (cond
+    ((null? lst) #f) ; Base case: obj not found
+    ((eq? obj (car lst)) lst) ; Found: return the sublist starting with obj
+    (else (memq obj (cdr lst))))) ; Recurse on the rest of the list
+
 ;;;-----------------------------------------------------------------------------
 ;;; Infix Expression Parser (Shunting-Yard Algorithm to Prefix S-expression)
 ;;;-----------------------------------------------------------------------------

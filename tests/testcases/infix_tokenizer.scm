@@ -96,3 +96,79 @@
   (assert-equal (string->prefix-expr "f(a,b*c,d)") '(f a (* b c) d)))
 (define-test "string->prefix-10"
   (assert-equal (string->prefix-expr "-a * (b + -c)") '(* (- a) (+ b (- c)))))
+
+;; --- More Complex Test Cases ---
+
+(define-test "string->prefix-complex-1-nested-func"
+  (assert-equal (string->prefix-expr "f(g(x), y)") '(f (g x) y)))
+
+(define-test "string->prefix-complex-2-op-in-args"
+  (assert-equal (string->prefix-expr "f(x + 1, y * 2)") '(f (+ x 1) (* y 2))))
+
+(define-test "string->prefix-complex-3-unary-in-args"
+  (assert-equal (string->prefix-expr "f(-x, -1)") '(f (- x) (- 1))))
+
+(define-test "string->prefix-complex-4-mixed-ops-and-funcs"
+  (assert-equal (string->prefix-expr "a + f(b * c) - d") '(- (+ a (f (* b c))) d)))
+
+(define-test "string->prefix-complex-5-func-with-no-args-and-ops"
+  (assert-equal (string->prefix-expr "1 + f() * 2") '(+ 1 (* (f) 2))))
+
+(define-test "string->prefix-complex-6-deeply-nested"
+  (assert-equal (string->prefix-expr "h(f(a+b, g(c*d)), -e)") '(h (f (+ a b) (g (* c d))) (- e))))
+
+(define-test "string->prefix-complex-7-unary-and-binary-minus"
+  (assert-equal (string->prefix-expr "-x - -y") '(- (- x) (- y))))
+
+(define-test "string->prefix-complex-8-power-and-func"
+  (assert-equal (string->prefix-expr "f(x)^2 + g(y)") '(+ (^ (f x) 2) (g y))))
+
+(define-test "string->prefix-complex-9-multiple-funcs-and-ops"
+  (assert-equal (string->prefix-expr "f(a) * g(b) + h(c) / d") '(+ (* (f a) (g b)) (/ (h c) d))))
+
+(define-test "string->prefix-complex-10-func-arg-is-complex-expr"
+  (assert-equal (string->prefix-expr "f( (a+b)*(c-d) / e )") '(f (/ (* (+ a b) (- c d)) e))))
+
+(define-test "string->prefix-complex-11-unary-on-parenthesized-expr"
+  (assert-equal (string->prefix-expr "-(a+b)") '(- (+ a b))))
+
+(define-test "string->prefix-complex-12-unary-on-function-result"
+  (assert-equal (string->prefix-expr "-f(x) + g(y)") '(+ (- (f x)) (g y))))
+
+;; --- More Complex Test Cases ---
+
+(define-test "string->prefix-complex-1-nested-func"
+  (assert-equal (string->prefix-expr "f(g(x), y)") '(f (g x) y)))
+
+(define-test "string->prefix-complex-2-op-in-args"
+  (assert-equal (string->prefix-expr "f(x + 1, y * 2)") '(f (+ x 1) (* y 2))))
+
+(define-test "string->prefix-complex-3-unary-in-args"
+  (assert-equal (string->prefix-expr "f(-x, -1)") '(f (- x) (- 1))))
+
+(define-test "string->prefix-complex-4-mixed-ops-and-funcs"
+  (assert-equal (string->prefix-expr "a + f(b * c) - d") '(- (+ a (f (* b c))) d)))
+
+(define-test "string->prefix-complex-5-func-with-no-args-and-ops"
+  (assert-equal (string->prefix-expr "1 + f() * 2") '(+ 1 (* (f) 2))))
+
+(define-test "string->prefix-complex-6-deeply-nested"
+  (assert-equal (string->prefix-expr "h(f(a+b, g(c*d)), -e)") '(h (f (+ a b) (g (* c d))) (- e))))
+
+(define-test "string->prefix-complex-7-unary-and-binary-minus"
+  (assert-equal (string->prefix-expr "-x - -y") '(- (- x) (- y))))
+
+(define-test "string->prefix-complex-8-power-and-func"
+  (assert-equal (string->prefix-expr "f(x)^2 + g(y)") '(+ (^ (f x) 2) (g y))))
+
+(define-test "string->prefix-complex-9-multiple-funcs-and-ops"
+  (assert-equal (string->prefix-expr "f(a) * g(b) + h(c) / d") '(+ (* (f a) (g b)) (/ (h c) d))))
+
+(define-test "string->prefix-complex-10-func-arg-is-complex-expr"
+  (assert-equal (string->prefix-expr "f( (a+b)*(c-d) / e )") '(f (/ (* (+ a b) (- c d)) e))))
+
+(define-test "string->prefix-complex-11-unary-on-parenthesized-expr"
+  (assert-equal (string->prefix-expr "-(a+b)") '(- (+ a b))))
+
+(define-test "string->prefix-complex-12-unary-on-function-result"
+  (assert-equal (string->prefix-expr "-f(x) + g(y)") '(+ (- (f x)) (g y))))

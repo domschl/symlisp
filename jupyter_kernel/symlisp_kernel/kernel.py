@@ -66,7 +66,6 @@ class SymLispKernel(Kernel):
             if not silent:
                 if result.has_error:
                     error_message = result.error_message
-                    # Send the error as stderr output
                     self.send_response(self.iopub_socket, 'stream', {
                         'name': 'stderr',
                         'text': f"Error: {error_message}"
@@ -98,7 +97,7 @@ class SymLispKernel(Kernel):
                         'metadata': {}
                     })
                 
-                # Always display the return value if it's not None
+                # Send the return value if it exists
                 if result.return_value:
                     self.log.info(f"Sending return value: {result.return_value!r}")
                     data = {'text/plain': result.return_value}

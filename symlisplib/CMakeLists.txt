@@ -11,6 +11,7 @@ set(SYMLISPLIB_SOURCES
     sl_strings.c
     sl_higher_order.c
     sl_unicode_case.c
+    sl_output.c
 )
 
 # Define the static library for the core components

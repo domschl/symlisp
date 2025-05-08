@@ -35,7 +35,10 @@ class SymLispWrapper:
             char* sl_object_to_string(SLObject* obj);
             void sl_free_c_string(const char* str);
             
-            // Optional rich content functions
+            // Output redirection functions
+            int sl_redirect_output(int enable, char* buffer, int buffer_size);
+            
+            // Rich content functions
             const char* sl_get_rich_content_html(SLObject* obj);
             const char* sl_get_rich_content_markdown(SLObject* obj);
             
@@ -108,34 +111,43 @@ class SymLispWrapper:
         """Evaluate SymLisp code string and return the result."""
         result = EvaluationResult()
         
+        # Create a buffer for standard output capture
+        output_buffer = self.ffi.new("char[4096]")  # 4KB buffer
+        
         try:
+            # Enable output redirection
+            redirect_success = self.lib.sl_redirect_output(1, output_buffer, 4096)
+            
             # Evaluate the code
             obj = self.lib.sl_eval_string(code.encode('utf-8'), self.global_env)
+            
+            # Disable output redirection
+            self.lib.sl_redirect_output(0, self.ffi.NULL, 0)
             
             # Check for errors
             if self.lib.sl_is_error(obj):
                 result.has_error = True
                 result.error_message = self.ffi.string(self.lib.sl_error_message(obj)).decode('utf-8')
             else:
+                # Get standard output
+                if output_buffer[0] != b'\0':
+                    result.standard_output = self.ffi.string(output_buffer).decode('utf-8')
+                
+                # Get HTML content if available
+                html_content = self.lib.sl_get_rich_content_html(obj)
+                if html_content != self.ffi.NULL:
+                    result.html_content = self.ffi.string(html_content).decode('utf-8')
+                
+                # Get Markdown content if available
+                md_content = self.lib.sl_get_rich_content_markdown(obj)
+                if md_content != self.ffi.NULL:
+                    result.markdown_content = self.ffi.string(md_content).decode('utf-8')
+                
                 # Get string representation of the result
                 str_result = self.lib.sl_object_to_string(obj)
                 if str_result != self.ffi.NULL:
                     result.return_value = self.ffi.string(str_result).decode('utf-8')
                     self.lib.sl_free_c_string(str_result)
-                
-                # Try to get rich content if those functions exist
-                if hasattr(self.lib, 'sl_get_rich_content_html'):
-                    html_content = self.lib.sl_get_rich_content_html(obj)
-                    if html_content != self.ffi.NULL:
-                        result.html_content = self.ffi.string(html_content).decode('utf-8')
-                
-                if hasattr(self.lib, 'sl_get_rich_content_markdown'):
-                    md_content = self.lib.sl_get_rich_content_markdown(obj)
-                    if md_content != self.ffi.NULL:
-                        result.markdown_content = self.ffi.string(md_content).decode('utf-8')
-            
-            # Run garbage collection after evaluation
-            self.lib.sl_gc()
         
         except Exception as e:
             result.has_error = True

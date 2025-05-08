@@ -1018,7 +1018,6 @@ void sl_number_get_den_z(sl_object *obj, mpz_t rop) {
     }
 }
 
-// ... rest of the file ...
 // --- Number Accessors ---
 
 bool sl_number_get_si(sl_object *obj, int64_t *num_out, int64_t *den_out) {
@@ -1642,16 +1641,17 @@ sl_object_type sl_get_object_type(sl_object *obj) {
     return obj->type;
 }
 
+// Functions to extract content from rich display objects
 const char *sl_get_rich_content_html(sl_object *obj) {
-    if (obj && obj->type == SL_TYPE_HTML && obj->data.rich_content.content) {
-        return obj->data.rich_content.content;
+    if (obj && obj->type == SL_TYPE_HTML) {
+        return sl_string_value(obj);  // Access content using the appropriate accessor
     }
     return NULL;
 }
 
 const char *sl_get_rich_content_markdown(sl_object *obj) {
-    if (obj && obj->type == SL_TYPE_MARKDOWN && obj->data.rich_content.content) {
-        return obj->data.rich_content.content;
+    if (obj && obj->type == SL_TYPE_MARKDOWN) {
+        return sl_string_value(obj);  // Access content using the appropriate accessor
     }
     return NULL;
 }

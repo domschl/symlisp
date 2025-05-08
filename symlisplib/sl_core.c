@@ -1139,6 +1139,8 @@ static void sl_gc_mark(sl_object *root) {
         break;
     case SL_TYPE_NUMBER:  // Numbers don't reference other sl_objects
     case SL_TYPE_STRING:  // String data is freed in sweep, no sl_object refs
+    case SL_TYPE_HTML:
+    case SL_TYPE_MARKDOWN:  // Rich content data is freed in sweep, no sl_object refs
     case SL_TYPE_CHAR:
     case SL_TYPE_BOOLEAN:  // Constants or simple value
     case SL_TYPE_SYMBOL:   // Symbol name is freed in sweep (if not interned), no sl_object refs

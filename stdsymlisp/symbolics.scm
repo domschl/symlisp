@@ -166,16 +166,16 @@
       (error "subtrahend: Not a difference expression" expr)))
 
 ;; Accessors for quotients
-;; (numerator expr) -> returns the numerator of a quotient expression
+;; (quotient-numerator expr) -> returns the numerator of a quotient expression
 ;; Precondition: (quotient? expr) is true
-(define (numerator expr)
+(define (quotient-numerator expr)
   (if (quotient? expr)
       (cadr expr)
-      (error "numerator: Not a quotient expression" expr)))
+      (error "quotient-numerator: Not a quotient expression" expr)))
 
-;; (denominator expr) -> returns the denominator of a quotient expression
+;; (quotient-denominator expr) -> returns the denominator of a quotient expression
 ;; Precondition: (quotient? expr) is true
-(define (denominator expr)
+(define (quotient-denominator expr)
   (if (quotient? expr)
       (caddr expr)
-      (error "denominator: Not a quotient expression" expr)))
+      (error "quotient-denominator: Not a quotient expression" expr)))

@@ -234,13 +234,13 @@
 ;;   (assert-error (subtrahend '(- x))))
 
 (define-test "symbolics-numerator-accessor-simple"
-  (assert-equal (numerator '(/ x y)) 'x))
+  (assert-equal (quotient-numerator '(/ x y)) 'x))
 (define-test "symbolics-denominator-accessor-simple"
-  (assert-equal (denominator '(/ x y)) 'y))
+  (assert-equal (quotient-denominator '(/ x y)) 'y))
 (define-test "symbolics-numerator-accessor-complex"
-  (assert-equal (numerator '(/ (* a 2) (+ c d))) '(* a 2)))
+  (assert-equal (quotient-numerator '(/ (* a 2) (+ c d))) '(* a 2)))
 (define-test "symbolics-denominator-accessor-complex"
-  (assert-equal (denominator '(/ (* a 2) (+ c d))) '(+ c d)))
+  (assert-equal (quotient-denominator '(/ (* a 2) (+ c d))) '(+ c d)))
 ;; (define-test "symbolics-numerator-accessor-error-unary"
 ;;   (assert-error (numerator '(/ x))))
 ;; (define-test "symbolics-denominator-accessor-error-unary"

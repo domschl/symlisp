@@ -64,6 +64,7 @@ Again another Scheme, this time:
   - [x] Jupyter kernel sub-project
   - [x] output for stdio and `(display)` stderr (error-messages), extra output-modes `(display-markdown)` and `(display-html)`
 - [x] String and infix<->prefix (vars, functions)
+- [x] Symbolics phases 1.1, 1.2 done.
 
 Larger steps:
 

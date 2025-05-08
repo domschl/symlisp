@@ -26,6 +26,8 @@ typedef enum {
     SL_TYPE_ENV,
     SL_TYPE_ERROR,  // New type for error objects
     SL_TYPE_CHAR,
+    SL_TYPE_HTML,      // New type for HTML content (jupyter kernel)
+    SL_TYPE_MARKDOWN,  // New type for Markdown content (jupyter kernel)
     SL_TYPE_EOF,       // New type for EOF object
     SL_TYPE_UNDEFINED  // <<< ADDED: Placeholder for letrec*/define
 } sl_object_type;
@@ -92,6 +94,9 @@ typedef struct sl_object {
         } env;
         char *error_str;      // <<< CORRECTED
         uint32_t code_point;  // Store Unicode code point for char
+        struct {
+            char *content;
+        } rich_content;  // HTML/Markdown content
     } data;
 } sl_object;
 
@@ -160,7 +165,9 @@ sl_object *sl_make_number_zz(const mpz_t num_z, const mpz_t den_z);  // Create r
 sl_object *sl_make_number_q(const mpq_t value);                      // Create rational from GMP mpq_t
 sl_object *sl_make_string(const char *str);
 sl_object *sl_make_char(uint32_t code_point);  // <<< ADDED
-sl_object *sl_make_symbol(const char *name);   // Interns the symbol
+sl_object *sl_make_html(const char *html_content);
+sl_object *sl_make_markdown(const char *md_content);
+sl_object *sl_make_symbol(const char *name);  // Interns the symbol
 sl_object *sl_make_pair(sl_object *car, sl_object *cdr);
 sl_object *sl_make_closure(sl_object *params, sl_object *body, sl_object *env);
 sl_object *sl_make_builtin(const char *name, sl_object *(*func_ptr)(sl_object *args));
@@ -346,5 +353,25 @@ bool sl_sb_ensure_capacity(sl_string_builder *sb, size_t additional_needed);
 bool sl_sb_append_str(sl_string_builder *sb, const char *str);
 bool sl_sb_append_char(sl_string_builder *sb, char c);
 char *sl_sb_finalize(sl_string_builder *sb);
+
+// Jupyter kernel exports
+
+// Add SL_EXPORT for cross-platform shared library visibility if needed
+#if defined(_WIN32) || defined(_WIN64)
+#ifdef SYMLISPLIB_EXPORTS  // Defined when building the DLL
+#define SL_EXPORT __declspec(dllexport)
+#else  // Defined when using the DLL
+#define SL_EXPORT __declspec(dllimport)
+#endif
+#else
+#define SL_EXPORT __attribute__((visibility("default")))
+#endif
+
+// ... existing typedefs ...
+
+SL_EXPORT sl_object_type sl_get_object_type(sl_object *obj);
+SL_EXPORT const char *sl_get_rich_content_html(sl_object *obj);
+SL_EXPORT const char *sl_get_rich_content_markdown(sl_object *obj);
+SL_EXPORT void sl_free_c_string(char *str);  // For strings returned by sl_object_to_string
 
 #endif  // SL_CORE_H

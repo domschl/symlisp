@@ -126,6 +126,10 @@ const char *sl_type_name(sl_object_type type) {
         return "error";
     case SL_TYPE_CHAR:
         return "char";
+    case SL_TYPE_HTML:
+        return "html";
+    case SL_TYPE_MARKDOWN:
+        return "markdown";
     case SL_TYPE_EOF:         // <<< ADDED
         return "eof-object";  // <<< ADDED
     case SL_TYPE_UNDEFINED:
@@ -785,6 +789,30 @@ sl_object *sl_make_char(uint32_t code_point) {
     return new_char;
 }
 
+sl_object *sl_make_html(const char *html_content) {
+    sl_object *new_obj = sl_allocate_object();
+    CHECK_ALLOC(new_obj);
+    new_obj->type = SL_TYPE_HTML;
+    new_obj->data.rich_content.content = strdup(html_content);
+    if (!new_obj->data.rich_content.content) {
+        return_object_to_free_list(new_obj);
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+    return new_obj;
+}
+
+sl_object *sl_make_markdown(const char *md_content) {
+    sl_object *new_obj = sl_allocate_object();
+    CHECK_ALLOC(new_obj);
+    new_obj->type = SL_TYPE_MARKDOWN;
+    new_obj->data.rich_content.content = strdup(md_content);
+    if (!new_obj->data.rich_content.content) {
+        return_object_to_free_list(new_obj);
+        return SL_OUT_OF_MEMORY_ERROR;
+    }
+    return new_obj;
+}
+
 sl_object *sl_make_symbol(const char *name) {
     // --- Symbol Interning Logic ---
     sl_object *current_node = sl_symbol_table;
@@ -1191,6 +1219,13 @@ static void sl_gc_sweep() {
                     case SL_TYPE_STRING:
                         free(obj->data.string_val);
                         break;
+                    case SL_TYPE_HTML:
+                    case SL_TYPE_MARKDOWN:
+                        if (obj->data.rich_content.content) {
+                            free(obj->data.rich_content.content);
+                            obj->data.rich_content.content = NULL;
+                        }
+                        break;
                     case SL_TYPE_SYMBOL:
                         // --- REMOVED: free(obj->data.symbol_name); ---
                         // Interned symbol names are managed by the symbol table
@@ -1431,6 +1466,10 @@ char *sl_object_to_string(sl_object *obj) {
         if (cp <= 0xFFFF) return dynamic_sprintf("#\\x%04X", cp);
         return dynamic_sprintf("#\\x%X", cp);  // Up to 0x10FFFF
     }
+    case SL_TYPE_HTML:
+        return dynamic_sprintf("#<html: %.50s%s>", obj->data.rich_content.content ? obj->data.rich_content.content : "", (obj->data.rich_content.content && strlen(obj->data.rich_content.content) > 50) ? "..." : "");
+    case SL_TYPE_MARKDOWN:
+        return dynamic_sprintf("#<markdown: %.50s%s>", obj->data.rich_content.content ? obj->data.rich_content.content : "", (obj->data.rich_content.content && strlen(obj->data.rich_content.content) > 50) ? "..." : "");
     case SL_TYPE_PAIR: {
         sl_string_builder sb;
         sl_sb_init(&sb);
@@ -1583,4 +1622,31 @@ sl_object *sl_add(sl_object *args) {
     sl_object *result_obj = make_number_from_mpq(result);
     mpq_clear(result);
     return result_obj;
+}
+
+// Jupyter kernel apis
+
+sl_object_type sl_get_object_type(sl_object *obj) {
+    if (!obj) return SL_TYPE_NIL;  // Default or error type
+    return obj->type;
+}
+
+const char *sl_get_rich_content_html(sl_object *obj) {
+    if (obj && obj->type == SL_TYPE_HTML && obj->data.rich_content.content) {
+        return obj->data.rich_content.content;
+    }
+    return NULL;
+}
+
+const char *sl_get_rich_content_markdown(sl_object *obj) {
+    if (obj && obj->type == SL_TYPE_MARKDOWN && obj->data.rich_content.content) {
+        return obj->data.rich_content.content;
+    }
+    return NULL;
+}
+
+void sl_free_c_string(char *str) {
+    if (str) {
+        free(str);
+    }
 }

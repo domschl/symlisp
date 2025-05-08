@@ -1617,6 +1617,30 @@ static sl_object *sl_builtin_display(sl_object *args) {
     return SL_NIL;
 }
 
+static sl_object *sl_builtin_display_html(sl_object *args) {
+    sl_object *arity_check = check_arity("display-html", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    if (!sl_is_string(str_obj)) {
+        return sl_make_errorf("display-html: Expected a string argument, got %s", sl_type_name(str_obj ? str_obj->type : -1));
+    }
+    // This function returns an HTML object. The kernel will handle the actual display.
+    return sl_make_html(sl_string_value(str_obj));
+}
+
+static sl_object *sl_builtin_display_markdown(sl_object *args) {
+    sl_object *arity_check = check_arity("display-markdown", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *str_obj = sl_car(args);
+    if (!sl_is_string(str_obj)) {
+        return sl_make_errorf("display-markdown: Expected a string argument, got %s", sl_type_name(str_obj ? str_obj->type : -1));
+    }
+    // This function returns a Markdown object. The kernel will handle the actual display.
+    return sl_make_markdown(sl_string_value(str_obj));
+}
+
 // (list obj ...) -> Creates a new list containing the objects.
 static sl_object *sl_builtin_list(sl_object *args) {
     // No arity check needed, accepts any number of arguments.
@@ -2561,6 +2585,9 @@ void sl_builtins_init(sl_object *global_env) {
     define_builtin(global_env, "load", sl_builtin_load);
     define_builtin(global_env, "write", sl_builtin_write);  // <<< ADDED
     define_builtin(global_env, "read", sl_builtin_read);    // <<< ADDED
+    // Rich display functions (jupyter kernel)
+    define_builtin(global_env, "display-html", sl_builtin_display_html);
+    define_builtin(global_env, "display-markdown", sl_builtin_display_markdown);
 
     // Time
     define_builtin(global_env, "current-time", sl_builtin_current_time);  // <<< ADDED

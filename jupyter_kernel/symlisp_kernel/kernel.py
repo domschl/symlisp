@@ -37,6 +37,31 @@ class SymLispKernel(Kernel):
             self.symlisp = SymLispWrapper(lib_path)
             self.log.info("SymLisp wrapper initialized successfully")
             
+            # Load standard library
+            # Determine stdlib path - look for it relative to lib_path
+            stdlib_path = os.environ.get('SYMLISP_STDLIB_PATH', '')
+            if not stdlib_path:
+                # Default: check in parallel to lib_path
+                parent_dir = os.path.dirname(lib_path)
+                possible_stdlib_path = os.path.join(parent_dir, 'stdsymlisp')
+                if os.path.exists(possible_stdlib_path) and os.path.isdir(possible_stdlib_path):
+                    stdlib_path = possible_stdlib_path
+                else:
+                    # Try one level up from lib_path
+                    possible_stdlib_path = os.path.join(os.path.dirname(parent_dir), 'stdsymlisp')
+                    if os.path.exists(possible_stdlib_path) and os.path.isdir(possible_stdlib_path):
+                        stdlib_path = possible_stdlib_path
+            
+            if stdlib_path:
+                self.log.info(f"Loading standard library from: {stdlib_path}")
+                load_result = self.symlisp.load_standard_library(stdlib_path)
+                if load_result is True:
+                    self.log.info("Standard library loaded successfully")
+                else:
+                    self.log.error(f"Failed to load standard library: {load_result}")
+            else:
+                self.log.warning("No standard library path found or specified")
+            
             # Register message handlers explicitly
             self.shell_handlers.update({
                 'comm_open': self.handle_comm_open,

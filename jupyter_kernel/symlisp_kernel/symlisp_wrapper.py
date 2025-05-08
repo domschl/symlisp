@@ -35,6 +35,10 @@ class SymLispWrapper:
             char* sl_object_to_string(SLObject* obj);
             void sl_free_c_string(const char* str);
             
+            // Standard library loading
+            SLObject* sl_load_directory(const char* directory, SLObject* env);
+            SLObject* sl_load_file(const char* filename, SLObject* env);
+            
             // Output redirection functions
             int sl_redirect_output(int enable, char* buffer, int buffer_size);
             
@@ -156,3 +160,29 @@ class SymLispWrapper:
             print(traceback.format_exc(), file=sys.stderr)
         
         return result
+    
+    def load_standard_library(self, stdlib_path):
+        """Load the SymLisp standard library from the given directory.
+        
+        Args:
+            stdlib_path: Path to the standard library directory.
+            
+        Returns:
+            True if successful, error message string if failed.
+        """
+        # Convert the path to bytes for C function
+        stdlib_path_bytes = stdlib_path.encode('utf-8')
+        
+        # Call sl_load_directory
+        result = self.lib.sl_load_directory(stdlib_path_bytes, self.global_env)
+        
+        # Check if operation was successful (SL_TRUE)
+        if result == self.lib.SL_TRUE:
+            return True
+        else:
+            # Get error message if loading failed
+            if self.lib.sl_is_error(result):
+                error_msg = self.ffi.string(self.lib.sl_error_message(result)).decode('utf-8')
+                return f"Error loading standard library: {error_msg}"
+            else:
+                return "Unknown error loading standard library"

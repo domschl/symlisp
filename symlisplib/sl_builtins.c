@@ -1837,7 +1837,8 @@ static sl_object *sl_builtin_set_cdr(sl_object *args) {
     if (arity_check != SL_TRUE) return arity_check;
 
     sl_object *pair = sl_car(args);
-    sl_object *new_val = sl_cdr(args);
+    // sl_object *new_val = sl_cdr(args);
+    sl_object *new_val = sl_car(sl_cdr(args));  // Explicitly sl_car(sl_cdr(args))
 
     if (!sl_is_pair(pair)) {
         return sl_make_errorf("Error (set-cdr!): First argument must be a pair, got type %d.", pair ? pair->type : -1);

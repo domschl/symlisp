@@ -54,7 +54,8 @@ file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/kernel_modified.json.in
   \"display_name\": \"SymLisp\",
   \"language\": \"scheme\",
   \"env\": {
-    \"SYMLISP_LIB_PATH\": \"${CMAKE_BINARY_DIR}/symlisplib\"
+    \"SYMLISP_LIB_PATH\": \"${CMAKE_BINARY_DIR}/symlisplib\",
+    \"SYMLISP_STDLIB_PATH\": \"${CMAKE_SOURCE_DIR}/stdsymlisp\"
   }
 }")
 

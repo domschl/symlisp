@@ -59,6 +59,9 @@ add_subdirectory(repl)
 # Add the Jupyter kernel directory
 add_subdirectory(jupyter_kernel)
 
+# --- Testing Support ---
+enable_testing()
+
 # Add other subdirectories like tests if needed
 add_subdirectory(tests)
 

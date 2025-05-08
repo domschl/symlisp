@@ -87,3 +87,12 @@
   (assert-equal (string->prefix-expr "3 - 4 + 5")  '(+ (- 3 4) 5))) ; left associative
 (define-test "string->prefix-math"
   (assert-equal (eval (string->prefix-expr "3*(4+1)")) 15))
+
+(define-test "string->prefix-7"
+  (assert-equal (string->prefix-expr "f(x) + g(x,y)") '(+ (f x) (g x y))))
+(define-test "string->prefix-8"
+  (assert-equal (string->prefix-expr "f()") '(f)))
+(define-test "string->prefix-9"
+  (assert-equal (string->prefix-expr "f(a,b*c,d)") '(f a (* b c) d)))
+(define-test "string->prefix-10"
+  (assert-equal (string->prefix-expr "-a * (b + -c)") '(* (- a) (+ b (- c)))))

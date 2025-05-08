@@ -63,9 +63,9 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 
 Larger steps:
 
-- [ ] single-page doc suitable as instruction for LLMs (language description and limitations) 
 - [ ] Symbolics libs
   - [ ] String and infix<->prefix (vars, functions)
   - [ ] Symbolic math
 - [ ] review against standard(s)
+- [ ] single-page doc suitable as instruction for LLMs (language description and limitations) 
 - [ ] MCP server (stdio based, jsonrpc 2.0)

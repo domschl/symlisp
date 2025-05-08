@@ -56,10 +56,16 @@ Again another Scheme, this time by Gemini 2.5 Pro (preview)
 - [x] Eval gc crash on string->prefix-expr tests. Fixed.
 - [x] Time and random numbers
 - [x] Macros: define-syntax (limited scape, non-hygienic)
-- [ ] String and infix<->prefix
+- [ ] CMake cleanup subprojects
 
 Larger steps:
 
-- [ ] Symbolics libs
 - [ ] Jupyter Kernel
+  - [ ] Jupyter kernel sub-project
+  - [ ] output for stdio and `(display)` stderr (error-messages), extra output-modes `(display-markdown)` and `(display-html)`
+- [ ] single-page doc suitable as instruction for LLMs (language description and limitations) 
+- [ ] Symbolics libs
+  - [ ] String and infix<->prefix (vars, functions)
+  - [ ] Symbolic math
+- [ ] review against standard(s)
 - [ ] MCP server (stdio based, jsonrpc 2.0)

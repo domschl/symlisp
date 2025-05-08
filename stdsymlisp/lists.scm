@@ -22,6 +22,22 @@
     ((eq? obj (car lst)) lst) ; Found: return the sublist starting with obj
     (else (memq obj (cdr lst))))) ; Recurse on the rest of the list
 
+(define (exists pred lst)
+  (cond
+    ((null? lst) #f)
+    ((pred (car lst)) (pred (car lst))) ; Return the true value from pred
+    (else (exists pred (cdr lst)))))
+
+;;;-----------------------------------------------------------------------------
+;;; Numeric Predicates (can be moved to a numbers.scm later)
+;;;-----------------------------------------------------------------------------
+
+;; (zero? n)
+;; Returns #t if n is the number zero, #f otherwise.
+(define (zero? n)
+  (and (number? n) (= n 0)))
+
+
 ;;;-----------------------------------------------------------------------------
 ;;; Infix Expression Parser (Shunting-Yard Algorithm to Prefix S-expression)
 ;;;-----------------------------------------------------------------------------

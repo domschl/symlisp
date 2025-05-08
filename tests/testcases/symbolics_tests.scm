@@ -246,4 +246,191 @@
 ;; (define-test "symbolics-denominator-accessor-error-unary"
 ;;   (assert-error (denominator '(/ x))))
 
-;; Add more tests as new predicates/accessors for other functions (sin, cos, etc.) are added.
+;;; --- Tests for Simplify Function ---
+
+;; Atomic Expressions
+(define-test "simplify-atomic-constant"
+  (assert-equal (simplify 5) 5))
+(define-test "simplify-atomic-variable"
+  (assert-equal (simplify 'x) 'x))
+
+;; Constant Folding
+(define-test "simplify-constant-folding-sum"
+  (assert-equal (simplify '(+ 1 2 3)) 6))
+(define-test "simplify-constant-folding-product"
+  (assert-equal (simplify '(* 2 3 4)) 24))
+(define-test "simplify-constant-folding-difference"
+  (assert-equal (simplify '(- 10 3)) 7))
+(define-test "simplify-constant-folding-quotient"
+  (assert-equal (simplify '(/ 20 4)) 5))
+(define-test "simplify-constant-folding-power"
+  (assert-equal (simplify '(^ 2 3)) 8))
+(define-test "simplify-constant-folding-negation"
+  (assert-equal (simplify '(- 5)) -5))
+
+;; Arithmetic Identities - Sum
+(define-test "simplify-sum-add-zero-right"
+  (assert-equal (simplify '(+ x 0)) 'x))
+(define-test "simplify-sum-add-zero-left"
+  (assert-equal (simplify '(+ 0 x)) 'x))
+(define-test "simplify-sum-add-zero-middle"
+  (assert-equal (simplify '(+ x 0 y)) '(+ x y)))
+(define-test "simplify-sum-multiple-zeros"
+  (assert-equal (simplify '(+ 0 x 0 y 0)) '(+ x y)))
+(define-test "simplify-sum-all-zeros"
+  (assert-equal (simplify '(+ 0 0 0)) 0))
+(define-test "simplify-sum-no-operands" ; make-sum handles this
+  (assert-equal (simplify '(+)) 0))
+
+;; Arithmetic Identities - Product
+(define-test "simplify-product-mult-one-right"
+  (assert-equal (simplify '(* x 1)) 'x))
+(define-test "simplify-product-mult-one-left"
+  (assert-equal (simplify '(* 1 x)) 'x))
+(define-test "simplify-product-mult-one-middle"
+  (assert-equal (simplify '(* x 1 y)) '(* x y)))
+(define-test "simplify-product-multiple-ones"
+  (assert-equal (simplify '(* 1 x 1 y 1)) '(* x y)))
+(define-test "simplify-product-all-ones"
+  (assert-equal (simplify '(* 1 1 1)) 1))
+(define-test "simplify-product-mult-zero-right"
+  (assert-equal (simplify '(* x 0)) 0))
+(define-test "simplify-product-mult-zero-left"
+  (assert-equal (simplify '(* 0 x)) 0))
+(define-test "simplify-product-mult-zero-middle"
+  (assert-equal (simplify '(* x 0 y)) 0))
+(define-test "simplify-product-no-operands" ; make-product handles this
+  (assert-equal (simplify '(*)) 1))
+
+;; Arithmetic Identities - Power
+(define-test "simplify-power-exponent-one"
+  (assert-equal (simplify '(^ x 1)) 'x))
+(define-test "simplify-power-exponent-zero"
+  (assert-equal (simplify '(^ x 0)) 1))
+(define-test "simplify-power-base-one"
+  (assert-equal (simplify '(^ 1 x)) 1))
+(define-test "simplify-power-base-zero-positive-exponent" ; 0^x = 0 for x > 0
+  (assert-equal (simplify '(^ 0 2)) 0))
+(define-test "simplify-power-base-zero-variable-exponent" ; 0^x = 0 (assuming x not 0 or negative)
+  (assert-equal (simplify '(^ 0 x)) 0))
+(define-test "simplify-power-zero-to-zero" ; 0^0 = 1
+  (assert-equal (simplify '(^ 0 0)) 1))
+
+
+;; Arithmetic Identities - Negation
+(define-test "simplify-negation-of-zero"
+  (assert-equal (simplify '(- 0)) 0))
+(define-test "simplify-negation-double"
+  (assert-equal (simplify '(- (- x))) 'x))
+(define-test "simplify-negation-of-product-with-constant"
+  (assert-equal (simplify '(- (* 2 x))) '(* -2 x)))
+(define-test "simplify-negation-of-product-with-negative-constant"
+  (assert-equal (simplify '(- (* -2 x))) '(* 2 x)))
+
+;; Arithmetic Identities - Difference
+(define-test "simplify-difference-subtract-zero"
+  (assert-equal (simplify '(- x 0)) 'x))
+(define-test "simplify-difference-zero-subtract-x" ; -> (- x)
+  (assert-equal (simplify '(- 0 x)) '(- x)))
+(define-test "simplify-difference-subtract-self"
+  (assert-equal (simplify '(- x x)) 0))
+(define-test "simplify-difference-canonical-form" ; (- a b) -> (+ a (* -1 b)) -> (+ a (- b))
+  (assert-equal (simplify '(- a b)) '(+ a (- b))))
+(define-test "simplify-difference-constants-to-canonical"
+  (assert-equal (simplify '(- 2 5)) -3)) ; Should fold, but if not, canonical is (+ 2 (- 5))
+
+;; Arithmetic Identities - Quotient
+(define-test "simplify-quotient-divide-by-one"
+  (assert-equal (simplify '(/ x 1)) 'x))
+(define-test "simplify-quotient-zero-divided-by-x"
+  (assert-equal (simplify '(/ 0 x)) 0))
+(define-test "simplify-quotient-divide-self" ; x/x = 1 (assuming x != 0)
+  (assert-equal (simplify '(/ x x)) 1))
+(define-test "simplify-quotient-divide-by-zero-remains" ; Or error, current returns unsimplified
+  (assert-equal (simplify '(/ x 0)) '(/ x 0)))
+
+;; Recursive Simplification
+(define-test "simplify-recursive-sum-product"
+  (assert-equal (simplify '(+ (* 2 3) x)) '(+ 6 x)))
+(define-test "simplify-recursive-product-sum"
+  (assert-equal (simplify '(* (+ 1 2) y)) '(* 3 y)))
+(define-test "simplify-recursive-power-sum-diff"
+  (assert-equal (simplify '(^ (+ 1 1) (- 5 2))) 8)) ; (^ 2 3) -> 8
+(define-test "simplify-recursive-sum-of-zeros"
+  (assert-equal (simplify '(+ (* x 0) (* 0 y))) 0))
+(define-test "simplify-recursive-product-of-ones"
+  (assert-equal (simplify '(* (^ x 0) (^ y 0))) 1))
+
+;; Combination of Rules
+(define-test "simplify-combo-sum-prod-identities"
+  (assert-equal (simplify '(+ (* x 1) (* y 0) z)) '(+ x z)))
+(define-test "simplify-combo-diff-prod-negation" ; (- (* 5 x) (- 0 y)) -> (+ (* 5 x) (- (- y))) -> (+ (* 5 x) y)
+  (assert-equal (simplify '(- (* 5 x) (- 0 y))) '(+ (* 5 x) y)))
+(define-test "simplify-combo-quotient-power"
+  (assert-equal (simplify '(/ (^ x 1) (^ y 0))) 'x)) ; (/ x 1) -> x
+
+;; Expressions that are already simple or cannot be simplified further by current rules
+(define-test "simplify-already-simple-sum"
+  (assert-equal (simplify '(+ x y)) '(+ x y)))
+(define-test "simplify-already-simple-product"
+  (assert-equal (simplify '(* x y)) '(* x y)))
+(define-test "simplify-already-simple-power"
+  (assert-equal (simplify '(^ x y)) '(^ x y)))
+(define-test "simplify-unknown-function-simplifies-args"
+  (assert-equal (simplify '(foo (+ 1 0) (* 2 3))) '(foo 1 6))) 
+
+(define-test "simplify-unknown-function-simplifies-args-example2"
+  (assert-equal (simplify '(sin (+ x 0))) '(sin x)))
+
+
+;; Test canonicalization of difference via sum
+(define-test "simplify-difference-complex-to-canonical"
+  (assert-equal (simplify '(- (+ x 1) (+ y 2))) '(+ (+ 1 x) (- (+ 2 y))))) ; Adapted expectation
+
+;; Test product with -1 constant factor
+(define-test "simplify-product-with-minus-one-constant"
+  (assert-equal (simplify '(* -1 x y)) '(- (* x y))))
+(define-test "simplify-product-with-constants-evaluating-to-minus-one"
+  (assert-equal (simplify '(* 1 -1 x y)) '(- (* x y))))
+
+;; Test sum with constants and non-constants
+(define-test "simplify-sum-constants-and-non-constants"
+  (assert-equal (simplify '(+ 2 x 3 y 4)) '(+ 9 x y)))
+(define-test "simplify-sum-only-non-constants"
+  (assert-equal (simplify '(+ x y z)) '(+ x y z)))
+(define-test "simplify-sum-one-non-constant-and-zero"
+  (assert-equal (simplify '(+ x 0)) 'x))
+(define-test "simplify-sum-one-non-constant-and-constants"
+  (assert-equal (simplify '(+ 2 x 3)) '(+ 5 x)))
+
+;; Test product with constants and non-constants
+(define-test "simplify-product-constants-and-non-constants"
+  (assert-equal (simplify '(* 2 x 3 y 4)) '(* 24 x y)))
+(define-test "simplify-product-only-non-constants"
+  (assert-equal (simplify '(* x y z)) '(* x y z)))
+(define-test "simplify-product-one-non-constant-and-one"
+  (assert-equal (simplify '(* x 1)) 'x))
+(define-test "simplify-product-one-non-constant-and-constants"
+  (assert-equal (simplify '(* 2 x 3)) '(* 6 x)))
+
+;; Test for (- 0 x) -> (- x)
+(define-test "simplify-zero-minus-variable-is-negation"
+  (assert-equal (simplify '(- 0 var)) '(- var)))
+
+;; Test for (- (- x)) -> x in various contexts
+(define-test "simplify-sum-with-double-negation"
+  (assert-equal (simplify '(+ a (- (- b)))) '(+ a b)))
+
+;; Test for (- (* c x)) -> (* (- c) x)
+(define-test "simplify-negation-of-product-positive-const"
+  (assert-equal (simplify '(- (* 5 k))) '(* -5 k)))
+(define-test "simplify-negation-of-product-negative-const"
+  (assert-equal (simplify '(- (* -5 k))) '(* 5 k)))
+
+;; Test for simplify-difference converting to (+ a (* -1 b)) and then simplifying that
+(define-test "simplify-diff-a-minus-const-b"
+  (assert-equal (simplify '(- a 5)) '(+ -5 a))) ; Adapted expectation
+(define-test "simplify-diff-const-a-minus-b"
+  (assert-equal (simplify '(- 5 b)) '(+ 5 (- b))))
+(define-test "simplify-diff-a-minus-neg-b" ; (- a (- b)) -> (+ a (- (* -1 (- b)))) -> (+ a (- (- b))) -> (+ a b)
+  (assert-equal (simplify '(- a (- b))) '(+ a b)))

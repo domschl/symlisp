@@ -179,3 +179,169 @@
   (if (quotient? expr)
       (caddr expr)
       (error "quotient-denominator: Not a quotient expression" expr)))
+
+;;; --- 1.2: Basic Simplify Function ---
+
+;; Helper: Check if all expressions in a list are constants
+(define (all-constants? exprs)
+  (if (null? exprs)
+      #t ; An empty list of expressions can be considered all constants
+      (and (constant? (car exprs))
+           (all-constants? (cdr exprs)))))
+
+;; Helper: Construct a sum expression, simplifying if possible
+;; (make-sum '(term1 term2 ...))
+(define (make-sum terms)
+  (cond
+    ((null? terms) 0) ; Sum of no terms is 0
+    ((null? (cdr terms)) (car terms)) ; Sum of one term is the term itself
+    (else (cons '+ terms))))
+
+;; Helper: Construct a product expression, simplifying if possible
+;; (make-product '(factor1 factor2 ...))
+(define (make-product factors)
+  (cond
+    ((null? factors) 1) ; Product of no factors is 1
+    ((null? (cdr factors)) (car factors)) ; Product of one factor is the factor itself
+    (else (cons '* factors))))
+
+;; Forward declaration for simplify, as helpers might call it or be called by it.
+(define simplify #f)
+
+;; Simplification for sums
+(define (simplify-sum expr)
+  (let* ((s-operands (map simplify (operands expr)))
+         (constants (filter constant? s-operands))
+         (non-constants (filter (lambda (x) (not (constant? x))) s-operands))
+         (sum-const (if (null? constants) 0 (apply + constants))))
+    (cond
+      ;; No non-constant terms left
+      ((null? non-constants) sum-const)
+      ;; Non-constant terms exist, and sum-const is 0 (identity for +)
+      ((zero? sum-const) (make-sum non-constants))
+      ;; Non-constant terms exist, and sum-const is non-zero
+      (else (make-sum (cons sum-const non-constants))))))
+
+;; Simplification for products
+(define (simplify-product expr)
+  (let ((s-operands (map simplify (operands expr))))
+    ;; If any factor simplifies to 0, the entire product is 0
+    (if (exists (lambda (op) (and (constant? op) (zero? op))) s-operands)
+        0
+        (let* ((s-operands-no-ones (filter (lambda (op) (not (and (constant? op) (= op 1)))) s-operands))
+               (constants (filter constant? s-operands-no-ones))
+               (non-constants (filter (lambda (x) (not (constant? x))) s-operands-no-ones))
+               (prod-const (if (null? constants) 1 (apply * constants))))
+          (cond
+            ;; If after removing 1s, prod-const became 0 (e.g. (* 0 x) but 0 was not caught above - should not happen)
+            ((zero? prod-const) 0)
+            ;; No non-constant factors left
+            ((null? non-constants) prod-const)
+            ;; Non-constant factors exist, and prod-const is 1 (identity for *)
+            ((= prod-const 1) (make-product non-constants))
+            ;; Non-constant factors exist, and prod-const is -1
+            ((= prod-const -1) (simplify (make-negation (make-product non-constants))))
+            ;; Non-constant factors exist, and prod-const is something else
+            (else (make-product (cons prod-const non-constants))))))))
+
+;; Simplification for powers
+(define (simplify-power expr)
+  (let ((b (simplify (base expr)))
+        (e (simplify (exponent expr))))
+    (cond
+      ;; e is 0 => x^0 = 1 (assuming b != 0, common simplification)
+      ((and (constant? e) (zero? e)) 1)
+      ;; e is 1 => x^1 = x
+      ((and (constant? e) (= e 1)) b)
+      ;; b is 0 (and e is not 0) => 0^x = 0 (for x > 0)
+      ((and (constant? b) (zero? b) (not (and (constant? e) (zero? e)))) 0)
+      ;; b is 1 => 1^x = 1
+      ((and (constant? b) (= b 1)) 1)
+      ;; Both b and e are constants
+      ((and (constant? b) (constant? e)) (expt b e))
+      ;; Default case
+      (else (list '^ b e)))))
+
+;; Helper to create a negation, possibly simplifying double negations
+;; This is used by simplify-product when prod-const is -1
+(define (make-negation expr)
+  (if (negation? expr)
+      (car (operands expr)) ; Corrected: (- (- x)) -> x (operand itself, not list)
+      (list '- expr)))
+
+;; Simplification for negations '(- x)'
+(define (simplify-negation expr)
+  (let ((s-op (simplify (car (operands expr))))) ; Corrected: car instead of cadr
+    (cond
+      ;; op is a number => compute -op
+      ((constant? s-op) (- s-op))
+      ;; op is already a negation '(- y)' => --y = y
+      ((negation? s-op) (car (operands s-op))) ; Corrected: car instead of cadr
+      ;; op is a product '(* c y)' where c is constant => '(* (- c) y)'
+      ((and (product? s-op) (pair? (operands s-op)) (constant? (car (operands s-op))))
+       (simplify (cons '* (cons (- (car (operands s-op))) (cdr (operands s-op))))))
+      ;; Default case
+      (else (list '- s-op)))))
+
+;; Simplification for differences '(- a b)'
+(define (simplify-difference expr)
+  (let ((s-a (simplify (minuend expr)))
+        (s-b (simplify (subtrahend expr))))
+    (cond
+      ;; Both are constants
+      ((and (constant? s-a) (constant? s-b)) (- s-a s-b))
+      ;; b is 0 => a - 0 = a
+      ((and (constant? s-b) (zero? s-b)) s-a)
+      ;; a is 0 => 0 - b = -b
+      ((and (constant? s-a) (zero? s-a)) (simplify (list '- s-b))) ; simplify-negation will handle
+      ;; a = b => a - a = 0
+      ((equal? s-a s-b) 0)
+      ;; Canonical form: (- a b) -> (+ a (* -1 b))
+      (else (simplify (list '+ s-a (list '* -1 s-b)))))))
+
+;; Simplification for quotients '(/ a b)'
+(define (simplify-quotient expr)
+  (let ((s-num (simplify (quotient-numerator expr)))
+        (s-den (simplify (quotient-denominator expr))))
+    (cond
+      ;; Denominator is 0 - division by zero (return unsimplified or error)
+      ((and (constant? s-den) (zero? s-den)) (list '/ s-num s-den)) ; Or (error "Division by zero" expr)
+      ;; Numerator is 0 (and denominator is not)
+      ((and (constant? s-num) (zero? s-num)) 0)
+      ;; Both are constants (and denominator is not 0)
+      ((and (constant? s-num) (constant? s-den)) (/ s-num s-den))
+      ;; Denominator is 1
+      ((and (constant? s-den) (= s-den 1)) s-num)
+      ;; Numerator and denominator are equal (and not zero)
+      ((equal? s-num s-den) 1)
+      ;; Default case
+      (else (list '/ s-num s-den)))))
+
+;; Main simplify function
+(set! simplify
+      (lambda (expr)
+        (cond
+          ;; 1. Atomic expressions (constants, variables) are already simple.
+          ((atomic-expr? expr) expr)
+
+          ;; 2. Specific known operators with dedicated simplification logic.
+          ((sum? expr) (simplify-sum expr))
+          ((product? expr) (simplify-product expr))
+          ((power? expr) (simplify-power expr))
+          ((negation? expr) (simplify-negation expr))
+          ((difference? expr) (simplify-difference expr))
+          ((quotient? expr) (simplify-quotient expr))
+          ;; ... add other specific functions like (simplify-sin expr) if they have rules ...
+
+          ;; 3. General case for expressions that look like function calls:
+          ;;    (function-symbol arg1 arg2 ...)
+          ;;    Simplify arguments. This applies to:
+          ;;    a) Known operators from *known-operators* that don't have a specific
+          ;;       simplify-X rule defined above (e.g., 'sin' if simplify-sin isn't written yet).
+          ;;    b) Unknown/user-defined functions (like 'foo').
+          ((and (pair? expr) (symbol? (car expr)))
+           (cons (car expr) (map simplify (cdr expr))))
+
+          ;; 4. If it's none of the above (e.g., a list not starting with a symbol like '(1 2 3),
+          ;;    or some other data type not handled), return as is.
+          (else expr))))

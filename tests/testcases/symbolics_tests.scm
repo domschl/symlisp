@@ -282,6 +282,42 @@
 (define-test "simplify-sum-no-operands" ; make-sum handles this
   (assert-equal (simplify '(+)) 0))
 
+;; Tests for Term Collection in Sums
+(define-test "simplify-sum-collect-simple-variables"
+  (assert-equal (simplify '(+ x y x)) '(+ y (* 2 x)))) ; Assuming y < x for term<? string fallback
+(define-test "simplify-sum-collect-variables-with-constants"
+  (assert-equal (simplify '(+ x 2 y 3 x 1)) '(+ 6 y (* 2 x))))
+(define-test "simplify-sum-collect-and-cancel-variables"
+  (assert-equal (simplify '(+ x y (- x))) 'y))
+(define-test "simplify-sum-collect-and-cancel-multiple-variables"
+  (assert-equal (simplify '(+ a b (- a) c (- b))) 'c))
+(define-test "simplify-sum-collect-terms-with-coefficients"
+  (assert-equal (simplify '(+ (* 2 x) y (* 3 x))) '(+ y (* 5 x))))
+(define-test "simplify-sum-collect-terms-with-negative-coefficients"
+  (assert-equal (simplify '(+ (* 5 x) y (* -2 x))) '(+ y (* 3 x))))
+(define-test "simplify-sum-collect-and-cancel-terms-with-coefficients"
+  (assert-equal (simplify '(+ (* 2 x) y (* -2 x))) 'y))
+(define-test "simplify-sum-collect-complex-terms"
+  ;; (+ (^ x 2) (* 3 (^ x 2)) y) -> (+ y (* 4 (^ x 2)))
+  (assert-equal (simplify '(+ (^ x 2) (* 3 (^ x 2)) y)) '(+ y (* 4 (^ x 2)))))
+(define-test "simplify-sum-collect-from-readme-example"
+  ;; (simplify '(+ x (* -1 y) (* 2 x) y)) => (* 3 x)
+  (assert-equal (simplify '(+ x (* -1 y) (* 2 x) y)) '(* 3 x)))
+(define-test "simplify-sum-collect-all-cancel-to-zero"
+  (assert-equal (simplify '(+ x y (- x) (- y))) 0))
+(define-test "simplify-sum-collect-with-constants-cancelling-variables"
+  (assert-equal (simplify '(+ 5 x y (- x) (- y) 2)) 7))
+(define-test "simplify-sum-collect-nested-and-flattened"
+  ;; (+ x (+ y (* 2 x)) (- y) z) -> (+ x y (* 2 x) (- y) z) -> (+ z (* 3 x))
+  (assert-equal (simplify '(+ x (+ y (* 2 x)) (- y) z)) '(+ z (* 3 x))))
+(define-test "simplify-sum-collect-with-negation-terms"
+  ;; (+ a (- b) (* 2 a) b) -> (+ b (- b) (* 3 a)) -> (* 3 a)
+  (assert-equal (simplify '(+ a (- b) (* 2 a) b)) '(* 3 a)))
+(define-test "simplify-sum-collect-leading-to-single-negative-term"
+  (assert-equal (simplify '(+ (* 2 x) (* -3 x))) '(- x)))
+(define-test "simplify-sum-collect-leading-to-single-constant"
+  (assert-equal (simplify '(+ x 5 (- x))) 5))
+
 ;; Arithmetic Identities - Product
 (define-test "simplify-product-mult-one-right"
   (assert-equal (simplify '(* x 1)) 'x))

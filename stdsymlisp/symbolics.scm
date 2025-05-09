@@ -253,6 +253,42 @@
            (list 1 term))))                         ; No leading const coeff, coeff is 1, base is whole product
     (else (list 1 term)))) ; For other compound terms like (^ x 2), coeff is 1
 
+(define (flatten-sum-terms-iterative terms-list)
+  (let collect-flat ((input-terms terms-list) (output-terms '()))
+    (if (null? input-terms)
+        (reverse output-terms) ; Reverse to maintain relative order of original non-sum items
+        (let ((term (car input-terms)))
+          (if (sum? term)
+              (collect-flat (append (operands term) (cdr input-terms)) output-terms)
+              (collect-flat (cdr input-terms) (cons term output-terms)))))))
+
+;; Extracts the numerical coefficient and the base variable part of a term.
+;; Returns (values coefficient base-part)
+;; Assumes 'term' is already simplified.
+;; e.g., x -> (1 . x)
+;;       (* 2 x) -> (2 . x)
+;;       (* 2 x y) -> (2 . (* x y))
+;;       (- x) -> (-1 . x)
+;;       (^ x 2) -> (1 . (^ x 2))
+;;       (* 2 (- x)) -> (-2 . x)
+(define (get-coeff-base-term term)
+  (cond
+    ((constant? term) (values term 1)) ; Coefficient is term itself, base is a dummy '1' for constants
+    ((variable? term) (values 1 term))
+    ((negation? term)
+     (call-with-values (lambda () (get-coeff-base-term (negated-expr term)))
+       (lambda (coeff base)
+         (values (* -1 coeff) base))))
+    ((product? term)
+     (let* ((factors (operands term))
+            (num-val (apply * (filter constant? factors)))
+            (non-const-factors (filter (lambda (f) (not (constant? f))) factors)))
+       (cond
+         ((null? non-const-factors) (values num-val 1)) ; Product was purely numeric
+         ((null? (cdr non-const-factors)) (values num-val (car non-const-factors)))
+         (else (values num-val (simplify (make-product non-const-factors))))))) ; Simplify the base part
+    (else (values 1 term)))) ; Default for other complex terms like powers, etc.
+
 ;; Helper for simplify-sum: groups sorted like terms.
 ;; Assumes sorted-terms is a list of terms already sorted by term<?.
 ;; This sorting helps bring potentially like terms (e.g., x and (* c x)) closer,
@@ -295,31 +331,61 @@
 
 
 (define (simplify-sum expr)
-  (let collect-and-flatten-terms ((ops (operands expr)) (accumulated-terms '()))
-    (if (null? ops)
-        (let* ((processed-terms (filter (lambda (term) (not (and (constant? term) (zero? term)))) accumulated-terms))
-               (constants (filter constant? processed-terms))
-               (non-constants (filter (lambda (x) (not (constant? x))) processed-terms))
-               (sum-const (if (null? constants) 0 (apply + constants)))
-               ;; Sort non-constants. This helps group terms like x and (* c x) somewhat,
-               ;; but collect-like-terms does the actual matching.
-               (sorted-non-constants (list-sort term<? non-constants))
-               (collected-terms (collect-like-terms sorted-non-constants))
-               ;; Filter out any terms that became zero after collection (e.g. x + (- x))
-               (final-non-zero-terms (filter (lambda (term) (not (and (constant? term) (zero? term)))) collected-terms))
-               ;; Sort the final collected terms again for canonical order
-               (final-sorted-terms (list-sort term<? final-non-zero-terms)))
+  (let* ((raw-operands (operands expr))
+         ;; Step 1: Simplify each operand individually.
+         (simplified-initial-terms (map simplify raw-operands))
+         ;; Step 2: Flatten the list of terms. E.g., (x (+ y z)) -> (x y z)
+         (flat-simplified-terms (flatten-sum-terms-iterative simplified-initial-terms)))
+
+    (if (null? flat-simplified-terms)
+        0 ; Sum of no terms is 0
+        (let* (;; Step 3: Separate numeric constants and sum them.
+               (numeric-constant-terms (filter constant? flat-simplified-terms))
+               (other-terms (filter (lambda (t) (not (constant? t))) flat-simplified-terms))
+               (numeric-sum (if (null? numeric-constant-terms) 0 (apply + numeric-constant-terms)))
+               ;; Step 4: Group non-constant terms by their base and sum coefficients.
+               ;; We'll use an association list: ((base . summed-coeff) ...)
+               (term-groups
+                (let loop ((terms-to-process other-terms) (groups '()))
+                  (if (null? terms-to-process)
+                      groups
+                      (call-with-values (lambda () (get-coeff-base-term (car terms-to-process)))
+                        (lambda (coeff base)
+                          (let ((existing-entry (assoc base groups))) 
+                            (if existing-entry
+                                (loop (cdr terms-to-process)
+                                      (cons (cons base (+ (cdr existing-entry) coeff))
+                                            (filter (lambda (p) (not (eq? p existing-entry))) groups)))
+                                (loop (cdr terms-to-process)
+                                      (cons (cons base coeff) groups)))))))))
+              ;; Step 5: Reconstruct terms from groups.
+              (new-non-constant-terms
+               (filter-map
+                (lambda (group) ; group is (base . summed-coeff)
+                  (let ((base (car group))
+                        (summed-coeff (cdr group)))
+                    (cond
+                      ((= summed-coeff 0) #f) ; Coefficient is 0, term vanishes
+                      ((equal? base 1) #f) ; Base was the dummy '1' for constants, already handled
+                      ((= summed-coeff 1) base)
+                      ((= summed-coeff -1) (make-negation base))
+                      (else (simplify (make-product (list summed-coeff base))))))) ; Simplify the new term
+                term-groups))
+              ;; Step 6: Combine numeric sum with new terms and sort.
+              (final-terms
+               (let ((terms-with-const (if (and (number? numeric-sum) (= numeric-sum 0) (not (null? new-non-constant-terms)))
+                                           new-non-constant-terms
+                                           (cons numeric-sum new-non-constant-terms))))
+                 ;; Filter out the numeric sum if it's 0 and there are other terms.
+                 ;; If numeric_sum is the *only* term and it's 0, it should remain.
+                 (if (and (= numeric-sum 0) (not (null? new-non-constant-terms)))
+                     (list-sort term<? new-non-constant-terms)
+                     (list-sort term<? (cons numeric-sum new-non-constant-terms))))))
+          ;; Step 7: Construct the final sum expression.
           (cond
-            ((null? final-sorted-terms) sum-const) ; Only constants remained, or all cancelled to 0
-            ((and (not (null? final-sorted-terms)) (zero? sum-const)) ; No constant part, or it's 0
-             (make-sum final-sorted-terms))
-            (else ; Both constant part (non-zero) and other terms
-             (make-sum (cons sum-const final-sorted-terms)))))
-        ;; Process next operand
-        (let ((simplified-op (simplify (car ops))))
-          (if (sum? simplified-op) ; Flatten sum
-              (collect-and-flatten-terms (cdr ops) (append accumulated-terms (operands simplified-op)))
-              (collect-and-flatten-terms (cdr ops) (append accumulated-terms (list simplified-op))))))))
+            ((null? final-terms) 0)
+            ((null? (cdr final-terms)) (car final-terms))
+            (else (make-sum final-terms)))))))
 
 ;; Helper to symbolically add two exponents.
 ;; Ensures that the result is simplified.

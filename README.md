@@ -66,6 +66,8 @@ Again another Scheme, this time:
 - [x] String and infix<->prefix (vars, functions)
 - [x] Symbolics phases 1.1, 1.2, 1.3 done, Phase 1 is complete.
 - [x] Symbolix phase 2, expand, complete.
+- [x] char compare
+- [x] Latex output (jupyter kernel), via (display-markdown (prefix-expr->markdown-latex '(+ 1 x))), text math output, better symbolics term collection
 
 Larger steps:
 
@@ -77,6 +79,8 @@ Larger steps:
 
 
 ## Symbolics steps
+
+- 2.5 Special functions: ln, log, exp, sin, cos, tan, sqrt (involves constants e, pi, i, inf?, nan?)
 
 ### Phase 3: Differentiation (differentiate or diff)
 
@@ -114,6 +118,12 @@ This is generally the most complex part.
 - factorize often involves trial and error or heuristic approaches.
 - May also benefit from calling simplify.
 
+### Phase 5
+
+- Taylor series
+- limits
+- integrals
+- solver
 
 ## DONE TASKS
 

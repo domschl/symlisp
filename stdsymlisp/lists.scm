@@ -22,6 +22,16 @@
     ((eq? obj (car lst)) lst) ; Found: return the sublist starting with obj
     (else (memq obj (cdr lst))))) ; Recurse on the rest of the list
 
+;; (member obj list)
+;; Searches list for an occurrence of obj using equal?.
+;; If obj is found, returns the sublist of list starting with the first occurrence of obj.
+;; Otherwise, returns #f.
+(define (member obj lst)
+  (cond
+    ((null? lst) #f) ; Base case: obj not found
+    ((equal? obj (car lst)) lst) ; Found: return the sublist starting with obj
+    (else (member obj (cdr lst))))) ; Recurse on the rest of the list
+
 (define (exists pred lst)
   (cond
     ((null? lst) #f)

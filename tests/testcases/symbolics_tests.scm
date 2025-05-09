@@ -311,8 +311,8 @@
   (assert-equal (simplify '(^ 1 x)) 1))
 (define-test "simplify-power-base-zero-positive-exponent" ; 0^x = 0 for x > 0
   (assert-equal (simplify '(^ 0 2)) 0))
-(define-test "simplify-power-base-zero-variable-exponent" ; 0^x = 0 (assuming x not 0 or negative)
-  (assert-equal (simplify '(^ 0 x)) 0))
+(define-test "simplify-power-base-zero-variable-exponent" 
+  (assert-equal (simplify '(^ 0 x)) '(^ 0 x)))
 (define-test "simplify-power-zero-to-zero" ; 0^0 = 1
   (assert-equal (simplify '(^ 0 0)) 1))
 

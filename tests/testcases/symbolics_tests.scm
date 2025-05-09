@@ -455,7 +455,7 @@
 
 ;; Test canonicalization of difference via sum
 (define-test "simplify-difference-complex-to-canonical"
-  (assert-equal (simplify '(- (+ x 1) (+ y 2))) '(+ 1 x (- (+ 2 y))))) ; Adapted expectation
+  (assert-equal (simplify '(- (+ x 1) (+ y 2))) '(+ -1 x (- y)))) ; Adapted expectation
 
 ;; Test product with -1 constant factor
 (define-test "simplify-product-with-minus-one-constant"
@@ -589,11 +589,7 @@
 
 ;; Interaction with (- a b) -> (+ a (* -1 b))
 (define-test "simplify-flatten-order-after-difference-conversion"
-  ;; (- (+ z 3) (+ x 1)) -> (+ (+ z 3) (* -1 (+ x 1)))
-  ;; -> (+ (+ 3 z) (- (+ 1 x)))
-  ;; Flattened terms: 3, z, (- (+ 1 x))
-  ;; Sorted: (+ 3 z (- (+ 1 x)))
-  (assert-equal (simplify '(- (+ z 3) (+ x 1))) '(+ 3 z (- (+ 1 x)))))
+  (assert-equal (simplify '(- (+ z 3) (+ x 1))) '(+ 2 z (- x))))
 (define-test "simplify-flatten-order-sum-with-negations"
   ;; (+ c (- b) a) -> (+ a (- b) c) (if a < c and (- b) is treated as compound after vars)
   ;; or (+ (- b) a c) (if (-b) comes before a and c due to term<?)

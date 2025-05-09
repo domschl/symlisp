@@ -331,61 +331,98 @@
 
 
 (define (simplify-sum expr)
-  (let* ((raw-operands (operands expr))
-         ;; Step 1: Simplify each operand individually.
-         (simplified-initial-terms (map simplify raw-operands))
-         ;; Step 2: Flatten the list of terms. E.g., (x (+ y z)) -> (x y z)
-         (flat-simplified-terms (flatten-sum-terms-iterative simplified-initial-terms)))
+  (let* ((initial-operands (operands expr)))
+    ;; Iteratively process the sum until no more structural changes from negation distribution occur.
+    (let main-sum-loop ((current-operands-list initial-operands) (iteration-count 0))
+      (if (> iteration-count 10) ; Safeguard against potential infinite loops
+          (error "simplify-sum: Exceeded iteration limit for expression" expr)
+          (let* (;; Step 1: Simplify each operand individually.
+                 (simplified-terms (map simplify current-operands-list))
+                 ;; Step 2: Flatten the list of terms. E.g., (x (+ y z)) -> (x y z)
+                 (flat-terms (flatten-sum-terms-iterative simplified-terms))
+                 
+                 ;; Step 2.5: Distribute negations over sums.
+                 ;; E.g., (- (+ a b)) becomes (- a) (- b) in the list of terms.
+                 ;; This returns (values new-term-list changed?)
+                 (negation-distribution-result
+                  (let process-negations ((terms-to-scan flat-terms) (accumulated-new-terms '()) (any-change-made? #f))
+                    (if (null? terms-to-scan)
+                        (values (reverse accumulated-new-terms) any-change-made?)
+                        (let ((current-term (car terms-to-scan)))
+                          (if (and (negation? current-term) (sum? (negated-expr current-term)))
+                              (let* ((sum-inside-negation (negated-expr current-term))
+                                     ;; Create (-t1), (-t2), ... for each term in the sum
+                                     (distributed-negated-terms 
+                                      (map make-negation (operands sum-inside-negation))))
+                                ;; Prepend these new terms (reversed, to maintain order relative to each other)
+                                ;; to the accumulated list and continue scanning the rest of the original terms.
+                                (process-negations (cdr terms-to-scan)
+                                                   (append (reverse distributed-negated-terms) accumulated-new-terms)
+                                                   #t)) ; Mark that a change was made
+                              ;; No distribution for this term, just add it to accumulated.
+                              (process-negations (cdr terms-to-scan)
+                                                 (cons current-term accumulated-new-terms)
+                                                 any-change-made?))))))
+                 (terms-after-negation-distribution (car negation-distribution-result))
+                 (negation-was-distributed? (cadr negation-distribution-result)))
 
-    (if (null? flat-simplified-terms)
-        0 ; Sum of no terms is 0
-        (let* (;; Step 3: Separate numeric constants and sum them.
-               (numeric-constant-terms (filter constant? flat-simplified-terms))
-               (other-terms (filter (lambda (t) (not (constant? t))) flat-simplified-terms))
-               (numeric-sum (if (null? numeric-constant-terms) 0 (apply + numeric-constant-terms)))
-               ;; Step 4: Group non-constant terms by their base and sum coefficients.
-               ;; We'll use an association list: ((base . summed-coeff) ...)
-               (term-groups
-                (let loop ((terms-to-process other-terms) (groups '()))
-                  (if (null? terms-to-process)
-                      groups
-                      (call-with-values (lambda () (get-coeff-base-term (car terms-to-process)))
-                        (lambda (coeff base)
-                          (let ((existing-entry (assoc base groups))) 
-                            (if existing-entry
-                                (loop (cdr terms-to-process)
-                                      (cons (cons base (+ (cdr existing-entry) coeff))
-                                            (filter (lambda (p) (not (eq? p existing-entry))) groups)))
-                                (loop (cdr terms-to-process)
-                                      (cons (cons base coeff) groups)))))))))
-              ;; Step 5: Reconstruct terms from groups.
-              (new-non-constant-terms
-               (filter-map
-                (lambda (group) ; group is (base . summed-coeff)
-                  (let ((base (car group))
-                        (summed-coeff (cdr group)))
-                    (cond
-                      ((= summed-coeff 0) #f) ; Coefficient is 0, term vanishes
-                      ((equal? base 1) #f) ; Base was the dummy '1' for constants, already handled
-                      ((= summed-coeff 1) base)
-                      ((= summed-coeff -1) (make-negation base))
-                      (else (simplify (make-product (list summed-coeff base))))))) ; Simplify the new term
-                term-groups))
-              ;; Step 6: Combine numeric sum with new terms and sort.
-              (final-terms
-               (let ((terms-with-const (if (and (number? numeric-sum) (= numeric-sum 0) (not (null? new-non-constant-terms)))
-                                           new-non-constant-terms
-                                           (cons numeric-sum new-non-constant-terms))))
-                 ;; Filter out the numeric sum if it's 0 and there are other terms.
-                 ;; If numeric_sum is the *only* term and it's 0, it should remain.
-                 (if (and (= numeric-sum 0) (not (null? new-non-constant-terms)))
-                     (list-sort term<? new-non-constant-terms)
-                     (list-sort term<? (cons numeric-sum new-non-constant-terms))))))
-          ;; Step 7: Construct the final sum expression.
-          (cond
-            ((null? final-terms) 0)
-            ((null? (cdr final-terms)) (car final-terms))
-            (else (make-sum final-terms)))))))
+            (if negation-was-distributed?
+                ;; If negations were distributed, the structure changed.
+                ;; The new list of terms (terms-after-negation-distribution) needs to be re-simplified
+                ;; and the whole sum simplification process restarted with these terms.
+                (main-sum-loop terms-after-negation-distribution (+ iteration-count 1))
+                
+                ;; If no negations were distributed in this pass, proceed with term collection.
+                ;; 'flat-terms' is the stable list of terms to work with.
+                (let ((final-flat-terms flat-terms)) 
+                  (if (null? final-flat-terms)
+                      0 ; Sum of no terms is 0
+                      (let* (;; Step 3: Separate numeric constants and sum them.
+                             (numeric-constant-terms (filter constant? final-flat-terms))
+                             (other-terms (filter (lambda (t) (not (constant? t))) final-flat-terms))
+                             (numeric-sum (if (null? numeric-constant-terms) 0 (apply + numeric-constant-terms)))
+                             ;; Step 4: Group non-constant terms by their base and sum coefficients.
+                             (term-groups
+                              (let collect-groups ((terms-to-process other-terms) (groups '()))
+                                (if (null? terms-to-process)
+                                    groups
+                                    (call-with-values (lambda () (get-coeff-base-term (car terms-to-process)))
+                                      (lambda (coeff base)
+                                        (let ((existing-entry (assoc base groups)))
+                                          (if existing-entry
+                                              (collect-groups (cdr terms-to-process)
+                                                    (cons (cons base (+ (cdr existing-entry) coeff)) ; Coeffs must be numeric here
+                                                          (filter (lambda (p) (not (eq? p existing-entry))) groups)))
+                                              (collect-groups (cdr terms-to-process)
+                                                    (cons (cons base coeff) groups)))))))))
+                            ;; Step 5: Reconstruct terms from groups.
+                            (new-non-constant-terms
+                             (filter-map
+                              (lambda (group)
+                                (let ((base (car group)) (summed-coeff (cdr group)))
+                                  (cond
+                                    ((= summed-coeff 0) #f) ; Coefficient is 0, term vanishes
+                                    ((equal? base 1) #f) ; Base was the dummy '1' for constants, already handled
+                                    ((= summed-coeff 1) base)
+                                    ((= summed-coeff -1) (make-negation base))
+                                    ;; Re-simplify the new term, e.g. (* 2 x) or (* -2 x)
+                                    (else (simplify (make-product (list summed-coeff base)))))))
+                              term-groups))
+                            ;; Step 6: Combine numeric sum with new terms and sort.
+                            (final-terms-to-sum
+                             (let ((terms-for-sorting
+                                    (if (and (number? numeric-sum) (= numeric-sum 0) (not (null? new-non-constant-terms)))
+                                        new-non-constant-terms ; Don't include 0 if other terms exist
+                                        (cons numeric-sum new-non-constant-terms))))
+                               ;; If numeric_sum is 0 and it's the only thing, it should remain.
+                               ;; The above logic handles this: if new-non-constant-terms is null,
+                               ;; (cons 0 '()) is '(0) which is correct.
+                               (list-sort term<? terms-for-sorting))))
+                        ;; Step 7: Construct the final sum expression.
+                        (cond
+                          ((null? final-terms-to-sum) 0)
+                          ((null? (cdr final-terms-to-sum)) (car final-terms-to-sum))
+                          (else (make-sum final-terms-to-sum))))))))))))
 
 ;; Helper to symbolically add two exponents.
 ;; Ensures that the result is simplified.

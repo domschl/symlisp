@@ -65,6 +65,7 @@ Again another Scheme, this time:
   - [x] output for stdio and `(display)` stderr (error-messages), extra output-modes `(display-markdown)` and `(display-html)`
 - [x] String and infix<->prefix (vars, functions)
 - [x] Symbolics phases 1.1, 1.2, 1.3 done, Phase 1 is complete.
+- [x] Symbolix phase 2, expand, complete.
 
 Larger steps:
 
@@ -76,21 +77,6 @@ Larger steps:
 
 
 ## Symbolics steps
-
-### Phase 2: Expansion (expand)
-
-1. Implement expand Function:
-- Recursively applies expansion rules.
-- Distributive Property:
-  - (* a (+ b c)) -> (+ (* a b) (* a c))
-  - Handle n-ary sums: (* a (+ b c d)) -> (+ (* a b) (* a c) (* a d))
-- Powers of Sums (Binomial Expansion):
-  - (^ (+ a b) 2) -> (+ (^ a 2) (* 2 a b) (^ b 2))
-  - Start with small integer powers. General binomial theorem can be complex.
-- Powers of Products/Quotients:
-  - (^ (* a b) n) -> (* (^ a n) (^ b n))
-  - (^ (/ a b) n) -> (/ (^ a n) (^ b n))
-- Call simplify after expansion steps to clean up.
 
 ### Phase 3: Differentiation (differentiate or diff)
 
@@ -170,3 +156,19 @@ This is generally the most complex part.
 - Flatten Associative Operations: For n-ary operators like + and *, ensure expressions like (+ x (+ y z)) become (+ x y z).
 - Order Terms: For commutative operations (+, *), decide on a canonical order for terms (e.g., constants first, then variables alphabetically). This helps in recognizing equivalent expressions like (+ x 1) and (+ 1 x).
 - Represent subtraction as addition: (- a b) -> (+ a (* -1 b)). This simplifies rule writing.
+
+### Phase 2: Expansion (expand) [DONE]
+
+1. [DONE] Implement expand Function:
+- Recursively applies expansion rules.
+- Distributive Property:
+  - (* a (+ b c)) -> (+ (* a b) (* a c))
+  - Handle n-ary sums: (* a (+ b c d)) -> (+ (* a b) (* a c) (* a d))
+- Powers of Sums (Binomial Expansion):
+  - (^ (+ a b) 2) -> (+ (^ a 2) (* 2 a b) (^ b 2))
+  - Start with small integer powers. General binomial theorem can be complex.
+- Powers of Products/Quotients:
+  - (^ (* a b) n) -> (* (^ a n) (^ b n))
+  - (^ (/ a b) n) -> (/ (^ a n) (^ b n))
+- Call simplify after expansion steps to clean up.
+

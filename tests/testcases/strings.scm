@@ -700,6 +700,26 @@
 ;(define-test "expr->string-error-arity-0"
 ;  (assert-error? (expr->string)))
 
+; Tests for term ordering:
+
+(define-test "expr->string-simple-variable"
+  (assert-equal "z" (expr->string 'z)))
+
+(define-test "expr->string-simple-sum"
+  (assert-equal "(+ a b)" (expr->string '(+ a b))))
+
+(define-test "expr->string-simple-product"
+  (assert-equal "(* c d)" (expr->string '(* c d))))
+
+(define-test "expr->string-simple-power"
+  (assert-equal "(^ x 3)" (expr->string '(^ x 3))))
+
+(define-test "expr->string-another-power"
+  (assert-equal "(^ y 2)" (expr->string '(^ y 2))))
+
+(define-test "expr->string-nested-power"
+  (assert-equal "(^ (+ x 1) 2)" (expr->string '(^ (+ x 1) 2))))
+
 ;;;-----------------------------------------------------------------------------
 ;;; String Case Conversion (Unicode Aware - Basic)
 ;;;-----------------------------------------------------------------------------

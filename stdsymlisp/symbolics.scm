@@ -252,32 +252,51 @@
               (collect-and-flatten-terms (cdr ops) (append accumulated-terms (operands simplified-op)))
               (collect-and-flatten-terms (cdr ops) (append accumulated-terms (list simplified-op))))))))
 
-;; Simplification for products (with flattening and ordering)
+;; Helper for simplify-product: groups sorted identical factors into powers.
+;; Assumes sorted-factors is a list of factors already sorted by term<?.
+;; E.g., (a a a b b c) -> ((^ a 3) (^ b 2) c)
+(define (group-factors sorted-factors)
+  (if (null? sorted-factors)
+      '()
+      (let ((first-factor (car sorted-factors)))
+        ;; Inner helper to count consecutive identical factors
+        (let count-consecutive ((lst sorted-factors) (current-factor-to-match first-factor) (count 0))
+          (if (or (null? lst) (not (equal? (car lst) current-factor-to-match)))
+              ;; End of a sequence of identical factors (or list exhausted)
+              (let ((grouped-term (if (> count 1)
+                                      (list '^ current-factor-to-match count)
+                                      current-factor-to-match)))
+                ;; Recursively group the rest of the list (which starts at 'lst')
+                (cons grouped-term (group-factors lst)))
+              ;; Current factor matches, continue counting
+              (count-consecutive (cdr lst) current-factor-to-match (+ count 1)))))))
+
+
+;; Simplification for products (with flattening, ordering, and power-grouping)
 (define (simplify-product expr)
   (let collect-and-flatten-factors ((ops (operands expr)) (accumulated-factors '()))
     (if (null? ops)
-        ;; All operands processed and flattened, now process the collected factors
         (cond
-          ;; If any factor was simplified to 0 earlier (should be caught by simplify itself)
-          ;; or if 0 is present in accumulated_factors
           ((exists (lambda (f) (and (constant? f) (zero? f))) accumulated-factors) 0)
           (else
            (let* ((factors-no-ones (filter (lambda (f) (not (and (constant? f) (= f 1)))) accumulated-factors))
                   (constants (filter constant? factors-no-ones))
                   (non-constants (filter (lambda (x) (not (constant? x))) factors-no-ones))
                   (prod-const (if (null? constants) 1 (apply * constants)))
-                  (sorted-non-constants (list-sort term<? non-constants)))
+                  (sorted-non-constants (list-sort term<? non-constants))
+                  (grouped-non-constants (group-factors sorted-non-constants))
+                  ;; ADD THIS LINE: Sort the final grouped non-constant factors
+                  (final-sorted-grouped-factors (list-sort term<? grouped-non-constants)))
              (cond
-               ((zero? prod-const) 0) ; Product of constants is 0
-               ((null? sorted-non-constants) prod-const) ; Result is purely constant
+               ((zero? prod-const) 0)
+               ((null? final-sorted-grouped-factors) prod-const)
                ((= prod-const 1)
-                (make-product sorted-non-constants)) ; Constants product to 1
+                (make-product final-sorted-grouped-factors)) ; Use final sorted
                ((= prod-const -1)
-                ;; Canonical form for (- X) is preferred over (* -1 X)
-                (simplify (make-negation (make-product sorted-non-constants))))
+                (simplify (make-negation (make-product final-sorted-grouped-factors)))) ; Use final sorted
                (else
-                (make-product (cons prod-const sorted-non-constants)))))))
-        ;; Process next operand
+                (make-product (cons prod-const final-sorted-grouped-factors))))))) ; Use final sorted
+         ;; Process next operand
         (let ((simplified-op (simplify (car ops))))
           ;; If simplified_op itself became 0, the whole product is 0
           (if (and (constant? simplified-op) (zero? simplified-op))

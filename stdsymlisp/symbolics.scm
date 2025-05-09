@@ -231,77 +231,143 @@
 ;; Forward declaration for simplify, as helpers might call it or be called by it.
 (define simplify #f)
 
+;; Helper for simplify-sum: groups sorted identical terms and represents them as products.
+;; Assumes sorted-terms is a list of terms already sorted by term<?.
+;; E.g., (a a a b b c) -> ((* 3 a) (* 2 b) c)
+(define (group-addends sorted-terms)
+  (if (null? sorted-terms)
+      '()
+      (let ((first-term (car sorted-terms)))
+        (let count-consecutive ((lst sorted-terms) (current-term-to-match first-term) (count 0))
+          (if (or (null? lst) (not (equal? (car lst) current-term-to-match)))
+              (let ((grouped-addend (if (> count 1)
+                                        (make-product (list count current-term-to-match)) ; e.g. (* 2 a)
+                                        current-term-to-match)))
+                (cons grouped-addend (group-addends lst)))
+              (count-consecutive (cdr lst) current-term-to-match (+ count 1)))))))
+
 ;; Simplification for sums (with flattening and ordering)
 (define (simplify-sum expr)
   (let collect-and-flatten-terms ((ops (operands expr)) (accumulated-terms '()))
     (if (null? ops)
-        ;; All operands processed and flattened, now process the collected terms
         (let* ((constants (filter constant? accumulated-terms))
                (non-constants (filter (lambda (x) (not (constant? x))) accumulated-terms))
                (sum-const (if (null? constants) 0 (apply + constants)))
-               (sorted-non-constants (list-sort term<? non-constants)))
+               (sorted-non-constants (list-sort term<? non-constants))
+               ;; --- NEW: Group identical non-constant terms ---
+               (grouped-non-constants (group-addends sorted-non-constants))
+               ;; --- Sort the final grouped terms again for canonical order ---
+               ;; E.g. if grouping produced ((* 2 b) (* 3 a)), sorting makes it ((* 3 a) (* 2 b))
+               (final-sorted-grouped-terms (list-sort term<? grouped-non-constants))
+               )
           (cond
-            ((null? sorted-non-constants) sum-const) ; Result is purely constant
-            ((and (not (null? sorted-non-constants)) (zero? sum-const))
-             (make-sum sorted-non-constants)) ; Constants summed to 0, only non-constants left
+            ((null? final-sorted-grouped-terms) sum-const)
+            ((and (not (null? final-sorted-grouped-terms)) (zero? sum-const))
+             (make-sum final-sorted-grouped-terms))
             (else
-             (make-sum (cons sum-const sorted-non-constants))))) ; Mix of non-zero constant and non-constants
-        ;; Process next operand
+             (make-sum (cons sum-const final-sorted-grouped-terms)))))
         (let ((simplified-op (simplify (car ops))))
-          (if (sum? simplified-op) ; Flatten if the simplified operand is a sum
+          (if (sum? simplified-op)
               (collect-and-flatten-terms (cdr ops) (append accumulated-terms (operands simplified-op)))
               (collect-and-flatten-terms (cdr ops) (append accumulated-terms (list simplified-op))))))))
 
-;; Helper for simplify-product: groups sorted identical factors into powers.
+;; Helper to symbolically add two exponents.
+;; Ensures that the result is simplified.
+(define (add-exponents exp1 exp2)
+  (cond
+    ((and (number? exp1) (number? exp2)) (+ exp1 exp2))
+    ((and (number? exp1) (zero? exp1)) exp2)
+    ((and (number? exp2) (zero? exp2)) exp1)
+    ;; If one is already a sum, append the other term and simplify
+    ;; This helps build sums like (+ n m p) rather than (+ (+ n m) p) initially
+    ((sum? exp1) (simplify (make-sum (append (operands exp1) (list exp2)))))
+    ((sum? exp2) (simplify (make-sum (append (operands exp2) (list exp1)))))
+    ;; Default: create a new sum and simplify
+    (else (simplify (make-sum (list exp1 exp2))))))
+
+;; Helper for simplify-product: groups sorted identical factors and combines powers,
+;; handling symbolic exponents correctly.
 ;; Assumes sorted-factors is a list of factors already sorted by term<?.
-;; E.g., (a a a b b c) -> ((^ a 3) (^ b 2) c)
+;; E.g., (a a (^ a n) b (^ b m) c) -> ((^ a (+ 2 n)) (^ b (+ m 1)) c)
 (define (group-factors sorted-factors)
   (if (null? sorted-factors)
       '()
-      (let ((first-factor (car sorted-factors)))
-        ;; Inner helper to count consecutive identical factors
-        (let count-consecutive ((lst sorted-factors) (current-factor-to-match first-factor) (count 0))
-          (if (or (null? lst) (not (equal? (car lst) current-factor-to-match)))
-              ;; End of a sequence of identical factors (or list exhausted)
-              (let ((grouped-term (if (> count 1)
-                                      (list '^ current-factor-to-match count)
-                                      current-factor-to-match)))
-                ;; Recursively group the rest of the list (which starts at 'lst')
-                (cons grouped-term (group-factors lst)))
-              ;; Current factor matches, continue counting
-              (count-consecutive (cdr lst) current-factor-to-match (+ count 1)))))))
+      (let* ((current-base-candidate (car sorted-factors))
+             (current-base (if (power? current-base-candidate)
+                               (base current-base-candidate)
+                               current-base-candidate)))
+        ;; Inner recursive helper to process all factors for the current_base
+        (let collect-for-this-base ((factors-for-this-base-sequence sorted-factors) ; The sublist starting with current_base
+                                     (accumulated-exponent-for-this-base 0))     ; Start sum with numeric 0
+          (if (or (null? factors-for-this-base-sequence)
+                  ;; Check if the next factor still belongs to the current_base
+                  (let ((next-factor-base-candidate (car factors-for-this-base-sequence)))
+                    (not (equal? (if (power? next-factor-base-candidate)
+                                     (base next-factor-base-candidate)
+                                     next-factor-base-candidate)
+                                 current-base))))
+              ;; This base's sequence is done, or the list of factors for this base is exhausted.
+              ;; Construct the term for current_base.
+              (let* (;; Simplify the accumulated exponent expression itself
+                     (final-exponent (simplify accumulated-exponent-for-this-base))
+                     (grouped-term
+                      (cond
+                        ;; If exponent simplifies to 0, factor is 1 (e.g. x^0 = 1)
+                        ((and (number? final-exponent) (zero? final-exponent)) 1)
+                        ;; If exponent simplifies to 1, factor is the base itself (e.g. x^1 = x)
+                        ((and (number? final-exponent) (= final-exponent 1)) current-base)
+                        ;; Otherwise, it's (^ base exponent)
+                        (else (list '^ current-base final-exponent)))))
+                ;; Prepend this grouped_term to the result of grouping the *rest* of the original list.
+                ;; 'factors-for-this-base-sequence' now points to the start of the next base's sequence,
+                ;; or is '() if all factors have been processed.
+                (cons grouped-term (group-factors factors-for-this-base-sequence)))
 
+              ;; Current factor (car factors-for-this-base-sequence) matches current_base.
+              ;; Accumulate its exponent.
+              (let* ((factor-to-process (car factors-for-this-base-sequence))
+                     (exponent-of-this-factor (if (power? factor-to-process)
+                                                  (exponent factor-to-process)
+                                                  1))) ; Plain factor has exponent 1
+                (collect-for-this-base (cdr factors-for-this-base-sequence)
+                                       (add-exponents accumulated-exponent-for-this-base exponent-of-this-factor))))))))
 
+;; Simplification for products (with flattening, ordering, and power-grouping)
 ;; Simplification for products (with flattening, ordering, and power-grouping)
 (define (simplify-product expr)
   (let collect-and-flatten-factors ((ops (operands expr)) (accumulated-factors '()))
     (if (null? ops)
+        ;; All operands processed and flattened, now process the collected factors
         (cond
+          ;; If any factor was simplified to 0 earlier or is present now
           ((exists (lambda (f) (and (constant? f) (zero? f))) accumulated-factors) 0)
           (else
            (let* ((factors-no-ones (filter (lambda (f) (not (and (constant? f) (= f 1)))) accumulated-factors))
                   (constants (filter constant? factors-no-ones))
                   (non-constants (filter (lambda (x) (not (constant? x))) factors-no-ones))
                   (prod-const (if (null? constants) 1 (apply * constants)))
+                  ;; term<? ensures that 'a' and '(^ a n)' might not be adjacent if other vars are between.
+                  ;; group-factors needs to handle this by processing one base at a time from the sorted list.
                   (sorted-non-constants (list-sort term<? non-constants))
                   (grouped-non-constants (group-factors sorted-non-constants))
-                  ;; ADD THIS LINE: Sort the final grouped non-constant factors
-                  (final-sorted-grouped-factors (list-sort term<? grouped-non-constants)))
+                  ;; Filter out any '1's that might have resulted from x^0
+                  (final-grouped-factors-no-ones (filter (lambda (f) (not (and (constant? f) (= f 1)))) grouped-non-constants))
+                  ;; Sort the final grouped non-constant factors again for canonical order
+                  (final-sorted-grouped-factors (list-sort term<? final-grouped-factors-no-ones)))
              (cond
                ((zero? prod-const) 0)
                ((null? final-sorted-grouped-factors) prod-const)
                ((= prod-const 1)
-                (make-product final-sorted-grouped-factors)) ; Use final sorted
+                (make-product final-sorted-grouped-factors))
                ((= prod-const -1)
-                (simplify (make-negation (make-product final-sorted-grouped-factors)))) ; Use final sorted
+                (simplify (make-negation (make-product final-sorted-grouped-factors))))
                (else
-                (make-product (cons prod-const final-sorted-grouped-factors))))))) ; Use final sorted
-         ;; Process next operand
+                (make-product (cons prod-const final-sorted-grouped-factors)))))))
+        ;; Process next operand
         (let ((simplified-op (simplify (car ops))))
-          ;; If simplified_op itself became 0, the whole product is 0
           (if (and (constant? simplified-op) (zero? simplified-op))
-              0 ; Short-circuit
-              (if (product? simplified-op) ; Flatten if the simplified operand is a product
+              0
+              (if (product? simplified-op)
                   (collect-and-flatten-factors (cdr ops) (append accumulated-factors (operands simplified-op)))
                   (collect-and-flatten-factors (cdr ops) (append accumulated-factors (list simplified-op)))))))))
 
@@ -436,13 +502,34 @@
         (else (find-sum-and-distribute (cdr current-factors)
                                        (cons (car current-factors) factors-processed)))))))
 
+
+;; Arbitrary polynomial expansion for sums of powers
+(define (expand-polynomial-sum power-expr)
+  (if (power? power-expr)
+    (let ((base (base power-expr))
+          (exponent (exponent power-expr)))
+      ;; Rule 0: Recursive expansion for (^ (sum) n) where n is integer > 1
+      (if (and (sum? base)
+            (integer? exponent) ; Ensure it's an integer
+            (> exponent 1))     ; For n > 1
+        (if (= exponent 2)
+            (simplify-sum (expand (list '* base base)))
+          (simplify-sum (expand (list '* base (expand-polynomial-sum (list '^ base (- exponent 1)))))))))
+    expr))
+
 ;; Helper: Applies expansion rules for powers.
 ;; power-expr is like '(^ base exponent)' where base and exponent are already expanded.
 ;; Returns a new expanded expression or the original power-expr if no rule applies.
 (define (expand-power-rules power-expr)
   (let ((base (base power-expr))
         (exponent (exponent power-expr)))
+  ;; Check if the base is a sum and exponent is an integer > 1)
     (cond
+      ;; Rule 0: (^ (sum) n) where n is integer > 1
+      ((and (sum? base)
+            (integer? exponent) ; Ensure it's an integer
+            (> exponent 1))     ; For n > 1
+       (expand-polynomial-sum power-expr))
       ;; Rule 1: (^ (+ a b) 2) -> (+ (^ a 2) (* 2 a b) (^ b 2))
       ((and (sum? base)
             (constant? exponent)
@@ -471,7 +558,7 @@
              (list '^ (quotient-denominator base) exponent)))
 
       (else power-expr))))
-      
+
 ;; Main expand function
 ;; Recursively expands expressions and simplifies the result.
 (set! expand

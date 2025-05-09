@@ -77,46 +77,6 @@ Larger steps:
 
 ## Symbolics steps
 
-### Phase 1: [DONE] Core Expression Representation and Basic Simplification Infrastructure
-
-1. [DONE] Define Expression Structure & Predicates:
-
-- Solidify how expressions are represented (your S-expressions are a good start: (+ x 1), (* a b), (^ x 2)).
-- Create helper predicates:
-  - constant? expr (checks if it's a number)
-  - variable? expr (checks if it's a symbol, excluding operator names)
-  - sum? expr (e.g., (and (pair? expr) (eq? (car expr) '+)))
-  - product? expr
-  - power? expr
-  - And so on for other operations you intend to support.
-- Create accessors:
-  - operator expr -> (car expr)
-  - operands expr -> (cdr expr)
-  - addend1 expr, addend2 expr (for binary +) or terms expr (for n-ary +)
-  - multiplicand1 expr, multiplicand2 expr or factors expr
-  - base expr, exponent expr (for ^)
-
-2. [DONE] Implement a Basic simplify Function:
-
-- This function will be the workhorse and will be expanded iteratively.
-- Start with a recursive structure that dispatches based on the expression type.
-- Initial Rules:
-  - Constant Folding: If an expression is composed entirely of constants, evaluate it. E.g., (+ 1 2) -> 3, (* 2 3 4) -> 24.
-  - Arithmetic Identities:
-    - (+ x 0) -> x (and (+ 0 x) -> x)
-    - (* x 1) -> x (and (* 1 x) -> x)
-    - (* x 0) -> 0 (and (* 0 x) -> 0)
-    - (^ x 1) -> x
-    - (^ x 0) -> 1 (for x != 0)
-    - (- 0 x) -> (- x) (if you have a distinct unary minus representation) or (* -1 x)
-  - Recursively simplify operands: (simplify '(+ (* 2 3) x)) should first simplify (* 2 3) to 6.
-
-3. [DONE] Canonical Forms (Early Considerations):
-
-- Flatten Associative Operations: For n-ary operators like + and *, ensure expressions like (+ x (+ y z)) become (+ x y z).
-- Order Terms: For commutative operations (+, *), decide on a canonical order for terms (e.g., constants first, then variables alphabetically). This helps in recognizing equivalent expressions like (+ x 1) and (+ 1 x).
-- Represent subtraction as addition: (- a b) -> (+ a (* -1 b)). This simplifies rule writing.
-
 ### Phase 2: Expansion (expand)
 
 1. Implement expand Function:
@@ -167,3 +127,46 @@ This is generally the most complex part.
    - General polynomial factorization over integers or rationals is a very advanced topic (e.g., Rational Root Theorem, Kronecker's method, Berlekamp algorithm for finite fields, Cantor-Zassenhaus). You might want to limit the scope initially.
 - factorize often involves trial and error or heuristic approaches.
 - May also benefit from calling simplify.
+
+
+## DONE TASKS
+
+### Phase 1: [DONE] Core Expression Representation and Basic Simplification Infrastructure
+
+1. [DONE] Define Expression Structure & Predicates:
+
+- Solidify how expressions are represented (your S-expressions are a good start: (+ x 1), (* a b), (^ x 2)).
+- Create helper predicates:
+  - constant? expr (checks if it's a number)
+  - variable? expr (checks if it's a symbol, excluding operator names)
+  - sum? expr (e.g., (and (pair? expr) (eq? (car expr) '+)))
+  - product? expr
+  - power? expr
+  - And so on for other operations you intend to support.
+- Create accessors:
+  - operator expr -> (car expr)
+  - operands expr -> (cdr expr)
+  - addend1 expr, addend2 expr (for binary +) or terms expr (for n-ary +)
+  - multiplicand1 expr, multiplicand2 expr or factors expr
+  - base expr, exponent expr (for ^)
+
+2. [DONE] Implement a Basic simplify Function:
+
+- This function will be the workhorse and will be expanded iteratively.
+- Start with a recursive structure that dispatches based on the expression type.
+- Initial Rules:
+  - Constant Folding: If an expression is composed entirely of constants, evaluate it. E.g., (+ 1 2) -> 3, (* 2 3 4) -> 24.
+  - Arithmetic Identities:
+    - (+ x 0) -> x (and (+ 0 x) -> x)
+    - (* x 1) -> x (and (* 1 x) -> x)
+    - (* x 0) -> 0 (and (* 0 x) -> 0)
+    - (^ x 1) -> x
+    - (^ x 0) -> 1 (for x != 0)
+    - (- 0 x) -> (- x) (if you have a distinct unary minus representation) or (* -1 x)
+  - Recursively simplify operands: (simplify '(+ (* 2 3) x)) should first simplify (* 2 3) to 6.
+
+3. [DONE] Canonical Forms (Early Considerations):
+
+- Flatten Associative Operations: For n-ary operators like + and *, ensure expressions like (+ x (+ y z)) become (+ x y z).
+- Order Terms: For commutative operations (+, *), decide on a canonical order for terms (e.g., constants first, then variables alphabetically). This helps in recognizing equivalent expressions like (+ x 1) and (+ 1 x).
+- Represent subtraction as addition: (- a b) -> (+ a (* -1 b)). This simplifies rule writing.

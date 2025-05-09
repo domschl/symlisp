@@ -228,82 +228,255 @@
     ((null? (cdr factors)) (car factors)) ; Product of one factor is the factor itself
     (else (cons '* factors))))
 
+;; Helper: Construct a power expression
+;; (make-power base exponent)
+(define (make-power base exponent)
+  (list '^ base exponent))
+
 ;; Forward declaration for simplify, as helpers might call it or be called by it.
 (define simplify #f)
 
-;; Simplification for sums (with flattening and ordering)
+;; Helper: Extracts coefficient and base term from a term.
+;; Returns a list: (coefficient base-term)
+;; e.g., x -> (1 x)
+;;       (* 2 x y) -> (2 (* x y))
+;;       (* x y) -> (1 (* x y))
+;;       5 -> (5 1) ; Constant term, base is 1 (neutral for multiplication)
+(define (get-coefficient-and-base term)
+  (cond
+    ((constant? term) (list term 1)) ; Coefficient is term, base is 1
+    ((variable? term) (list 1 term))  ; Coefficient 1, base is term
+    ((product? term)
+     (let ((ops (operands term)))
+       (if (and (pair? ops) (constant? (car ops)))
+           (list (car ops) (make-product (cdr ops))) ; Coeff is (car ops), base is rest
+           (list 1 term))))                         ; No leading const coeff, coeff is 1, base is whole product
+    (else (list 1 term)))) ; For other compound terms like (^ x 2), coeff is 1
+
+;; Helper for simplify-sum: groups sorted like terms.
+;; Assumes sorted-terms is a list of terms already sorted by term<?.
+;; This sorting helps bring potentially like terms (e.g., x and (* c x)) closer,
+;; but the primary grouping is by the "base part" of the term.
+(define (collect-like-terms sorted-terms)
+  (if (null? sorted-terms)
+      '()
+      (let* ((first-term-info (get-coefficient-and-base (car sorted-terms)))
+             (current-coeff (car first-term-info))
+             (current-base-term (cadr first-term-info)))
+        (let process-terms ((remaining-terms (cdr sorted-terms))
+                             (accumulated-coeff current-coeff)
+                             (base-to-match current-base-term))
+          (if (null? remaining-terms)
+              ;; End of list, construct the final term for this group
+              (list (simplify ; <<<< SIMPLIFY THE CONSTRUCTED TERM
+                     (if (and (number? accumulated-coeff) (= accumulated-coeff 1) (not (equal? base-to-match 1)))
+                         base-to-match
+                         (if (equal? base-to-match 1)
+                             accumulated-coeff
+                             (make-product (list accumulated-coeff base-to-match))))))
+              (let* ((next-term-info (get-coefficient-and-base (car remaining-terms)))
+                     (next-coeff (car next-term-info))
+                     (next-base-term (cadr next-term-info)))
+                (if (equal? next-base-term base-to-match)
+                    (process-terms (cdr remaining-terms)
+                                   (add-coefficients accumulated-coeff next-coeff)
+                                   base-to-match)
+                    (cons (simplify ; <<<< SIMPLIFY THE CONSTRUCTED TERM
+                           (if (and (number? accumulated-coeff) (= accumulated-coeff 1) (not (equal? base-to-match 1)))
+                               base-to-match
+                               (if (equal? base-to-match 1)
+                                   accumulated-coeff
+                                   (make-product (list accumulated-coeff base-to-match)))))
+                          (collect-like-terms remaining-terms)))))))))
+
+;; Helper to add coefficients (can be numbers or symbolic expressions)
+(define (add-coefficients c1 c2)
+  (simplify (make-sum (list c1 c2))))
+
+
 (define (simplify-sum expr)
   (let collect-and-flatten-terms ((ops (operands expr)) (accumulated-terms '()))
     (if (null? ops)
-        ;; All operands processed and flattened, now process the collected terms
-        (let* ((constants (filter constant? accumulated-terms))
-               (non-constants (filter (lambda (x) (not (constant? x))) accumulated-terms))
+        (let* ((processed-terms (filter (lambda (term) (not (and (constant? term) (zero? term)))) accumulated-terms))
+               (constants (filter constant? processed-terms))
+               (non-constants (filter (lambda (x) (not (constant? x))) processed-terms))
                (sum-const (if (null? constants) 0 (apply + constants)))
-               (sorted-non-constants (list-sort term<? non-constants)))
+               ;; Sort non-constants. This helps group terms like x and (* c x) somewhat,
+               ;; but collect-like-terms does the actual matching.
+               (sorted-non-constants (list-sort term<? non-constants))
+               (collected-terms (collect-like-terms sorted-non-constants))
+               ;; Filter out any terms that became zero after collection (e.g. x + (- x))
+               (final-non-zero-terms (filter (lambda (term) (not (and (constant? term) (zero? term)))) collected-terms))
+               ;; Sort the final collected terms again for canonical order
+               (final-sorted-terms (list-sort term<? final-non-zero-terms)))
           (cond
-            ((null? sorted-non-constants) sum-const) ; Result is purely constant
-            ((and (not (null? sorted-non-constants)) (zero? sum-const))
-             (make-sum sorted-non-constants)) ; Constants summed to 0, only non-constants left
-            (else
-             (make-sum (cons sum-const sorted-non-constants))))) ; Mix of non-zero constant and non-constants
+            ((null? final-sorted-terms) sum-const) ; Only constants remained, or all cancelled to 0
+            ((and (not (null? final-sorted-terms)) (zero? sum-const)) ; No constant part, or it's 0
+             (make-sum final-sorted-terms))
+            (else ; Both constant part (non-zero) and other terms
+             (make-sum (cons sum-const final-sorted-terms)))))
         ;; Process next operand
         (let ((simplified-op (simplify (car ops))))
-          (if (sum? simplified-op) ; Flatten if the simplified operand is a sum
+          (if (sum? simplified-op) ; Flatten sum
               (collect-and-flatten-terms (cdr ops) (append accumulated-terms (operands simplified-op)))
               (collect-and-flatten-terms (cdr ops) (append accumulated-terms (list simplified-op))))))))
 
-;; Simplification for products (with flattening and ordering)
+;; Helper to symbolically add two exponents.
+;; Ensures that the result is simplified.
+(define (add-exponents exp1 exp2)
+  (cond
+    ((and (number? exp1) (number? exp2)) (+ exp1 exp2))
+    ((and (number? exp1) (zero? exp1)) exp2)
+    ((and (number? exp2) (zero? exp2)) exp1)
+    ;; If one is already a sum, append the other term and simplify
+    ;; This helps build sums like (+ n m p) rather than (+ (+ n m) p) initially
+    ((sum? exp1) (simplify (make-sum (append (operands exp1) (list exp2)))))
+    ((sum? exp2) (simplify (make-sum (append (operands exp2) (list exp1)))))
+    ;; Default: create a new sum and simplify
+    (else (simplify (make-sum (list exp1 exp2))))))
+
+;; Helper for simplify-product: groups sorted identical factors and combines powers,
+;; handling symbolic exponents correctly.
+;; Assumes sorted-factors is a list of factors already sorted by term<?.
+;; E.g., (a a (^ a n) b (^ b m) c) -> ((^ a (+ 2 n)) (^ b (+ m 1)) c)
+(define (group-factors-into-powers sorted-factors)
+  (if (null? sorted-factors)
+      '()
+      (let* ((current-base-candidate (car sorted-factors))
+             (current-base (if (power? current-base-candidate)
+                               (base current-base-candidate)
+                               current-base-candidate)))
+        ;; Inner recursive helper to process all factors for the current_base
+        (let collect-for-this-base ((factors-for-this-base-sequence sorted-factors)
+                                     (accumulated-exponent-for-this-base 0))
+          (if (or (null? factors-for-this-base-sequence)
+                  (let ((next-factor-base-candidate (car factors-for-this-base-sequence)))
+                    (not (equal? (if (power? next-factor-base-candidate)
+                                     (base next-factor-base-candidate)
+                                     next-factor-base-candidate)
+                                 current-base))))
+              ;; This base's sequence is done.
+              (let* ((final-exponent (simplify accumulated-exponent-for-this-base))
+                     (grouped-term
+                      (cond
+                        ((and (number? final-exponent) (zero? final-exponent)) 1)
+                        ((and (number? final-exponent) (= final-exponent 1)) current-base)
+                        (else (list '^ current-base final-exponent)))))
+                ;; Filter out the '1' terms unless it's the only term and the list was originally non-empty
+                (let ((next-grouping (group-factors-into-powers factors-for-this-base-sequence)))
+                  (if (and (equal? grouped-term 1) (not (null? next-grouping)))
+                      next-grouping
+                      (cons grouped-term next-grouping))))
+              ;; Current factor matches current_base. Accumulate its exponent.
+              (let* ((factor-to-process (car factors-for-this-base-sequence))
+                     (exponent-of-this-factor (if (power? factor-to-process)
+                                                  (exponent factor-to-process)
+                                                  1)))
+                (collect-for-this-base (cdr factors-for-this-base-sequence)
+                                       (add-exponents accumulated-exponent-for-this-base exponent-of-this-factor))))))))
+
+(define (flatten-product-factors-iterative factors-list)
+  (let collect-flat ((input-factors factors-list) (output-factors '()))
+    (if (null? input-factors)
+        (reverse output-factors) ; Reverse to maintain relative order of original non-product items
+        (let ((factor (car input-factors)))
+          (if (product? factor)
+              ;; If it's a product, prepend its operands to the list of factors still to process.
+              ;; The operands of 'factor' should already be simplified and flattened if they were products.
+              (collect-flat (append (operands factor) (cdr input-factors)) output-factors)
+              ;; Otherwise, add it to the accumulated output factors.
+              (collect-flat (cdr input-factors) (cons factor output-factors)))))))
+
+;; Simplification for products (with flattening, ordering, and power-grouping)
 (define (simplify-product expr)
-  (let collect-and-flatten-factors ((ops (operands expr)) (accumulated-factors '()))
-    (if (null? ops)
-        ;; All operands processed and flattened, now process the collected factors
-        (cond
-          ;; If any factor was simplified to 0 earlier (should be caught by simplify itself)
-          ;; or if 0 is present in accumulated_factors
-          ((exists (lambda (f) (and (constant? f) (zero? f))) accumulated-factors) 0)
-          (else
-           (let* ((factors-no-ones (filter (lambda (f) (not (and (constant? f) (= f 1)))) accumulated-factors))
-                  (constants (filter constant? factors-no-ones))
-                  (non-constants (filter (lambda (x) (not (constant? x))) factors-no-ones))
-                  (prod-const (if (null? constants) 1 (apply * constants)))
-                  (sorted-non-constants (list-sort term<? non-constants)))
-             (cond
-               ((zero? prod-const) 0) ; Product of constants is 0
-               ((null? sorted-non-constants) prod-const) ; Result is purely constant
-               ((= prod-const 1)
-                (make-product sorted-non-constants)) ; Constants product to 1
-               ((= prod-const -1)
-                ;; Canonical form for (- X) is preferred over (* -1 X)
-                (simplify (make-negation (make-product sorted-non-constants))))
-               (else
-                (make-product (cons prod-const sorted-non-constants)))))))
-        ;; Process next operand
-        (let ((simplified-op (simplify (car ops))))
-          ;; If simplified_op itself became 0, the whole product is 0
-          (if (and (constant? simplified-op) (zero? simplified-op))
-              0 ; Short-circuit
-              (if (product? simplified-op) ; Flatten if the simplified operand is a product
-                  (collect-and-flatten-factors (cdr ops) (append accumulated-factors (operands simplified-op)))
-                  (collect-and-flatten-factors (cdr ops) (append accumulated-factors (list simplified-op)))))))))
+  (let* ((raw-operands (operands expr))
+         ;; Step 1: Simplify each operand individually.
+         (simplified-initial-factors (map simplify raw-operands))
+         ;; Step 2: Flatten the list of factors. E.g., (x (* y z)) -> (x y z)
+         (flat-simplified-factors (flatten-product-factors-iterative simplified-initial-factors)))
+    ;; Step 3: Check for a 0 factor, which makes the whole product 0.
+    (if (member 0 flat-simplified-factors)
+        0
+        (let* (;; Step 4: Separate numeric constants from other (non-constant) factors.
+               (numeric-constants (filter constant? flat-simplified-factors))
+               (other-factors (filter (lambda (f) (not (constant? f))) flat-simplified-factors))
+               ;; Step 5: Calculate the product of all numeric constants.
+               (base-const-val (if (null? numeric-constants) 1 (apply * numeric-constants))))
+          ;; If the constant part is 0 (e.g., from (* 0 x)), the whole product is 0.
+          (if (and (number? base-const-val) (= base-const-val 0)) ; Ensure base-const-val is number for =
+              0
+              ;; Step 6: Process non-constant factors to pull out negations and update constant.
+              (call-with-values
+               (lambda () ; Producer for final-const-val and processed-non-constants
+                 (let loop ((current-const base-const-val)
+                            (remaining-others other-factors)
+                            (acc-non-const '()))
+                   (if (null? remaining-others)
+                       (values current-const (reverse acc-non-const))
+                       (let ((factor (car remaining-others)))
+                         (if (negation? factor) ; e.g., (- x)
+                             (loop (* current-const -1)
+                                   (cdr remaining-others)
+                                   (cons (negated-expr factor) acc-non-const)) ; Add x
+                             (loop current-const
+                                   (cdr remaining-others)
+                                   (cons factor acc-non-const)))))))
+               (lambda (final-const-val processed-non-constants) ; Consumer
+                 ;; Step 7: Sort the remaining non-constant factors for canonical grouping.
+                 (let* ((sorted-initial-non-constants (list-sort term<? processed-non-constants))
+                        ;; Step 8: Group identical factors into powers.
+                        ;; The list returned by group-factors-into-powers is ordered by first appearance
+                        ;; of the base in sorted-initial-non-constants.
+                        (grouped-terms-intermediate (group-factors-into-powers sorted-initial-non-constants))
+                        ;; Step 8.5: Sort the final list of grouped terms.
+                        (grouped-non-constants (list-sort term<? grouped-terms-intermediate))
+                        ;; Step 9: Filter out any '1's that resulted from grouping (e.g. x^0 -> 1)
+                        (final-grouped-factors (filter (lambda (f) (not (equal? f 1))) grouped-non-constants)))
+                   ;; Step 10: Construct the final simplified product.
+                   (cond
+                     ((and (number? final-const-val) (= final-const-val 0)) 0)
+                     ((null? final-grouped-factors) final-const-val) ; Only constant remains.
+                     ((and (number? final-const-val) (= final-const-val 1)) ; Constant is 1, omit it.
+                      (if (null? (cdr final-grouped-factors))
+                          (car final-grouped-factors) ; Single factor.
+                          (make-product final-grouped-factors)))
+                     ((and (number? final-const-val) (= final-const-val -1)) ; Constant is -1.
+                      (if (null? final-grouped-factors)
+                          -1 ; Product was just -1.
+                          (make-negation ; Negate the product of other factors.
+                           (if (null? (cdr final-grouped-factors))
+                               (car final-grouped-factors)
+                               (make-product final-grouped-factors)))))
+                     (else ; Constant is other than 0, 1, -1.
+                      (make-product (cons final-const-val final-grouped-factors))))))))))))
 
 
-;; Simplification for powers
+; Revised simplify-power:
 (define (simplify-power expr)
   (let ((b (simplify (base expr)))
         (e (simplify (exponent expr))))
     (cond
-      ;; e is 0 => x^0 = 1 (assuming b != 0, common simplification)
-      ((and (constant? e) (zero? e)) 1)
-      ;; e is 1 => x^1 = x
-      ((and (constant? e) (= e 1)) b)
-      ;; b is 0 (and e is not 0) => 0^x = 0 (for x > 0)
-      ((and (constant? b) (zero? b) (not (and (constant? e) (zero? e)))) 0)
-      ;; b is 1 => 1^x = 1
-      ((and (constant? b) (= b 1)) 1)
-      ;; Both b and e are constants
-      ((and (constant? b) (constant? e)) (expt b e))
-      ;; Default case
-      (else (list '^ b e)))))
+      ;; Constant folding
+      ((and (constant? b) (constant? e))
+       (if (and (number? b) (= b 0) (number? e) (<= e 0)) ; 0^0 or 0 to negative power
+           (if (= e 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
+           (expt b e))) ; expt is the Scheme power function
+      ;; Standard identities
+      ((and (constant? e) (= e 0)) 1) ; x^0 = 1 (for x != 0, handled above for b=0, e=0)
+      ((and (constant? e) (= e 1)) b) ; x^1 = x
+      ((and (constant? b) (= b 0)) ; 0^x = 0 for x > 0 (0^0 and 0^neg handled by constant folding)
+       (if (and (constant? e) (> e 0)) ; Ensure exponent is a positive number
+           0
+           (make-power b e))) ; If exponent is not a positive number, don't simplify to 0 yet
+      ((and (constant? b) (= b 1)) 1) ; 1^x = 1
+      ;; New rule: Power of a negation
+      ((and (negation? b) (integer? e) (>= e 0))
+       (let ((base-of-negation (negated-expr b)))
+         (if (even? e)
+             (simplify (make-power base-of-negation e))
+             (simplify (make-negation (make-power base-of-negation e))))))
+      ;; Default
+      (else (make-power b e)))))
 
 ;; Helper to create a negation, possibly simplifying double negations
 ;; This is used by simplify-product when prod-const is -1
@@ -417,6 +590,75 @@
         (else (find-sum-and-distribute (cdr current-factors)
                                        (cons (car current-factors) factors-processed)))))))
 
+
+;; Helper to flatten a list of lists by one level
+(define (flatten-once lst)
+  (apply append lst))
+
+;; Helper to expand (* expr1 expr2) where expr1 and expr2 might be sums.
+;; Returns a new sum expression (list of product terms).
+;; This result is NOT yet fully simplified by simplify-sum (e.g., like terms not collected).
+;; The main 'expand' function's simplify step will handle that.
+(define (expand-product-of-two-expressions expr1 expr2)
+  (let ((sum1 (if (sum? expr1) expr1 (make-sum (list expr1)))) ; Treat non-sum as sum of one term
+        (sum2 (if (sum? expr2) expr2 (make-sum (list expr2)))))
+    (let ((terms1 (operands sum1))
+          (terms2 (operands sum2)))
+      (make-sum
+       (flatten-once ; To avoid nested lists from (map (lambda (t1) (map ...)))
+        (map (lambda (t1)
+               (map (lambda (t2)
+                      ;; Create product term. The main 'expand' will simplify these products.
+                      (make-product (list t1 t2)))
+                    terms2))
+             terms1))))))
+
+;; Revised Arbitrary polynomial expansion for sums of powers
+;; This function is called from expand-power-rules.
+;; It returns an expanded form; the main 'expand' function will then simplify it.
+(define (expand-polynomial-sum power-expr)
+  ;; power-expr is '(^ base exponent)'
+  ;; Conditions like (sum? base), (integer? exponent), (> exponent 1)
+  ;; are assumed to be checked by the caller (expand-power-rules).
+  (let ((base (base power-expr))
+        (exponent (exponent power-expr)))
+    ;; Inner recursive worker.
+    ;; Returns an expanded sum (or 1 if exponent is 0, or base if exponent is 1).
+    (define (recursive-worker current-base current-exponent)
+      (cond ((= current-exponent 0) 1)
+            ((= current-exponent 1) current-base)
+            (else
+             ;; Perform (current-base * result-of-recursive-call)
+             (expand-product-of-two-expressions current-base
+                                                (recursive-worker current-base (- current-exponent 1))))))
+    (recursive-worker base exponent)))
+
+(define (factorial n) (if (<= n 1) 1 (apply * (iota n n -1)))) 
+
+(define (combinations n k)
+  (if (or (< k 0) (> k n)) 0
+      (/ (factorial n) (* (factorial k) (factorial (- n k))))))
+
+;; Expands (^ (term1 + term2) exponent) using binomial theorem.
+;; Returns a sum expression.
+(define (expand-binomial-sum term1 term2 exponent)
+  (make-sum
+   (filter-map ; filter-map to remove potential nils if a term becomes 0 or coeff is 0
+    (lambda (k)
+      (let ((coeff (combinations exponent k)))
+        (if (zero? coeff)
+            #f ; This term is zero
+            (let* ((n-k (- exponent k))
+                   (pow1 (cond ((= n-k 0) 1) ((= n-k 1) term1) (else (list '^ term1 n-k))))
+                   (pow2 (cond ((= k 0) 1) ((= k 1) term2) (else (list '^ term2 k))))
+                  ;; term-parts will be a list like (coeff pow1 pow2), after filtering 1s
+                  (term-parts (filter (lambda (p) (not (equal? p 1))) (list coeff pow1 pow2))))
+              (cond ((null? term-parts) 1) ; e.g. for 1*1*1 if all were 1
+                    ((null? (cdr term-parts)) (car term-parts)) ; Only one part left
+                    ;; Corrected: Pass term-parts directly to make-product
+                    (else (make-product term-parts))))))) ; Make product of remaining parts
+    (iota (+ exponent 1) 0 1)))) ; k from 0 to exponent
+
 ;; Helper: Applies expansion rules for powers.
 ;; power-expr is like '(^ base exponent)' where base and exponent are already expanded.
 ;; Returns a new expanded expression or the original power-expr if no rule applies.
@@ -424,35 +666,40 @@
   (let ((base (base power-expr))
         (exponent (exponent power-expr)))
     (cond
-      ;; Rule 1: (^ (+ a b) 2) -> (+ (^ a 2) (* 2 a b) (^ b 2))
-      ((and (sum? base)
-            (constant? exponent)
-            (= exponent 2)
-            (pair? (operands base))             ; Must have at least one term
-            (pair? (cdr (operands base)))       ; Must have at least two terms
-            (null? (cddr (operands base))))     ; Must have exactly two terms
-       (let ((a (car (operands base)))          ; Defines 'a'
-             (b (cadr (operands base))))        ; Defines 'b'
-         ;; The body of the 'let' constructs the new sum:
-         (make-sum (list (list '^ a 2)          ; Constructs (^ a 2)
-                         (list '* 2 a b)        ; Constructs (* 2 a b)
-                         (list '^ b 2)))))      ; Constructs (^ b 2)
-                                                ; 'list' creates the list of these three terms
-                                                ; 'make-sum' takes this list to form the sum expression
+      ;; Rule 0a: Exponent is 0 (integer)
+      ((and (integer? exponent) (= exponent 0)) 1)
+      ;; Rule 0b: Exponent is 1 (integer)
+      ((and (integer? exponent) (= exponent 1)) base)
 
-      ;; Rule 2: (^ (* f1 f2 ...) n) -> (* (^ f1 n) (^ f2 n) ...)
+      ;; Rule A: Binomial expansion for (^ (+ t1 t2) n), where n is an integer >= 2
+      ((and (sum? base)
+            (integer? exponent)
+            (>= exponent 2)
+            (= (length (operands base)) 2))
+       (expand-binomial-sum (car (operands base)) (cadr (operands base)) exponent))
+
+      ;; Rule B: General polynomial sum expansion for (^ (sum) n), where n is an integer >= 2
+      ((and (sum? base)
+            (integer? exponent)
+            (>= exponent 2))
+       (expand-polynomial-sum power-expr))
+
+      ;; Rule C: Power of a Product (^ (* f1 f2) e) -> (* (^ f1 e) (^ f2 e))
+      ;; This rule applies whether 'e' is an integer or symbolic.
       ((product? base)
        (make-product (map (lambda (factor) (list '^ factor exponent))
                           (operands base))))
 
-      ;; Rule 3: (^ (/ num den) n) -> (/ (^ num n) (^ den n))
+      ;; Rule D: Power of a Quotient (^ (/ n d) e) -> (/ (^ n e) (^ d e))
+      ;; This rule applies whether 'e' is an integer or symbolic.
       ((quotient? base)
        (list '/
              (list '^ (quotient-numerator base) exponent)
              (list '^ (quotient-denominator base) exponent)))
 
+      ;; Default: No expansion rule applied for the power expression itself
       (else power-expr))))
-      
+
 ;; Main expand function
 ;; Recursively expands expressions and simplifies the result.
 (set! expand

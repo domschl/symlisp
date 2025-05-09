@@ -1,4 +1,4 @@
-(define (factorial n) (if (<= n 1) 1 (* n (factorial (- n 1)))))
+(define (factorial-rec n) (if (<= n 1) 1 (* n (factorial-rec (- n 1)))))
 
 (define (fibonacci n)
   (if (<= n 1)
@@ -8,7 +8,7 @@
 (define (sqrt n) (car (exact-integer-sqrt n)))
 
 ;; Get n-th prime number:
-(define (is-prime? n)
+(define (is-prime-old? n)
   (if (< n 2)
       #f
       (let loop ((i 2))
@@ -21,7 +21,7 @@
 (define (nth-prime-helper n count current)
   (if (= count n)
       (- current 1)
-      (if (is-prime? current)
+      (if (prime? current)
           (nth-prime-helper n (+ count 1) (+ current 1))
           (nth-prime-helper n count (+ current 1)))))
 (define (nth-prime n)

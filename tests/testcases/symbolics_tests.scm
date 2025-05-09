@@ -311,8 +311,8 @@
   (assert-equal (simplify '(^ 1 x)) 1))
 (define-test "simplify-power-base-zero-positive-exponent" ; 0^x = 0 for x > 0
   (assert-equal (simplify '(^ 0 2)) 0))
-(define-test "simplify-power-base-zero-variable-exponent" ; 0^x = 0 (assuming x not 0 or negative)
-  (assert-equal (simplify '(^ 0 x)) 0))
+(define-test "simplify-power-base-zero-variable-exponent" 
+  (assert-equal (simplify '(^ 0 x)) '(^ 0 x)))
 (define-test "simplify-power-zero-to-zero" ; 0^0 = 1
   (assert-equal (simplify '(^ 0 0)) 1))
 
@@ -348,6 +348,40 @@
   (assert-equal (simplify '(/ x x)) 1))
 (define-test "simplify-quotient-divide-by-zero-remains" ; Or error, current returns unsimplified
   (assert-equal (simplify '(/ x 0)) '(/ x 0)))
+
+;;; --- Tests for term<? canonical ordering ---
+(define-test "term<?-constants-1"
+  (assert-true (term<? 1 2)))
+(define-test "term<?-constants-2"
+  (assert-false (term<? 2 1)))
+(define-test "term<?-constants-3"
+  (assert-false (term<? 1 1)))
+
+(define-test "term<?-constant-vs-variable-1"
+  (assert-true (term<? 1 'x)))
+(define-test "term<?-constant-vs-variable-2"
+  (assert-false (term<? 'x 1)))
+
+(define-test "term<?-constant-vs-compound-1"
+  (assert-true (term<? 1 '(+ x 1))))
+(define-test "term<?-constant-vs-compound-2"
+  (assert-false (term<? '(+ x 1) 1)))
+
+(define-test "term<?-variables-1"
+  (assert-true (term<? 'a 'b)))
+(define-test "term<?-variables-2"
+  (assert-false (term<? 'b 'a)))
+(define-test "term<?-variables-3"
+  (assert-false (term<? 'a 'a)))
+(define-test "term<?-variables-4"
+  (assert-true (term<? 'x 'y)))  ; Assuming standard alphabetical
+(define-test "term<?-variables-5"
+  (assert-true (term<? 'y 'z))) ; Assuming standard alphabetical
+
+(define-test "term<?-variable-vs-compound-1"
+  (assert-true (term<? 'x '(+ x 1))))  ; Variable < Compound
+(define-test "term<?-variable-vs-compound-2"
+  (assert-false (term<? '(+ x 1) 'x))) ; Compound not < Variable
 
 ;; Recursive Simplification
 (define-test "simplify-recursive-sum-product"
@@ -481,6 +515,36 @@
   (assert-equal (simplify '(* (foo b) z 20 y 10 x (bar a)))
                 '(* 200 x y z (bar a) (foo b)))) ; Order of (bar a) (foo b) depends on object->string
 
+;;; --- Tests for Power-Grouping in Products (via simplify-product) ---
+(define-test "simplify-product-group-single-variable-pair"
+  (assert-equal (simplify '(* x x)) '(^ x 2)))
+(define-test "simplify-product-group-single-variable-triple"
+  (assert-equal (simplify '(* y y y)) '(^ y 3)))
+(define-test "simplify-product-group-with-other-factors"
+  (assert-equal (simplify '(* a x x b x c)) '(* a b c (^ x 3)))) ; Assumes a,b,c sorted before x
+(define-test "simplify-product-group-multiple-variables"
+  (assert-equal (simplify '(* a b a b a)) '(* (^ a 3) (^ b 2))))
+(define-test "simplify-product-group-with-constants"
+  (assert-equal (simplify '(* 2 x 3 x)) '(* 6 (^ x 2))))
+(define-test "simplify-product-group-no-grouping-needed"
+  (assert-equal (simplify '(* a b c)) '(* a b c)))
+(define-test "simplify-product-group-as-power"
+  (assert-equal (simplify '(* (^ x 2) x)) '(^ x 3)))
+(define-test "simplify-product-group-complex-factors"
+  ;; Input: (* (+ a 1) x (+ a 1) y (+ a 1))
+  ;; simplify on (+ a 1) -> (+ 1 a)
+  ;; Sorted factors before grouping: (x y (+ 1 a) (+ 1 a) (+ 1 a))
+  ;; Grouped: (x y (^ (+ 1 a) 3))
+  (assert-equal (simplify '(* (+ a 1) x (+ a 1) y (+ a 1)))
+                '(* x y (^ (+ 1 a) 3)))) ; Adapted: (+ 1 a) due to inner simplify
+(define-test "simplify-product-group-flatten-then-group"
+  ;; Input: (* x (* y x y) z x) -> flattened to (* x y x y z x)
+  ;; Sorted non-constant factors: (x x x y y z) (assuming alphabetical for vars)
+  ;; Grouped: ((^ x 3) (^ y 2) z)
+  ;; term<? sorts z (var) before (^ x 3) and (^ y 2) (compounds)
+  ;; Then (^ x 3) vs (^ y 2) by object->string. Assume (^ x 3) < (^ y 2)
+  (assert-equal (simplify '(* x (* y x y) z x)) '(* z (^ x 3) (^ y 2)))) ; Adapted based on term<?
+
 ;; Combined Flattening and Ordering
 (define-test "simplify-flatten-order-sum-complex"
   (assert-equal (simplify '(+ c (+ 10 a) 5 (+ b x))) '(+ 15 a b c x)))
@@ -532,9 +596,9 @@
   ;; (^ (+ x 1) 2) -> (+ (^ x 2) (* 2 x 1) (^ 1 2)) -> (+ 1 (* 2 x) (^ x 2))
   (assert-equal (expand '(^ (+ x 1) 2)) '(+ 1 (* 2 x) (^ x 2))))
 (define-test "expand-power-of-sum-not-square"
-  (assert-equal (expand '(^ (+ a b) 3)) '(^ (+ a b) 3))) ; No rule for cube yet
+  (assert-equal (expand '(^ (+ a b) 3)) '(+ (* 3 a (^ b 2)) (* 3 b (^ a 2)) (^ a 3) (^ b 3))))
 (define-test "expand-power-of-sum-not-two-terms"
-  (assert-equal (expand '(^ (+ a b c) 2)) '(^ (+ a b c) 2))) ; Rule only for 2 terms
+  (assert-equal (expand '(^ (+ a b c) 2)) '(+ (* 2 a b) (* 2 a c) (* 2 b c) (^ a 2) (^ b 2) (^ c 2))))
 
 ;; Powers of Products: (^ (* a b ...) n) -> (* (^ a n) (^ b n) ...)
 (define-test "expand-power-of-product-simple"
@@ -566,15 +630,18 @@
   ;; Step 2 (expand power of sum): (^ (X Y) 2) -> (+ (^ X 2) (* 2 X Y) (^ Y 2))
   ;;   X = (* a b), Y = (* a c)
   ;;   -> (+ (^ (* a b) 2) (* 2 (* a b) (* a c)) (^ (* a c) 2))
-  ;; Step 3 (expand terms of this sum):
+  ;; Step 3 (expand terms of this sum, simplify applies to middle term):
   ;;   (^ (* a b) 2) -> (* (^ a 2) (^ b 2))
-  ;;   (* 2 (* a b) (* a c)) -> simplify -> (* 2 a a b c)  (current simplify does not make (^ a 2) here)
+  ;;   (* 2 (* a b) (* a c)) -> simplify -> (* 2 (^ a 2) b c) ; Power grouping applied
   ;;   (^ (* a c) 2) -> (* (^ a 2) (^ c 2))
-  ;; Expression becomes: (+ (* (^ a 2) (^ b 2)) (* 2 a a b c) (* (^ a 2) (^ c 2)))
-  ;; Step 4 (final simplify for ordering):
-  ;;   The terms are sorted by term<?. The "Got" value reflects this order.
+  ;; Expression becomes: (+ (* (^ a 2) (^ b 2)) (* 2 (^ a 2) b c) (* (^ a 2) (^ c 2)))
+  ;; Step 4 (final simplify for ordering of sum terms):
+  ;;   The terms are sorted by term<?.
+  ;;   Got:      (+ (* (^ a 2) (^ b 2)) (* (^ a 2) (^ c 2)) (* 2 b c (^ a 2)))
+  ;;   This is equivalent to (+ (* (^ a 2) (^ b 2)) (* (^ a 2) (^ c 2)) (* 2 (^ a 2) b c))
+  ;;   after simplify-product sorts factors of the third term.
   (assert-equal (expand '(^ (* a (+ b c)) 2))
-                '(+ (* (^ a 2) (^ b 2)) (* (^ a 2) (^ c 2)) (* 2 a a b c)))) ; Adapted expectation
+                '(+ (* (^ a 2) (^ b 2)) (* (^ a 2) (^ c 2)) (* 2 b c (^ a 2))))) ; Adapted expectation
 (define-test "expand-already-expanded"
   (assert-equal (expand '(+ (* a b) (* a c))) '(+ (* a b) (* a c))))
 (define-test "expand-atomic"
@@ -595,3 +662,41 @@
   ;; simplify: (+ 6 (* 2 x) (* 6 y))
   (assert-equal (expand '(* 2 (+ x (* 3 (+ y 1)))))
                 '(+ 6 (* 2 x) (* 6 y))))
+
+
+;; Polynomial Expansion
+
+(define-test "expand-power-of-sum-binomial-cube"
+  ;; (^ (+ a b) 3) -> (+ (^ a 3) (* 3 (^ a 2) b) (* 3 a (^ b 2)) (^ b 3))
+  ;; Order will be determined by simplify-sum
+  (assert-equal (expand '(^ (+ a b) 3))
+                '(+ (* 3 a (^ b 2)) (* 3 b (^ a 2)) (^ a 3) (^ b 3)))) ; Example order
+
+(define-test "expand-power-of-sum-binomial-cube-with-constants"
+  ;; (^ (+ x 1) 3) -> (+ (^ x 3) (* 3 (^ x 2) 1) (* 3 x (^ 1 2)) (^ 1 3))
+  ;; -> (+ 1 (* 3 x) (* 3 (^ x 2)) (^ x 3))
+  (assert-equal (expand '(^ (+ x 1) 3))
+                '(+ 1 (* 3 (^ x 2)) (* 3 x) (^ x 3))))
+
+(define-test "expand-power-of-sum-trinomial-square"
+  ;; (^ (+ a b c) 2) -> (+ (^a 2) (^b 2) (^c 2) (* 2 a b) (* 2 a c) (* 2 b c))
+  (assert-equal (expand '(^ (+ a b c) 2))
+                '(+ (* 2 a b) (* 2 a c) (* 2 b c) (^ a 2) (^ b 2) (^ c 2))))
+
+(define-test "expand-power-of-sum-binomial-fourth-power"
+  ;; (^ (+ a b) 4) -> (+ (^a 4) (* 4 (^a 3)b) (* 6 (^a 2)(^b 2)) (* 4 a (^b 3)) (^b 4))
+  (assert-equal (expand '(^ (+ a b) 4))
+                '(+ (* 4 a (^ b 3)) (* 4 b (^ a 3)) (* 6 (^ a 2) (^ b 2)) (^ a 4) (^ b 4))))
+
+(define-test "expand-power-of-sum-with-negation-term-squared"
+  ;; (^ (+ a (- b)) 2) -> (+ (^ a 2) (* 2 a (- b)) (^ (- b) 2))
+  ;; simplify -> (+ (^ a 2) (* -2 a b) (^ b 2))
+  (assert-equal (expand '(^ (+ a (- b)) 2))
+                '(+ (* -2 a b) (^ a 2) (^ b 2))))
+
+(define-test "expand-power-of-product-containing-sum-squared"
+  ;; (^ (* 2 (+ x y)) 2) -> (* (^ 2 2) (^ (+ x y) 2)) -> (* 4 (^ (+ x y) 2))
+  ;; -> (* 4 (+ (^ x 2) (* 2 x y) (^ y 2)))
+  ;; -> (+ (* 4 (^ x 2)) (* 8 x y) (* 4 (^ y 2)))
+  (assert-equal (expand '(^ (* 2 (+ x y)) 2))
+                '(+ (* 4 (^ x 2)) (* 4 (^ y 2)) (* 8 x y))))

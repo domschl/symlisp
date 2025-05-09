@@ -231,43 +231,88 @@
 ;; Forward declaration for simplify, as helpers might call it or be called by it.
 (define simplify #f)
 
-;; Helper for simplify-sum: groups sorted identical terms and represents them as products.
+;; Helper: Extracts coefficient and base term from a term.
+;; Returns a list: (coefficient base-term)
+;; e.g., x -> (1 x)
+;;       (* 2 x y) -> (2 (* x y))
+;;       (* x y) -> (1 (* x y))
+;;       5 -> (5 1) ; Constant term, base is 1 (neutral for multiplication)
+(define (get-coefficient-and-base term)
+  (cond
+    ((constant? term) (list term 1)) ; Coefficient is term, base is 1
+    ((variable? term) (list 1 term))  ; Coefficient 1, base is term
+    ((product? term)
+     (let ((ops (operands term)))
+       (if (and (pair? ops) (constant? (car ops)))
+           (list (car ops) (make-product (cdr ops))) ; Coeff is (car ops), base is rest
+           (list 1 term))))                         ; No leading const coeff, coeff is 1, base is whole product
+    (else (list 1 term)))) ; For other compound terms like (^ x 2), coeff is 1
+
+;; Helper for simplify-sum: groups sorted like terms.
 ;; Assumes sorted-terms is a list of terms already sorted by term<?.
-;; E.g., (a a a b b c) -> ((* 3 a) (* 2 b) c)
-(define (group-addends sorted-terms)
+;; This sorting helps bring potentially like terms (e.g., x and (* c x)) closer,
+;; but the primary grouping is by the "base part" of the term.
+(define (collect-like-terms sorted-terms)
   (if (null? sorted-terms)
       '()
-      (let ((first-term (car sorted-terms)))
-        (let count-consecutive ((lst sorted-terms) (current-term-to-match first-term) (count 0))
-          (if (or (null? lst) (not (equal? (car lst) current-term-to-match)))
-              (let ((grouped-addend (if (> count 1)
-                                        (make-product (list count current-term-to-match)) ; e.g. (* 2 a)
-                                        current-term-to-match)))
-                (cons grouped-addend (group-addends lst)))
-              (count-consecutive (cdr lst) current-term-to-match (+ count 1)))))))
+      (let* ((first-term-info (get-coefficient-and-base (car sorted-terms)))
+             (current-coeff (car first-term-info))
+             (current-base-term (cadr first-term-info)))
+        (let process-terms ((remaining-terms (cdr sorted-terms))
+                             (accumulated-coeff current-coeff)
+                             (base-to-match current-base-term))
+          (if (null? remaining-terms)
+              ;; End of list, construct the final term for this group
+              (list (simplify ; <<<< SIMPLIFY THE CONSTRUCTED TERM
+                     (if (and (number? accumulated-coeff) (= accumulated-coeff 1) (not (equal? base-to-match 1)))
+                         base-to-match
+                         (if (equal? base-to-match 1)
+                             accumulated-coeff
+                             (make-product (list accumulated-coeff base-to-match))))))
+              (let* ((next-term-info (get-coefficient-and-base (car remaining-terms)))
+                     (next-coeff (car next-term-info))
+                     (next-base-term (cadr next-term-info)))
+                (if (equal? next-base-term base-to-match)
+                    (process-terms (cdr remaining-terms)
+                                   (add-coefficients accumulated-coeff next-coeff)
+                                   base-to-match)
+                    (cons (simplify ; <<<< SIMPLIFY THE CONSTRUCTED TERM
+                           (if (and (number? accumulated-coeff) (= accumulated-coeff 1) (not (equal? base-to-match 1)))
+                               base-to-match
+                               (if (equal? base-to-match 1)
+                                   accumulated-coeff
+                                   (make-product (list accumulated-coeff base-to-match)))))
+                          (collect-like-terms remaining-terms)))))))))
 
-;; Simplification for sums (with flattening and ordering)
+;; Helper to add coefficients (can be numbers or symbolic expressions)
+(define (add-coefficients c1 c2)
+  (simplify (make-sum (list c1 c2))))
+
+
 (define (simplify-sum expr)
   (let collect-and-flatten-terms ((ops (operands expr)) (accumulated-terms '()))
     (if (null? ops)
-        (let* ((constants (filter constant? accumulated-terms))
-               (non-constants (filter (lambda (x) (not (constant? x))) accumulated-terms))
+        (let* ((processed-terms (filter (lambda (term) (not (and (constant? term) (zero? term)))) accumulated-terms))
+               (constants (filter constant? processed-terms))
+               (non-constants (filter (lambda (x) (not (constant? x))) processed-terms))
                (sum-const (if (null? constants) 0 (apply + constants)))
+               ;; Sort non-constants. This helps group terms like x and (* c x) somewhat,
+               ;; but collect-like-terms does the actual matching.
                (sorted-non-constants (list-sort term<? non-constants))
-               ;; --- NEW: Group identical non-constant terms ---
-               (grouped-non-constants (group-addends sorted-non-constants))
-               ;; --- Sort the final grouped terms again for canonical order ---
-               ;; E.g. if grouping produced ((* 2 b) (* 3 a)), sorting makes it ((* 3 a) (* 2 b))
-               (final-sorted-grouped-terms (list-sort term<? grouped-non-constants))
-               )
+               (collected-terms (collect-like-terms sorted-non-constants))
+               ;; Filter out any terms that became zero after collection (e.g. x + (- x))
+               (final-non-zero-terms (filter (lambda (term) (not (and (constant? term) (zero? term)))) collected-terms))
+               ;; Sort the final collected terms again for canonical order
+               (final-sorted-terms (list-sort term<? final-non-zero-terms)))
           (cond
-            ((null? final-sorted-grouped-terms) sum-const)
-            ((and (not (null? final-sorted-grouped-terms)) (zero? sum-const))
-             (make-sum final-sorted-grouped-terms))
-            (else
-             (make-sum (cons sum-const final-sorted-grouped-terms)))))
+            ((null? final-sorted-terms) sum-const) ; Only constants remained, or all cancelled to 0
+            ((and (not (null? final-sorted-terms)) (zero? sum-const)) ; No constant part, or it's 0
+             (make-sum final-sorted-terms))
+            (else ; Both constant part (non-zero) and other terms
+             (make-sum (cons sum-const final-sorted-terms)))))
+        ;; Process next operand
         (let ((simplified-op (simplify (car ops))))
-          (if (sum? simplified-op)
+          (if (sum? simplified-op) ; Flatten sum
               (collect-and-flatten-terms (cdr ops) (append accumulated-terms (operands simplified-op)))
               (collect-and-flatten-terms (cdr ops) (append accumulated-terms (list simplified-op))))))))
 
@@ -513,7 +558,7 @@
             (integer? exponent) ; Ensure it's an integer
             (> exponent 1))     ; For n > 1
         (if (= exponent 2)
-            (simplify-sum (expand (list '* base base)))
+            (simplify (expand (list '* base base)))
           (simplify-sum (expand (list '* base (expand-polynomial-sum (list '^ base (- exponent 1)))))))))
     expr))
 

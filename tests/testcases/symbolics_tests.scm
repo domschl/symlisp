@@ -663,3 +663,40 @@
   (assert-equal (expand '(* 2 (+ x (* 3 (+ y 1)))))
                 '(+ 6 (* 2 x) (* 6 y))))
 
+
+;; Polynomial Expansion
+
+(define-test "expand-power-of-sum-binomial-cube"
+  ;; (^ (+ a b) 3) -> (+ (^ a 3) (* 3 (^ a 2) b) (* 3 a (^ b 2)) (^ b 3))
+  ;; Order will be determined by simplify-sum
+  (assert-equal (expand '(^ (+ a b) 3))
+                '(+ (^ a 3) (^ b 3) (* 3 a (^ b 2)) (* 3 b (^ a 2))))) ; Example order
+
+(define-test "expand-power-of-sum-binomial-cube-with-constants"
+  ;; (^ (+ x 1) 3) -> (+ (^ x 3) (* 3 (^ x 2) 1) (* 3 x (^ 1 2)) (^ 1 3))
+  ;; -> (+ 1 (* 3 x) (* 3 (^ x 2)) (^ x 3))
+  (assert-equal (expand '(^ (+ x 1) 3))
+                '(+ 1 (* 3 x) (* 3 (^ x 2)) (^ x 3))))
+
+(define-test "expand-power-of-sum-trinomial-square"
+  ;; (^ (+ a b c) 2) -> (+ (^a 2) (^b 2) (^c 2) (* 2 a b) (* 2 a c) (* 2 b c))
+  (assert-equal (expand '(^ (+ a b c) 2))
+                '(+ (* 2 a b) (* 2 a c) (* 2 b c) (^ a 2) (^ b 2) (^ c 2))))
+
+(define-test "expand-power-of-sum-binomial-fourth-power"
+  ;; (^ (+ a b) 4) -> (+ (^a 4) (* 4 (^a 3)b) (* 6 (^a 2)(^b 2)) (* 4 a (^b 3)) (^b 4))
+  (assert-equal (expand '(^ (+ a b) 4))
+                '(+ (^ a 4) (^ b 4) (* 4 a (^ b 3)) (* 4 b (^ a 3)) (* 6 (^ a 2) (^ b 2)))))
+
+(define-test "expand-power-of-sum-with-negation-term-squared"
+  ;; (^ (+ a (- b)) 2) -> (+ (^ a 2) (* 2 a (- b)) (^ (- b) 2))
+  ;; simplify -> (+ (^ a 2) (* -2 a b) (^ b 2))
+  (assert-equal (expand '(^ (+ a (- b)) 2))
+                '(+ (* -2 a b) (^ a 2) (^ b 2))))
+
+(define-test "expand-power-of-product-containing-sum-squared"
+  ;; (^ (* 2 (+ x y)) 2) -> (* (^ 2 2) (^ (+ x y) 2)) -> (* 4 (^ (+ x y) 2))
+  ;; -> (* 4 (+ (^ x 2) (* 2 x y) (^ y 2)))
+  ;; -> (+ (* 4 (^ x 2)) (* 8 x y) (* 4 (^ y 2)))
+  (assert-equal (expand '(^ (* 2 (+ x y)) 2))
+                '(+ (* 4 (^ x 2)) (* 4 (^ y 2)) (* 8 x y))))

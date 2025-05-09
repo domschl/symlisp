@@ -573,6 +573,182 @@
 (define-test "string>=?-less"
   (assert-false (string>=? "apple" "banana")))
 
+;;;-----------------------------------------------------------------------------
+;;; Character Comparison Functions
+;;;-----------------------------------------------------------------------------
+
+;;; char=? Tests
+(define-test "char=?-equal-ascii"
+  (assert-true (char=? #\a #\a)))
+
+(define-test "char=?-unequal-ascii"
+  (assert-false (char=? #\a #\b)))
+
+(define-test "char=?-case-sensitive"
+  (assert-false (char=? #\a #\A)))
+
+(define-test "char=?-equal-unicode"
+  (assert-true (char=? #\λ #\λ)))
+
+(define-test "char=?-unequal-unicode"
+  (assert-false (char=? #\λ #\μ)))
+
+(define-test "char=?-special-chars"
+  (assert-true (char=? #\space #\space)))
+(define-test "char=?-special-chars-unequal"
+  (assert-false (char=? #\newline #\tab)))
+
+;;; char<? Tests
+(define-test "char<?-less-ascii"
+  (assert-true (char<? #\a #\b)))
+
+(define-test "char<?-equal-ascii"
+  (assert-false (char<? #\a #\a)))
+
+(define-test "char<?-greater-ascii"
+  (assert-false (char<? #\b #\a)))
+
+(define-test "char<?-case-sensitive"
+  (assert-true (char<? #\A #\a))) ; Uppercase typically before lowercase
+
+(define-test "char<?-less-unicode"
+  (assert-true (char<? #\α #\β))) ; Greek alpha, beta
+
+(define-test "char<?-equal-unicode"
+  (assert-false (char<? #\α #\α)))
+
+;;; char>? Tests
+(define-test "char>?-greater-ascii"
+  (assert-true (char>? #\b #\a)))
+
+(define-test "char>?-equal-ascii"
+  (assert-false (char>? #\a #\a)))
+
+(define-test "char>?-less-ascii"
+  (assert-false (char>? #\a #\b)))
+
+(define-test "char>?-case-sensitive"
+  (assert-false (char>? #\A #\a))) ; Uppercase typically before lowercase
+
+(define-test "char>?-greater-unicode"
+  (assert-true (char>? #\β #\α)))
+
+;;; char<=? Tests
+(define-test "char<=?-less-ascii"
+  (assert-true (char<=? #\a #\b)))
+
+(define-test "char<=?-equal-ascii"
+  (assert-true (char<=? #\a #\a)))
+
+(define-test "char<=?-greater-ascii"
+  (assert-false (char<=? #\b #\a)))
+
+(define-test "char<=?-case-sensitive"
+  (assert-true (char<=? #\A #\a)))
+
+;;; char>=? Tests
+(define-test "char>=?-greater-ascii"
+  (assert-true (char>=? #\b #\a)))
+
+(define-test "char>=?-equal-ascii"
+  (assert-true (char>=? #\a #\a)))
+
+(define-test "char>=?-less-ascii"
+  (assert-false (char>=? #\a #\b)))
+
+(define-test "char>=?-case-sensitive"
+  (assert-false (char>=? #\A #\a)))
+
+
+;;;-----------------------------------------------------------------------------
+;;; Character Comparison Functions (Case-Insensitive)
+;;;-----------------------------------------------------------------------------
+
+;;; char-ci=? Tests
+(define-test "char-ci=?-equal-same-case"
+  (assert-true (char-ci=? #\a #\a)))
+
+(define-test "char-ci=?-equal-diff-case-ascii"
+  (assert-true (char-ci=? #\a #\A)))
+
+(define-test "char-ci=?-unequal-ascii"
+  (assert-false (char-ci=? #\a #\b)))
+
+(define-test "char-ci=?-equal-diff-case-unicode"
+  (assert-true (char-ci=? #\λ #\Λ))) ; Greek lambda
+
+(define-test "char-ci=?-unequal-unicode"
+  (assert-false (char-ci=? #\λ #\μ)))
+
+(define-test "char-ci=?-non-alpha"
+  (assert-true (char-ci=? #\1 #\1)))
+(define-test "char-ci=?-non-alpha-unequal"
+  (assert-false (char-ci=? #\1 #\2)))
+
+;;; char-ci<? Tests
+(define-test "char-ci<?-less-ascii"
+  (assert-true (char-ci<? #\a #\b)))
+
+(define-test "char-ci<?-less-diff-case-ascii"
+  (assert-true (char-ci<? #\A #\b)))
+(define-test "char-ci<?-less-diff-case-ascii-2"
+  (assert-true (char-ci<? #\a #\B)))
+
+(define-test "char-ci<?-equal-diff-case-ascii"
+  (assert-false (char-ci<? #\a #\A)))
+
+(define-test "char-ci<?-greater-diff-case-ascii"
+  (assert-false (char-ci<? #\B #\a)))
+
+(define-test "char-ci<?-less-unicode"
+  (assert-true (char-ci<? #\α #\Β))) ; Greek alpha, Beta
+
+;;; char-ci>? Tests
+(define-test "char-ci>?-greater-ascii"
+  (assert-true (char-ci>? #\b #\a)))
+
+(define-test "char-ci>?-greater-diff-case-ascii"
+  (assert-true (char-ci>? #\B #\a)))
+(define-test "char-ci>?-greater-diff-case-ascii-2"
+  (assert-true (char-ci>? #\b #\A)))
+
+(define-test "char-ci>?-equal-diff-case-ascii"
+  (assert-false (char-ci>? #\a #\A)))
+
+(define-test "char-ci>?-less-diff-case-ascii"
+  (assert-false (char-ci>? #\A #\b)))
+
+(define-test "char-ci>?-greater-unicode"
+  (assert-true (char-ci>? #\Β #\α))) ; Greek Beta, alpha
+
+;;; char-ci<=? Tests
+(define-test "char-ci<=?-less-ascii"
+  (assert-true (char-ci<=? #\a #\b)))
+
+(define-test "char-ci<=?-less-diff-case-ascii"
+  (assert-true (char-ci<=? #\A #\b)))
+
+(define-test "char-ci<=?-equal-diff-case-ascii"
+  (assert-true (char-ci<=? #\a #\A)))
+
+(define-test "char-ci<=?-greater-diff-case-ascii"
+  (assert-false (char-ci<=? #\B #\a)))
+
+;;; char-ci>=? Tests
+(define-test "char-ci>=?-greater-ascii"
+  (assert-true (char-ci>=? #\b #\a)))
+
+(define-test "char-ci>=?-greater-diff-case-ascii"
+  (assert-true (char-ci>=? #\B #\a)))
+
+(define-test "char-ci>=?-equal-diff-case-ascii"
+  (assert-true (char-ci>=? #\a #\A)))
+
+(define-test "char-ci>=?-less-diff-case-ascii"
+  (assert-false (char-ci>=? #\A #\b)))
+
+
+
 (define-test "symbol->string-basic"
   (assert-equal "abc" (symbol->string 'abc)))
 

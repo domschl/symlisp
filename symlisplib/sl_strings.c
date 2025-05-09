@@ -1448,6 +1448,111 @@ cleanup_tokenizer:
     return token_list;
 }
 
+// Helper for character comparison builtins
+// op_type: 0 for ==, 1 for <, 2 for >, 3 for <=, 4 for >=
+static sl_object *char_comparison_helper(sl_object *args, const char *func_name, int op_type, bool case_insensitive) {
+    // R5RS char=? can take 2 or more arguments. For now, all are binary.
+    // If char=? needs to be variadic, its direct implementation will differ.
+    // This helper assumes binary comparison.
+    sl_object *arity_check = check_arity(func_name, args, 2);
+    if (arity_check != SL_TRUE) return arity_check;
+
+    sl_object *char1_obj = sl_car(args);
+    sl_object *char2_obj = sl_cadr(args);
+
+    if (!sl_is_char(char1_obj)) {
+        return sl_make_errorf("%s: Expected character as first argument, got %s", func_name, sl_type_name(char1_obj ? char1_obj->type : -1));
+    }
+    if (!sl_is_char(char2_obj)) {
+        return sl_make_errorf("%s: Expected character as second argument, got %s", func_name, sl_type_name(char2_obj ? char2_obj->type : -1));
+    }
+
+    uint32_t cp1 = char1_obj->data.code_point;
+    uint32_t cp2 = char2_obj->data.code_point;
+
+    if (case_insensitive) {
+        cp1 = sl_unicode_to_lower(cp1);  // Convert both to lowercase for comparison
+        cp2 = sl_unicode_to_lower(cp2);
+    }
+
+    bool result = false;
+    switch (op_type) {
+    case 0:
+        result = (cp1 == cp2);
+        break;  // ==
+    case 1:
+        result = (cp1 < cp2);
+        break;  // <
+    case 2:
+        result = (cp1 > cp2);
+        break;  // >
+    case 3:
+        result = (cp1 <= cp2);
+        break;  // <=
+    case 4:
+        result = (cp1 >= cp2);
+        break;  // >=
+    default:
+        // This case should not be reached if op_type is used correctly.
+        return sl_make_errorf("Internal error in %s: Invalid operation type specified.", func_name);
+    }
+
+    return result ? SL_TRUE : SL_FALSE;
+}
+
+// (char=? char1 char2)
+static sl_object *sl_builtin_char_eq_pred(sl_object *args) {
+    // Note: R5RS char=? is variadic. This is a binary version.
+    // To make it variadic: iterate through args, comparing each to the first.
+    return char_comparison_helper(args, "char=?", 0, false);
+}
+
+// (char<? char1 char2)
+static sl_object *sl_builtin_char_lt_pred(sl_object *args) {
+    return char_comparison_helper(args, "char<?", 1, false);
+}
+
+// (char>? char1 char2)
+static sl_object *sl_builtin_char_gt_pred(sl_object *args) {
+    return char_comparison_helper(args, "char>?", 2, false);
+}
+
+// (char<=? char1 char2)
+static sl_object *sl_builtin_char_le_pred(sl_object *args) {
+    return char_comparison_helper(args, "char<=?", 3, false);
+}
+
+// (char>=? char1 char2)
+static sl_object *sl_builtin_char_ge_pred(sl_object *args) {
+    return char_comparison_helper(args, "char>=?", 4, false);
+}
+
+// (char-ci=? char1 char2)
+static sl_object *sl_builtin_char_ci_eq_pred(sl_object *args) {
+    // Note: R5RS char-ci=? is variadic. This is a binary version.
+    return char_comparison_helper(args, "char-ci=?", 0, true);
+}
+
+// (char-ci<? char1 char2)
+static sl_object *sl_builtin_char_ci_lt_pred(sl_object *args) {
+    return char_comparison_helper(args, "char-ci<?", 1, true);
+}
+
+// (char-ci>? char1 char2)
+static sl_object *sl_builtin_char_ci_gt_pred(sl_object *args) {
+    return char_comparison_helper(args, "char-ci>?", 2, true);
+}
+
+// (char-ci<=? char1 char2)
+static sl_object *sl_builtin_char_ci_le_pred(sl_object *args) {
+    return char_comparison_helper(args, "char-ci<=?", 3, true);
+}
+
+// (char-ci>=? char1 char2)
+static sl_object *sl_builtin_char_ci_ge_pred(sl_object *args) {
+    return char_comparison_helper(args, "char-ci>=?", 4, true);
+}
+
 // --- Initialization ---
 
 void sl_strings_init(sl_object *global_env) {
@@ -1490,4 +1595,18 @@ void sl_strings_init(sl_object *global_env) {
     define_builtin(global_env, "string-ci>?", sl_builtin_string_ci_gt);
     define_builtin(global_env, "string-ci<=?", sl_builtin_string_ci_le);
     define_builtin(global_env, "string-ci>=?", sl_builtin_string_ci_ge);
+
+    // Character Comparisons (Case-Sensitive)
+    define_builtin(global_env, "char=?", sl_builtin_char_eq_pred);
+    define_builtin(global_env, "char<?", sl_builtin_char_lt_pred);
+    define_builtin(global_env, "char>?", sl_builtin_char_gt_pred);
+    define_builtin(global_env, "char<=?", sl_builtin_char_le_pred);
+    define_builtin(global_env, "char>=?", sl_builtin_char_ge_pred);
+
+    // Character Comparisons (Case-Insensitive)
+    define_builtin(global_env, "char-ci=?", sl_builtin_char_ci_eq_pred);
+    define_builtin(global_env, "char-ci<?", sl_builtin_char_ci_lt_pred);
+    define_builtin(global_env, "char-ci>?", sl_builtin_char_ci_gt_pred);
+    define_builtin(global_env, "char-ci<=?", sl_builtin_char_ci_le_pred);
+    define_builtin(global_env, "char-ci>=?", sl_builtin_char_ci_ge_pred);
 }

@@ -308,7 +308,7 @@
                        ;; If operand string itself starts with a minus (e.g. is "-k" or "-(a+b)"),
                        ;; then wrap it in parens to avoid "--k" or "--(a+b)".
                        (if (and (> (string-length operand-string) 0)
-                                (equal? (string-ref operand-string 0) #\-))
+                                (char=? (string-ref operand-string 0) #\-))
                            (set! infix-str (string-append "-" "(" operand-string ")")) 
                            (set! infix-str (string-append "-" operand-string)))))
                     
@@ -374,20 +374,17 @@
     ((number? expr) (number->string expr))
     ((symbol? expr)
      (let ((s (symbol->string expr)))
-       (cond ((string=? s "pi") "\\pi") ; Example for special symbols
-             ;; Add other Greek letters or special math symbols here
-             (else (latex-function-name-map s))))) ; Fallback to function name map or variable name
+       (cond ((string=? s "pi") "\\pi") 
+             (else (latex-function-name-map s))))) 
     ((not (pair? expr)) (error "expr->latex: Invalid expression structure" expr))
     (else ; It's a list (op arg1 ...)
      (let* ((op (car expr)) (args (cdr expr)) (num-args (length args)))
-       ;; Handle (+ x) and (* x) by simplifying them away for printing
        (if (and (memq op '(+ *)) (= num-args 1))
            (expr->latex-recursive (car args) parent-op-symbol parent-prec parent-is-left-assoc am-i-left-child-of-parent)
-           ;; Proceed with normal operator processing
            (let ((op-properties (get-infix-op-properties op num-args)))
              (cond
                (op-properties ; Known infix operator
-                (let* ((op-char-for-display (car op-properties)) ; May not be directly used if op has special LaTeX
+                (let* ((op-char-for-display (car op-properties)) 
                        (current-prec (cadr op-properties))
                        (current-assoc (caddr op-properties))
                        (current-is-left-assoc (eq? current-assoc 'left))
@@ -395,17 +392,25 @@
                   (cond
                     ;; Unary Minus (- x)
                     ((and (eq? op '-) (= num-args 1))
-                     (set! latex-str
-                           (string-append "-" ; LaTeX for unary minus is just "-"
-                                          (expr->latex-recursive (car args) op current-prec current-is-left-assoc #f))))
+                     (let ((operand-latex (expr->latex-recursive 
+                                            (car args) 
+                                            op 
+                                            current-prec 
+                                            current-is-left-assoc 
+                                            #f)))
+                       ;; If operand-latex itself starts with a minus, wrap it in parens for LaTeX.
+                       (if (and (> (string-length operand-latex) 0)
+                                (char=? (string-ref operand-latex 0) #\-)) ; Assuming char=? is available or use string=? with substring
+                           (set! latex-str (string-append "-\\left(" operand-latex "\\right)")) 
+                           (set! latex-str (string-append "-" operand-latex)))))
                     
                     ;; Division (/ num den)
                     ((and (eq? op '/) (= num-args 2))
                      (set! latex-str
                            (string-append "\\frac{"
-                                          (expr->latex-recursive (car args) #f 0 #f #f) ; Numerator, reset context
+                                          (expr->latex-recursive (car args) #f 0 #f #f) 
                                           "}{"
-                                          (expr->latex-recursive (cadr args) #f 0 #f #f) ; Denominator, reset context
+                                          (expr->latex-recursive (cadr args) #f 0 #f #f) 
                                           "}")))
                     ;; Power (^ base exp)
                     ((and (eq? op '^) (= num-args 2))
@@ -457,8 +462,8 @@
                      (error "expr->latex: Unhandled arity or form for known operator properties" op)))
                   
                   ;; Add LaTeX parentheses if needed, skip for \frac and some ^ cases.
-                  (if (and (not (eq? op '/)) ; \frac provides its own grouping
-                           (not (and (eq? op '^) ; Also skip for sin^2(x) style if base-latex already includes parens
+                  (if (and (not (eq? op '/)) 
+                           (not (and (eq? op '^) 
                                      (pair? (car args)) (symbol? (caar args))
                                      (memq (caar args) '(sin cos tan log ln)))))
                       (if (needs-parentheses-for-display current-prec current-is-left-assoc parent-prec parent-is-left-assoc am-i-left-child-of-parent)
@@ -466,11 +471,11 @@
                           latex-str)
                       latex-str)))
                
-               ((symbol? op) ; Generic function call for other symbols
+               ((symbol? op) 
                 (let* ((func-name-str (symbol->string op))
                        (latex-op (latex-function-name-map func-name-str))
                        (arg-strings (map (lambda (arg) (expr->latex-recursive arg #f 0 #f #f)) args)))
-                  (if (and (string=? latex-op "\\sqrt") (= num-args 1)) ; Special for \sqrt{arg}
+                  (if (and (string=? latex-op "\\sqrt") (= num-args 1)) 
                       (string-append latex-op "{" (car arg-strings) "}")
                       (string-append latex-op "\\left(" (string-join arg-strings ", ") "\\right)"))))
                (else (error "expr->latex: Unhandled expression form" expr)))))))))

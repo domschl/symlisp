@@ -68,8 +68,7 @@ Again another Scheme, this time:
 
 Larger steps:
 
-- [ ] Symbolics libs
-  - [ ] Symbolic math
+- [ ] Symbolics libs (s.b.)
 - [ ] review against standard(s)
 - [ ] single-page doc suitable as instruction for LLMs (language description and limitations) 
 - [ ] MCP server (stdio based, jsonrpc 2.0)
@@ -78,9 +77,9 @@ Larger steps:
 
 ## Symbolics steps
 
-### Phase 1: Core Expression Representation and Basic Simplification Infrastructure
+### Phase 1: [DONE] Core Expression Representation and Basic Simplification Infrastructure
 
-1. Define Expression Structure & Predicates:
+1. [DONE] Define Expression Structure & Predicates:
 
 - Solidify how expressions are represented (your S-expressions are a good start: (+ x 1), (* a b), (^ x 2)).
 - Create helper predicates:
@@ -97,7 +96,7 @@ Larger steps:
   - multiplicand1 expr, multiplicand2 expr or factors expr
   - base expr, exponent expr (for ^)
 
-2. Implement a Basic simplify Function:
+2. [DONE] Implement a Basic simplify Function:
 
 - This function will be the workhorse and will be expanded iteratively.
 - Start with a recursive structure that dispatches based on the expression type.
@@ -112,7 +111,7 @@ Larger steps:
     - (- 0 x) -> (- x) (if you have a distinct unary minus representation) or (* -1 x)
   - Recursively simplify operands: (simplify '(+ (* 2 3) x)) should first simplify (* 2 3) to 6.
 
-3. Canonical Forms (Early Considerations):
+3. [DONE] Canonical Forms (Early Considerations):
 
 - Flatten Associative Operations: For n-ary operators like + and *, ensure expressions like (+ x (+ y z)) become (+ x y z).
 - Order Terms: For commutative operations (+, *), decide on a canonical order for terms (e.g., constants first, then variables alphabetically). This helps in recognizing equivalent expressions like (+ x 1) and (+ 1 x).

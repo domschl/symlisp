@@ -243,15 +243,234 @@
         (error "string->prefix-expr: Tokenization failed for" str)
         (infix-tokens->prefix-expr tokens)))) ; Corrected closing parenthesis
 
-;; --- Examples ---
-;; (string->prefix-expr "1 + 2")        ; Expected: (+ 1 2)
-;; (string->prefix-expr "a * b")        ; Expected: (* a b)
-;; (string->prefix-expr "1 + 2 * 3")    ; Expected: (+ 1 (* 2 3))
-;; (string->prefix-expr "(1 + 2) * 3")  ; Expected: (* (+ 1 2) 3)
-;; (string->prefix-expr "a ^ b ^ c")    ; Expected: (^ a (^ b c)) (right-associative)
-;; (string->prefix-expr "3 - 4 + 5")    ; Expected: (+ (- 3 4) 5) (left-associative)
-;; (string->prefix-expr "-1 + 2")       ; Expected: (+ (- 1) 2)
-;; (string->prefix-expr "f(x) + g(x,y)") ; Expected: (+ (f x) (g x y))
-;; (string->prefix-expr "f()")          ; Expected: (f)
-;; (string->prefix-expr "f(a,b*c,d)")   ; Expected: (f a (* b c) d)
-;; (string->prefix-expr "-a * (b + -c)") ; Expected: (* (- a) (+ b (- c)))
+;; =====================================================================
+(define (get-infix-op-properties op-symbol arity)
+  (cond
+    ((eq? op-symbol '+) (list "+" 1 'left)) ; Precedence 1, left-associative
+    ((eq? op-symbol '-)
+     (if (= arity 1) (list "-" 4 'right)      ; Unary minus (precedence 4, higher than binary)
+         (list "-" 1 'left)))                 ; Binary minus (precedence 1, left-associative)
+    ((eq? op-symbol '*) (list "*" 2 'left)) ; Precedence 2, left-associative
+    ((eq? op-symbol '/) (if (= arity 2) (list "/" 2 'left) #f)) ; Precedence 2, left, strictly binary for now
+    ((eq? op-symbol '^) (if (= arity 2) (list "^" 3 'right) #f)) ; Precedence 3, right, strictly binary for now
+    (else #f)))
+
+(define (needs-parentheses-for-display current-prec current-is-left-assoc parent-prec parent-is-left-assoc am-i-left-child-of-parent)
+  (if (= parent-prec 0) ; Parent is top-level or function call context (precedence 0 indicates no specific operator parent)
+      #f
+      (cond
+        ((< current-prec parent-prec) #t) ; Current op has lower precedence than parent, needs parens.
+        ((> current-prec parent-prec) #f) ; Current op has higher precedence, no parens.
+        (else ;; Equal precedence
+         (if parent-is-left-assoc
+             (not am-i-left-child-of-parent) ; Parent L-assoc, current is R-child: needs parens (e.g., a-(b-c))
+             am-i-left-child-of-parent)))))  ; Parent R-assoc, current is L-child: needs parens (e.g., (a^b)^c)
+
+;; Helper to join a list of strings with a delimiter (if not already available)
+(define (string-join lst delim)
+  (cond ((null? lst) "")
+        ((null? (cdr lst)) (if (string? (car lst)) (car lst) (error "string-join: non-string element" (car lst))))
+        (else
+         (let ((item1 (car lst)))
+           (if (not (string? item1)) (error "string-join: non-string element" item1))
+           (string-append item1 delim (string-join (cdr lst) delim))))))
+
+;; Main function to convert prefix S-expression to infix string
+(define (prefix-expr->string expr)
+  (expr->infix-string-recursive expr #f 0 #f #f))
+
+(define (expr->infix-string-recursive expr parent-op-symbol parent-prec parent-is-left-assoc am-i-left-child-of-parent)
+  (cond
+    ((number? expr) (number->string expr))
+    ((symbol? expr) (symbol->string expr))
+    ((not (pair? expr)) (error "expr->infix-string: Invalid expression structure" expr))
+    (else ; It's a list (op arg1 ...)
+     (let* ((op (car expr)) (args (cdr expr)) (num-args (length args)))
+       (if (and (memq op '(+ *)) (= num-args 1))
+           (expr->infix-string-recursive (car args) parent-op-symbol parent-prec parent-is-left-assoc am-i-left-child-of-parent)
+           (let ((op-properties (get-infix-op-properties op num-args)))
+             (cond
+               (op-properties ; Known infix operator
+                (let* ((op-char (car op-properties))
+                       (current-prec (cadr op-properties))
+                       (current-assoc (caddr op-properties))
+                       (current-is-left-assoc (eq? current-assoc 'left))
+                       (infix-str ""))
+                  (cond
+                    ;; Unary minus (distinct properties from binary minus)
+                    ((and (eq? op '-) (= num-args 1))
+                     (let ((operand-string (expr->infix-string-recursive 
+                                             (car args) 
+                                             op ; Parent op for recursive call is current op (unary '-')
+                                             current-prec 
+                                             current-is-left-assoc 
+                                             #f))) ; Operand is not a "left" child
+                       ;; If operand string itself starts with a minus (e.g. is "-k" or "-(a+b)"),
+                       ;; then wrap it in parens to avoid "--k" or "--(a+b)".
+                       (if (and (> (string-length operand-string) 0)
+                                (equal? (string-ref operand-string 0) #\-))
+                           (set! infix-str (string-append "-" "(" operand-string ")")) 
+                           (set! infix-str (string-append "-" operand-string)))))
+                    
+                    ;; Strictly Binary operators: / and ^
+                    ((and (memq op '(/ ^)) (= num-args 2))
+                     (set! infix-str 
+                           (string-append (expr->infix-string-recursive (car args) op current-prec current-is-left-assoc #t)
+                                          " " op-char " "
+                                          (expr->infix-string-recursive (cadr args) op current-prec current-is-left-assoc #f))))
+                    
+                    ;; Operators that can be variadic or binary: +, *, and binary -
+                    ((memq op '(+ * -))
+                     (cond
+                       ((= num-args 0) ; e.g. (+) or (*) - should be simplified by Scheme eval
+                        (set! infix-str (if (eq? op '+) "0" "1"))) ; Default representation
+                       ((and (eq? op '-) (= num-args 1)) ; (- x) if unary minus properties weren't distinct (should be caught above)
+                        (set! infix-str ; Fallback for (- x) if it reached here
+                              (string-append op-char
+                                             (expr->infix-string-recursive (car args) op current-prec current-is-left-assoc #f))))
+                       (else ; num-args >= 2 for +, *, and binary - (or num-args = 1 for +/* handled by outer if)
+                        (let ((first-arg-str (expr->infix-string-recursive (car args) op current-prec current-is-left-assoc #t))
+                              (rest-arg-strings (map (lambda (arg)
+                                                       (expr->infix-string-recursive arg op current-prec current-is-left-assoc #f))
+                                                     (cdr args))))
+                          (if (null? rest-arg-strings) ; Should only be true if num-args was 1 and not filtered
+                              (set! infix-str first-arg-str)
+                              (set! infix-str (string-append first-arg-str
+                                                             (apply string-append ; Join rest with " op "
+                                                                    (map (lambda (s) (string-append " " op-char " " s))
+                                                                         rest-arg-strings)))))))))
+                    (else 
+                     (error "expr->infix-string: Unhandled arity or form for known operator properties" op)))
+                  
+                  (if (needs-parentheses-for-display current-prec current-is-left-assoc parent-prec parent-is-left-assoc am-i-left-child-of-parent)
+                      (string-append "(" infix-str ")")
+                      infix-str)))
+               
+               ((symbol? op) ; Generic function call for other symbols
+                (let ((func-name (symbol->string op))
+                      (arg-strings (map (lambda (arg) (expr->infix-string-recursive arg #f 0 #f #f)) args)))
+                  (string-append func-name "(" (string-join arg-strings ", ") ")")))
+               (else (error "expr->infix-string: Unhandled expression form" expr)))))))))
+
+;; Helper to map function symbols to LaTeX command strings
+(define (latex-function-name-map sym-str)
+  (cond ((string=? sym-str "sin") "\\sin")
+        ((string=? sym-str "cos") "\\cos")
+        ((string=? sym-str "tan") "\\tan")
+        ((string=? sym-str "log") "\\log") ; Typically base 10 or context-dependent
+        ((string=? sym-str "ln") "\\ln")   ; Natural log
+        ((string=? sym-str "sqrt") "\\sqrt") ; sqrt is often special
+        ;; Add other common functions as needed
+        ((> (string-length sym-str) 1) (string-append "\\operatorname{" sym-str "}")) ; For user-defined multi-char
+        (else sym-str))) ; Single char like f, g, x, y
+
+;; Main function to convert prefix S-expression to Markdown with LaTeX
+(define (prefix-expr->markdown-latex expr)
+  (string-append "$" (expr->latex-recursive expr #f 0 #f #f) "$"))
+
+;; Recursive helper for prefix-expr->markdown-latex
+(define (expr->latex-recursive expr parent-op-symbol parent-prec parent-is-left-assoc am-i-left-child-of-parent)
+  (cond
+    ((number? expr) (number->string expr))
+    ((symbol? expr)
+     (let ((s (symbol->string expr)))
+       (cond ((string=? s "pi") "\\pi") ; Example for special symbols
+             ;; Add other Greek letters or special math symbols here
+             (else (latex-function-name-map s))))) ; Fallback to function name map or variable name
+    ((not (pair? expr)) (error "expr->latex: Invalid expression structure" expr))
+    (else ; It's a list (op arg1 ...)
+     (let* ((op (car expr)) (args (cdr expr)) (num-args (length args)))
+       ;; Handle (+ x) and (* x) by simplifying them away for printing
+       (if (and (memq op '(+ *)) (= num-args 1))
+           (expr->latex-recursive (car args) parent-op-symbol parent-prec parent-is-left-assoc am-i-left-child-of-parent)
+           ;; Proceed with normal operator processing
+           (let ((op-properties (get-infix-op-properties op num-args)))
+             (cond
+               (op-properties ; Known infix operator
+                (let* ((op-char-for-display (car op-properties)) ; May not be directly used if op has special LaTeX
+                       (current-prec (cadr op-properties))
+                       (current-assoc (caddr op-properties))
+                       (current-is-left-assoc (eq? current-assoc 'left))
+                       (latex-str ""))
+                  (cond
+                    ;; Unary Minus (- x)
+                    ((and (eq? op '-) (= num-args 1))
+                     (set! latex-str
+                           (string-append "-" ; LaTeX for unary minus is just "-"
+                                          (expr->latex-recursive (car args) op current-prec current-is-left-assoc #f))))
+                    
+                    ;; Division (/ num den)
+                    ((and (eq? op '/) (= num-args 2))
+                     (set! latex-str
+                           (string-append "\\frac{"
+                                          (expr->latex-recursive (car args) #f 0 #f #f) ; Numerator, reset context
+                                          "}{"
+                                          (expr->latex-recursive (cadr args) #f 0 #f #f) ; Denominator, reset context
+                                          "}")))
+                    ;; Power (^ base exp)
+                    ((and (eq? op '^) (= num-args 2))
+                     (let* ((base-expr (car args))
+                            (exponent-expr (cadr args))
+                            (base-latex "")
+                            (exp-latex (expr->latex-recursive exponent-expr #f 0 #f #f))) ; Exp context reset
+                       ;; Special formatting for functions like sin^2(x)
+                       (if (and (pair? base-expr) (symbol? (car base-expr))
+                                (memq (car base-expr) '(sin cos tan log ln))) ; Add more if needed
+                           (let ((func-name-latex (latex-function-name-map (symbol->string (car base-expr))))
+                                 (func-args-expr (cdr base-expr)))
+                             (set! base-latex
+                                   (string-append func-name-latex
+                                                  "^{" exp-latex "}"
+                                                  "\\left("
+                                                  (string-join (map (lambda (arg) (expr->latex-recursive arg #f 0 #f #f)) func-args-expr) ", ")
+                                                  "\\right)")))
+                           ;; Standard base^{exp}
+                           (set! base-latex
+                                 (string-append (expr->latex-recursive base-expr op current-prec current-is-left-assoc #t)
+                                                "^{" exp-latex "}")))
+                       (set! latex-str base-latex)))
+                    
+                    ;; Operators that can be variadic or binary: +, *, and binary -
+                    ((memq op '(+ * -))
+                     (let ((latex-op-str (cond ((eq? op '+) " + ")
+                                               ((eq? op '-) " - ") ; Binary minus
+                                               ((eq? op '*) " \\cdot ")
+                                               (else ""))))
+                       (cond
+                         ((= num-args 0)
+                          (set! latex-str (if (eq? op '+) "0" "1")))
+                         ((and (eq? op '-) (= num-args 1)) ; Should have been caught by unary minus rule above
+                          (set! latex-str ; Fallback
+                                (string-append "-" (expr->latex-recursive (car args) op current-prec current-is-left-assoc #f))))
+                         (else ; num-args >= 2 for +, *, binary - (or num-args = 1 for +/* handled by outer if)
+                          (let ((first-arg-latex (expr->latex-recursive (car args) op current-prec current-is-left-assoc #t))
+                                (rest-args-latex (map (lambda (arg)
+                                                        (expr->latex-recursive arg op current-prec current-is-left-assoc #f))
+                                                      (cdr args))))
+                            (if (null? rest-args-latex)
+                                (set! latex-str first-arg-latex)
+                                (set! latex-str (string-append first-arg-latex
+                                                               (apply string-append
+                                                                      (map (lambda (s) (string-append latex-op-str s))
+                                                                           rest-args-latex))))))))))
+                    (else
+                     (error "expr->latex: Unhandled arity or form for known operator properties" op)))
+                  
+                  ;; Add LaTeX parentheses if needed, skip for \frac and some ^ cases.
+                  (if (and (not (eq? op '/)) ; \frac provides its own grouping
+                           (not (and (eq? op '^) ; Also skip for sin^2(x) style if base-latex already includes parens
+                                     (pair? (car args)) (symbol? (caar args))
+                                     (memq (caar args) '(sin cos tan log ln)))))
+                      (if (needs-parentheses-for-display current-prec current-is-left-assoc parent-prec parent-is-left-assoc am-i-left-child-of-parent)
+                          (string-append "\\left(" latex-str "\\right)")
+                          latex-str)
+                      latex-str)))
+               
+               ((symbol? op) ; Generic function call for other symbols
+                (let* ((func-name-str (symbol->string op))
+                       (latex-op (latex-function-name-map func-name-str))
+                       (arg-strings (map (lambda (arg) (expr->latex-recursive arg #f 0 #f #f)) args)))
+                  (if (and (string=? latex-op "\\sqrt") (= num-args 1)) ; Special for \sqrt{arg}
+                      (string-append latex-op "{" (car arg-strings) "}")
+                      (string-append latex-op "\\left(" (string-join arg-strings ", ") "\\right)"))))
+               (else (error "expr->latex: Unhandled expression form" expr)))))))))

@@ -76,6 +76,34 @@
          (list-sort pred right-half)
          pred))))
 
+;; (iota count [start step])
+;; Returns a list of 'count' numbers.
+;; Numbers begin at 'start' (default 0) and increment by 'step' (default 1).
+;; If 'count' is 0, returns '().
+(define (iota count . args)
+  (let ((start (if (null? args) 0 (car args)))
+        (step (if (or (null? args) (null? (cdr args))) 1 (cadr args))))
+    (if (<= count 0)
+        '()
+        (let loop ((k 0) (current start) (acc '()))
+          (if (>= k count)
+              (reverse acc) ; Correct order
+              (loop (+ k 1)
+                    (+ current step)
+                    (cons current acc)))))))
+
+;; (filter-map proc lst)
+;; Applies 'proc' to each element of 'lst'.
+;; If 'proc' returns a true value, that value is included in the result list.
+;; If 'proc' returns #f, the element is discarded.
+(define (filter-map proc lst)
+  (if (null? lst)
+      '()
+      (let ((result (proc (car lst))))
+        (if result
+            (cons result (filter-map proc (cdr lst)))
+            (filter-map proc (cdr lst))))))
+
 
 ;;;-----------------------------------------------------------------------------
 ;;; Numeric Predicates (can be moved to a numbers.scm later)

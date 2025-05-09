@@ -548,19 +548,73 @@
                                        (cons (car current-factors) factors-processed)))))))
 
 
-;; Arbitrary polynomial expansion for sums of powers
+;; Helper to flatten a list of lists by one level
+(define (flatten-once lst)
+  (apply append lst))
+
+;; Helper to expand (* expr1 expr2) where expr1 and expr2 might be sums.
+;; Returns a new sum expression (list of product terms).
+;; This result is NOT yet fully simplified by simplify-sum (e.g., like terms not collected).
+;; The main 'expand' function's simplify step will handle that.
+(define (expand-product-of-two-expressions expr1 expr2)
+  (let ((sum1 (if (sum? expr1) expr1 (make-sum (list expr1)))) ; Treat non-sum as sum of one term
+        (sum2 (if (sum? expr2) expr2 (make-sum (list expr2)))))
+    (let ((terms1 (operands sum1))
+          (terms2 (operands sum2)))
+      (make-sum
+       (flatten-once ; To avoid nested lists from (map (lambda (t1) (map ...)))
+        (map (lambda (t1)
+               (map (lambda (t2)
+                      ;; Create product term. The main 'expand' will simplify these products.
+                      (make-product (list t1 t2)))
+                    terms2))
+             terms1))))))
+
+;; Revised Arbitrary polynomial expansion for sums of powers
+;; This function is called from expand-power-rules.
+;; It returns an expanded form; the main 'expand' function will then simplify it.
 (define (expand-polynomial-sum power-expr)
-  (if (power? power-expr)
-    (let ((base (base power-expr))
-          (exponent (exponent power-expr)))
-      ;; Rule 0: Recursive expansion for (^ (sum) n) where n is integer > 1
-      (if (and (sum? base)
-            (integer? exponent) ; Ensure it's an integer
-            (> exponent 1))     ; For n > 1
-        (if (= exponent 2)
-            (simplify (expand (list '* base base)))
-          (simplify-sum (expand (list '* base (expand-polynomial-sum (list '^ base (- exponent 1)))))))))
-    expr))
+  ;; power-expr is '(^ base exponent)'
+  ;; Conditions like (sum? base), (integer? exponent), (> exponent 1)
+  ;; are assumed to be checked by the caller (expand-power-rules).
+  (let ((base (base power-expr))
+        (exponent (exponent power-expr)))
+    ;; Inner recursive worker.
+    ;; Returns an expanded sum (or 1 if exponent is 0, or base if exponent is 1).
+    (define (recursive-worker current-base current-exponent)
+      (cond ((= current-exponent 0) 1)
+            ((= current-exponent 1) current-base)
+            (else
+             ;; Perform (current-base * result-of-recursive-call)
+             (expand-product-of-two-expressions current-base
+                                                (recursive-worker current-base (- current-exponent 1))))))
+    (recursive-worker base exponent)))
+
+(define (factorial n) (if (<= n 1) 1 (apply * (iota n n -1)))) 
+
+(define (combinations n k)
+  (if (or (< k 0) (> k n)) 0
+      (/ (factorial n) (* (factorial k) (factorial (- n k))))))
+
+;; Expands (^ (term1 + term2) exponent) using binomial theorem.
+;; Returns a sum expression.
+(define (expand-binomial-sum term1 term2 exponent)
+  (make-sum
+   (filter-map ; filter-map to remove potential nils if a term becomes 0 or coeff is 0
+    (lambda (k)
+      (let ((coeff (combinations exponent k)))
+        (if (zero? coeff)
+            #f ; This term is zero
+            (let* ((n-k (- exponent k))
+                   (pow1 (cond ((= n-k 0) 1) ((= n-k 1) term1) (else (list '^ term1 n-k))))
+                   (pow2 (cond ((= k 0) 1) ((= k 1) term2) (else (list '^ term2 k))))
+                  ;; term-parts will be a list like (coeff pow1 pow2), after filtering 1s
+                  (term-parts (filter (lambda (p) (not (equal? p 1))) (list coeff pow1 pow2))))
+              (cond ((null? term-parts) 1) ; e.g. for 1*1*1 if all were 1
+                    ((null? (cdr term-parts)) (car term-parts)) ; Only one part left
+                    ;; Corrected: Pass term-parts directly to make-product
+                    (else (make-product term-parts))))))) ; Make product of remaining parts
+    (iota (+ exponent 1) 0 1)))) ; k from 0 to exponent
 
 ;; Helper: Applies expansion rules for powers.
 ;; power-expr is like '(^ base exponent)' where base and exponent are already expanded.
@@ -568,40 +622,39 @@
 (define (expand-power-rules power-expr)
   (let ((base (base power-expr))
         (exponent (exponent power-expr)))
-  ;; Check if the base is a sum and exponent is an integer > 1)
     (cond
-      ;; Rule 0: (^ (sum) n) where n is integer > 1
-      ((and (sum? base)
-            (integer? exponent) ; Ensure it's an integer
-            (> exponent 1))     ; For n > 1
-       (expand-polynomial-sum power-expr))
-      ;; Rule 1: (^ (+ a b) 2) -> (+ (^ a 2) (* 2 a b) (^ b 2))
-      ((and (sum? base)
-            (constant? exponent)
-            (= exponent 2)
-            (pair? (operands base))             ; Must have at least one term
-            (pair? (cdr (operands base)))       ; Must have at least two terms
-            (null? (cddr (operands base))))     ; Must have exactly two terms
-       (let ((a (car (operands base)))          ; Defines 'a'
-             (b (cadr (operands base))))        ; Defines 'b'
-         ;; The body of the 'let' constructs the new sum:
-         (make-sum (list (list '^ a 2)          ; Constructs (^ a 2)
-                         (list '* 2 a b)        ; Constructs (* 2 a b)
-                         (list '^ b 2)))))      ; Constructs (^ b 2)
-                                                ; 'list' creates the list of these three terms
-                                                ; 'make-sum' takes this list to form the sum expression
+      ;; Rule 0a: Exponent is 0 (integer)
+      ((and (integer? exponent) (= exponent 0)) 1)
+      ;; Rule 0b: Exponent is 1 (integer)
+      ((and (integer? exponent) (= exponent 1)) base)
 
-      ;; Rule 2: (^ (* f1 f2 ...) n) -> (* (^ f1 n) (^ f2 n) ...)
+      ;; Rule A: Binomial expansion for (^ (+ t1 t2) n), where n is an integer >= 2
+      ((and (sum? base)
+            (integer? exponent)
+            (>= exponent 2)
+            (= (length (operands base)) 2))
+       (expand-binomial-sum (car (operands base)) (cadr (operands base)) exponent))
+
+      ;; Rule B: General polynomial sum expansion for (^ (sum) n), where n is an integer >= 2
+      ((and (sum? base)
+            (integer? exponent)
+            (>= exponent 2))
+       (expand-polynomial-sum power-expr))
+
+      ;; Rule C: Power of a Product (^ (* f1 f2) e) -> (* (^ f1 e) (^ f2 e))
+      ;; This rule applies whether 'e' is an integer or symbolic.
       ((product? base)
        (make-product (map (lambda (factor) (list '^ factor exponent))
                           (operands base))))
 
-      ;; Rule 3: (^ (/ num den) n) -> (/ (^ num n) (^ den n))
+      ;; Rule D: Power of a Quotient (^ (/ n d) e) -> (/ (^ n e) (^ d e))
+      ;; This rule applies whether 'e' is an integer or symbolic.
       ((quotient? base)
        (list '/
              (list '^ (quotient-numerator base) exponent)
              (list '^ (quotient-denominator base) exponent)))
 
+      ;; Default: No expansion rule applied for the power expression itself
       (else power-expr))))
 
 ;; Main expand function

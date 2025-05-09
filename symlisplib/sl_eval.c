@@ -2163,9 +2163,15 @@ sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_obje
             } else if (p == SL_NIL && a == SL_NIL) {  // Case 1: Proper list, exact match
                 // Correct number of arguments provided. Binding complete.
             } else {  // Case 1: Proper list, mismatch
-                result = sl_make_errorf("Apply: Mismatched argument count (expected %s, got %s)",
+                char *fn_str = sl_object_to_string(fn);
+                char *arg_str = sl_object_to_string(args);
+                result = sl_make_errorf("Apply %s on %s: Mismatched argument count (expected %s, got %s)",
+                                        fn_str ? fn_str : "<?>",
+                                        arg_str ? arg_str : "<?>",
                                         sl_is_nil(p) ? "fewer" : "more",
                                         sl_is_nil(a) ? "fewer" : "more");
+                free(fn_str);
+                free(arg_str);
                 bind_ok = false;
             }
         } else if (sl_is_symbol(p)) {  // Case 3: Single symbol parameter (e.g., (lambda rest ...))
@@ -2176,7 +2182,9 @@ sl_object *sl_apply(sl_object *fn, sl_object *args, sl_object **obj_ptr, sl_obje
             // Any number of arguments (>=0) is fine.
         } else if (p == SL_NIL) {  // Case: (lambda () ...)
             if (a != SL_NIL) {     // Provided arguments but expected none
-                result = sl_make_errorf("Apply: Mismatched argument count (expected 0)");
+                char *fn_str = sl_object_to_string(fn);
+                result = sl_make_errorf("Apply %s: Mismatched argument count (expected 0)", fn_str ? fn_str : "<?>");
+                free(fn_str);
                 bind_ok = false;
             }
             // Else: p is NIL and a is NIL, correct arity (0). Binding complete.

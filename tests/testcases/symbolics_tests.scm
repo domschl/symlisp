@@ -596,7 +596,7 @@
   ;; (^ (+ x 1) 2) -> (+ (^ x 2) (* 2 x 1) (^ 1 2)) -> (+ 1 (* 2 x) (^ x 2))
   (assert-equal (expand '(^ (+ x 1) 2)) '(+ 1 (* 2 x) (^ x 2))))
 (define-test "expand-power-of-sum-not-square"
-  (assert-equal (expand '(^ (+ a b) 3)) '(+ (* 2 a (^ b 2)) (* 2 b (^ a 2)) (* a (^ b 2)) (* b (^ a 2)) (^ a 3) (^ b 3)))) ; No rule for cube yet
+  (assert-equal (expand '(^ (+ a b) 3)) '(+ (* 3 a (^ b 2)) (* 3 b (^ a 2)) (^ a 3) (^ b 3))))
 (define-test "expand-power-of-sum-not-two-terms"
   (assert-equal (expand '(^ (+ a b c) 2)) '(+ (* 2 a b) (* 2 a c) (* 2 b c) (^ a 2) (^ b 2) (^ c 2))))
 

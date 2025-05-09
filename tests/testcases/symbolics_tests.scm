@@ -499,3 +499,99 @@
   ;; or (+ (- b) a c) (if (-b) comes before a and c due to term<?)
   ;; Assuming variables first, then compounds:
   (assert-equal (simplify '(+ c (- b) a)) '(+ a c (- b))))
+
+;;; --- Tests for Expand Function ---
+
+;; Distributive Property: (* a (+ b c ...)) -> (+ (* a b) (* a c) ...)
+(define-test "expand-distribute-simple"
+  (assert-equal (expand '(* a (+ b c))) '(+ (* a b) (* a c))))
+(define-test "expand-distribute-constant-factor"
+  (assert-equal (expand '(* 2 (+ x y))) '(+ (* 2 x) (* 2 y))))
+(define-test "expand-distribute-nary-sum"
+  (assert-equal (expand '(* a (+ b c d))) '(+ (* a b) (* a c) (* a d))))
+(define-test "expand-distribute-sum-first" ; Should reorder due to simplify
+  (assert-equal (expand '(* (+ b c) a)) '(+ (* a b) (* a c))))
+(define-test "expand-distribute-multiple-factors"
+  (assert-equal (expand '(* a x (+ b c) y)) '(+ (* a b x y) (* a c x y))))
+(define-test "expand-distribute-no-sum"
+  (assert-equal (expand '(* a b c)) '(* a b c)))
+(define-test "expand-distribute-sum-with-one-term" ; simplify might turn (+ x) to x
+  (assert-equal (expand '(* a (+ x))) '(* a x)))
+(define-test "expand-distribute-product-of-sums"
+  ;; (* (+ a b) (+ c d)) -> expand first sum: (+ (* (+ a b) c) (* (+ a b) d))
+  ;; -> simplify: (+ (* c (+ a b)) (* d (+ a b)))
+  ;; -> expand again: (+ (+ (* a c) (* b c)) (+ (* a d) (* b d)))
+  ;; -> simplify: (+ (* a c) (* a d) (* b c) (* b d)) (order depends on term<?)
+  (assert-equal (expand '(* (+ a b) (+ c d)))
+                '(+ (* a c) (* a d) (* b c) (* b d))))
+
+;; Powers of Sums: (^ (+ a b) 2) -> (+ (^ a 2) (* 2 a b) (^ b 2))
+(define-test "expand-power-of-sum-binomial-square"
+  (assert-equal (expand '(^ (+ a b) 2)) '(+ (* 2 a b) (^ a 2) (^ b 2)))) ; Order by simplify
+(define-test "expand-power-of-sum-binomial-square-with-constants"
+  ;; (^ (+ x 1) 2) -> (+ (^ x 2) (* 2 x 1) (^ 1 2)) -> (+ 1 (* 2 x) (^ x 2))
+  (assert-equal (expand '(^ (+ x 1) 2)) '(+ 1 (* 2 x) (^ x 2))))
+(define-test "expand-power-of-sum-not-square"
+  (assert-equal (expand '(^ (+ a b) 3)) '(^ (+ a b) 3))) ; No rule for cube yet
+(define-test "expand-power-of-sum-not-two-terms"
+  (assert-equal (expand '(^ (+ a b c) 2)) '(^ (+ a b c) 2))) ; Rule only for 2 terms
+
+;; Powers of Products: (^ (* a b ...) n) -> (* (^ a n) (^ b n) ...)
+(define-test "expand-power-of-product-simple"
+  (assert-equal (expand '(^ (* a b) n)) '(* (^ a n) (^ b n))))
+(define-test "expand-power-of-product-nary"
+  (assert-equal (expand '(^ (* a b c) 2)) '(* (^ a 2) (^ b 2) (^ c 2))))
+(define-test "expand-power-of-product-with-constant-base"
+  ;; (^ (* 2 x) 3) -> (* (^ 2 3) (^ x 3)) -> (* 8 (^ x 3))
+  (assert-equal (expand '(^ (* 2 x) 3)) '(* 8 (^ x 3))))
+
+;; Powers of Quotients: (^ (/ a b) n) -> (/ (^ a n) (^ b n))
+(define-test "expand-power-of-quotient-simple"
+  (assert-equal (expand '(^ (/ a b) n)) '(/ (^ a n) (^ b n))))
+(define-test "expand-power-of-quotient-with-constants"
+  ;; (^ (/ x 2) 3) -> (/ (^ x 3) (^ 2 3)) -> (/ (^ x 3) 8)
+  (assert-equal (expand '(^ (/ x 2) 3)) '(/ (^ x 3) 8)))
+
+;; Recursive Expansion and Interaction with Simplify
+(define-test "expand-recursive-distribute-power"
+  ;; (* a (^ (+ x y) 2)) -> (* a (+ (^ x 2) (* 2 x y) (^ y 2)))
+  ;; -> (+ (* a (^ x 2)) (* a (* 2 x y)) (* a (^ y 2)))
+  ;; -> (simplify result)
+  (assert-equal (expand '(* a (^ (+ x y) 2)))
+                '(+ (* 2 a x y) (* a (^ x 2)) (* a (^ y 2)))))
+(define-test "expand-recursive-power-distribute"
+  ;; Input: (^ (* a (+ b c)) 2)
+  ;; Step 1 (expand base): (* a (+ b c)) -> (+ (* a b) (* a c))
+  ;; Expression becomes: (^ (+ (* a b) (* a c)) 2)
+  ;; Step 2 (expand power of sum): (^ (X Y) 2) -> (+ (^ X 2) (* 2 X Y) (^ Y 2))
+  ;;   X = (* a b), Y = (* a c)
+  ;;   -> (+ (^ (* a b) 2) (* 2 (* a b) (* a c)) (^ (* a c) 2))
+  ;; Step 3 (expand terms of this sum):
+  ;;   (^ (* a b) 2) -> (* (^ a 2) (^ b 2))
+  ;;   (* 2 (* a b) (* a c)) -> simplify -> (* 2 a a b c)  (current simplify does not make (^ a 2) here)
+  ;;   (^ (* a c) 2) -> (* (^ a 2) (^ c 2))
+  ;; Expression becomes: (+ (* (^ a 2) (^ b 2)) (* 2 a a b c) (* (^ a 2) (^ c 2)))
+  ;; Step 4 (final simplify for ordering):
+  ;;   The terms are sorted by term<?. The "Got" value reflects this order.
+  (assert-equal (expand '(^ (* a (+ b c)) 2))
+                '(+ (* (^ a 2) (^ b 2)) (* (^ a 2) (^ c 2)) (* 2 a a b c)))) ; Adapted expectation
+(define-test "expand-already-expanded"
+  (assert-equal (expand '(+ (* a b) (* a c))) '(+ (* a b) (* a c))))
+(define-test "expand-atomic"
+  (assert-equal (expand 'x) 'x))
+(define-test "expand-constant"
+  (assert-equal (expand 123) 123))
+(define-test "expand-simple-sum"
+  (assert-equal (expand '(+ a b)) '(+ a b)))
+
+;; Test case from README example for expand
+(define-test "expand-readme-example-nested-distribution"
+  ;; (expand '(* 2 (+ x (* 3 (+ y 1)))))
+  ;; inner expand: (* 3 (+ y 1)) -> (+ (* 3 y) (* 3 1)) -> (+ 3 (* 3 y))
+  ;; expr becomes: (* 2 (+ x (+ 3 (* 3 y))))
+  ;; simplify inner sum: (+ x 3 (* 3 y)) -> (+ 3 x (* 3 y))
+  ;; expr becomes: (* 2 (+ 3 x (* 3 y)))
+  ;; distribute 2: (+ (* 2 3) (* 2 x) (* 2 (* 3 y)))
+  ;; simplify: (+ 6 (* 2 x) (* 6 y))
+  (assert-equal (expand '(* 2 (+ x (* 3 (+ y 1)))))
+                '(+ 6 (* 2 x) (* 6 y))))

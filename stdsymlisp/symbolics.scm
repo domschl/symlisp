@@ -388,3 +388,95 @@
           ;; 4. If it's none of the above (e.g., a list not starting with a symbol like '(1 2 3),
           ;;    or some other data type not handled), return as is.
           (else expr))))
+
+;;; --- Phase 2: Expansion (expand) ---
+
+;; Forward declaration for expand
+(define expand #f)
+
+;; Helper: Applies distributive property to a product if one of its factors is a sum.
+;; product-expr is an expression like '(* f1 f2 sum f3 ...)' where operands are already expanded.
+;; Returns a new sum if distribution occurs, otherwise returns the original product-expr.
+(define (expand-product-distributive product-expr)
+  (let ((factors (operands product-expr)))
+    (let find-sum-and-distribute ((current-factors factors) (factors-processed '()))
+      (cond
+        ((null? current-factors) product-expr) ; No sum found, or no suitable sum
+        ((sum? (car current-factors))
+         (let* ((sum-to-distribute (car current-factors))
+                (terms-of-sum (operands sum-to-distribute))
+                (other-factors (append (reverse factors-processed) (cdr current-factors))))
+           (if (null? other-factors) ; Product was just `(* (+ a b))`, which simplify should handle.
+               product-expr          ; No distribution to perform here.
+               ;; Create the new sum: (+ (* term1 other_factors) (* term2 other_factors) ...)
+               (make-sum (map (lambda (term)
+                                ;; Each new product term is constructed.
+                                ;; The main 'expand' will recursively expand these terms.
+                                (make-product (cons term other-factors)))
+                              terms-of-sum)))))
+        (else (find-sum-and-distribute (cdr current-factors)
+                                       (cons (car current-factors) factors-processed)))))))
+
+;; Helper: Applies expansion rules for powers.
+;; power-expr is like '(^ base exponent)' where base and exponent are already expanded.
+;; Returns a new expanded expression or the original power-expr if no rule applies.
+(define (expand-power-rules power-expr)
+  (let ((base (base power-expr))
+        (exponent (exponent power-expr)))
+    (cond
+      ;; Rule 1: (^ (+ a b) 2) -> (+ (^ a 2) (* 2 a b) (^ b 2))
+      ((and (sum? base)
+            (constant? exponent)
+            (= exponent 2)
+            (pair? (operands base))             ; Must have at least one term
+            (pair? (cdr (operands base)))       ; Must have at least two terms
+            (null? (cddr (operands base))))     ; Must have exactly two terms
+       (let ((a (car (operands base)))          ; Defines 'a'
+             (b (cadr (operands base))))        ; Defines 'b'
+         ;; The body of the 'let' constructs the new sum:
+         (make-sum (list (list '^ a 2)          ; Constructs (^ a 2)
+                         (list '* 2 a b)        ; Constructs (* 2 a b)
+                         (list '^ b 2)))))      ; Constructs (^ b 2)
+                                                ; 'list' creates the list of these three terms
+                                                ; 'make-sum' takes this list to form the sum expression
+
+      ;; Rule 2: (^ (* f1 f2 ...) n) -> (* (^ f1 n) (^ f2 n) ...)
+      ((product? base)
+       (make-product (map (lambda (factor) (list '^ factor exponent))
+                          (operands base))))
+
+      ;; Rule 3: (^ (/ num den) n) -> (/ (^ num n) (^ den n))
+      ((quotient? base)
+       (list '/
+             (list '^ (quotient-numerator base) exponent)
+             (list '^ (quotient-denominator base) exponent)))
+
+      (else power-expr))))
+      
+;; Main expand function
+;; Recursively expands expressions and simplifies the result.
+(set! expand
+  (lambda (expr)
+    (if (atomic-expr? expr)
+        expr ; Atomic expressions are considered fully expanded.
+        (let* (;; Step 1: Recursively expand all operands first.
+               (expanded-operands (map expand (operands expr)))
+               (expr-with-expanded-operands (cons (operator expr) expanded-operands))
+
+               ;; Step 2: Apply expansion rules to the current expression form.
+               (rule-applied-expr
+                (cond
+                  ((product? expr-with-expanded-operands) (expand-product-distributive expr-with-expanded-operands))
+                  ((power? expr-with-expanded-operands) (expand-power-rules expr-with-expanded-operands))
+                  ;; Add other top-level expansion rules here if any (e.g., for sums, though not typical for "expansion")
+                  (else expr-with-expanded-operands))))
+
+          ;; Step 3: If a rule transformed the expression, the new expression might need further expansion.
+          ;; Recursively call expand on the transformed expression.
+          ;; Finally, simplify the result.
+          (let ((result-before-final-simplify
+                 (if (equal? rule-applied-expr expr-with-expanded-operands)
+                     rule-applied-expr ; No rule applied at this level, or rule resulted in the same structure
+                     (expand rule-applied-expr)))) ; Rule applied, so recursively expand the new structure
+            (simplify result-before-final-simplify))))))
+

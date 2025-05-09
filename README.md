@@ -65,6 +65,7 @@ Again another Scheme, this time:
   - [x] output for stdio and `(display)` stderr (error-messages), extra output-modes `(display-markdown)` and `(display-html)`
 - [x] String and infix<->prefix (vars, functions)
 - [x] Symbolics phases 1.1, 1.2, 1.3 done, Phase 1 is complete.
+- [x] Symbolix phase 2, expand, complete.
 
 Larger steps:
 
@@ -76,6 +77,45 @@ Larger steps:
 
 
 ## Symbolics steps
+
+### Phase 3: Differentiation (differentiate or diff)
+
+1. Implement differentiate Function:
+- Signature: (differentiate expr var)
+- Basic Rules:
+  - d/dx c -> 0 (if c is a constant)
+  - d/dx x -> 1 (if var is x)
+  - d/dx y -> 0 (if var is x and y is a different variable)
+- Sum/Difference Rule: d/dx (u +/- v) -> (+/- (d/dx u) (d/dx v))
+- Product Rule: d/dx (u * v) -> (+ (* u (d/dx v)) (* v (d/dx u)))
+- Quotient Rule: d/dx (u / v) -> (/ (- (* v (d/dx u)) (* u (d/dx v))) (^ v 2))
+- Power Rule: d/dx (^ u n) -> (* n (^ u (- n 1)) (d/dx u)) (where n can be a number or expression not containing var)
+- Chain Rule (for known functions):
+  - Maintain a table of derivatives for elementary functions (e.g., sin, cos, log, exp).
+  - d/dx (f u) -> (* (derivative-of-f-wrt-u u) (d/dx u))
+  - Example: d/dx (sin (^ x 2)) -> (* (cos (^ x 2)) (* 2 x))
+- Crucially, call simplify on the result of each differentiation step.
+
+### Phase 4: Factorization (factorize)
+
+This is generally the most complex part.
+
+1. Implement factorize Function:
+- Extract Common Factors (for sums):
+  - (+ (* a b) (* a c)) -> (* a (+ b c))
+  - This requires inspecting terms of a sum and finding common parts.
+- Recognize Patterns:
+   - Difference of Squares: (- (^ a 2) (^ b 2)) -> (* (+ a b) (- a b))
+   - Perfect Square Trinomials: (+ (^ a 2) (* 2 a b) (^ b 2)) -> (^ (+ a b) 2)
+- Polynomial Factorization (start simple):
+   - Factoring integers (trivial for your system).
+   - Factoring quadratics ax^2 + bx + c.
+   - General polynomial factorization over integers or rationals is a very advanced topic (e.g., Rational Root Theorem, Kronecker's method, Berlekamp algorithm for finite fields, Cantor-Zassenhaus). You might want to limit the scope initially.
+- factorize often involves trial and error or heuristic approaches.
+- May also benefit from calling simplify.
+
+
+## DONE TASKS
 
 ### Phase 1: [DONE] Core Expression Representation and Basic Simplification Infrastructure
 
@@ -117,9 +157,9 @@ Larger steps:
 - Order Terms: For commutative operations (+, *), decide on a canonical order for terms (e.g., constants first, then variables alphabetically). This helps in recognizing equivalent expressions like (+ x 1) and (+ 1 x).
 - Represent subtraction as addition: (- a b) -> (+ a (* -1 b)). This simplifies rule writing.
 
-### Phase 2: Expansion (expand)
+### Phase 2: Expansion (expand) [DONE]
 
-1. Implement expand Function:
+1. [DONE] Implement expand Function:
 - Recursively applies expansion rules.
 - Distributive Property:
   - (* a (+ b c)) -> (+ (* a b) (* a c))
@@ -132,38 +172,3 @@ Larger steps:
   - (^ (/ a b) n) -> (/ (^ a n) (^ b n))
 - Call simplify after expansion steps to clean up.
 
-### Phase 3: Differentiation (differentiate or diff)
-
-1. Implement differentiate Function:
-- Signature: (differentiate expr var)
-- Basic Rules:
-  - d/dx c -> 0 (if c is a constant)
-  - d/dx x -> 1 (if var is x)
-  - d/dx y -> 0 (if var is x and y is a different variable)
-- Sum/Difference Rule: d/dx (u +/- v) -> (+/- (d/dx u) (d/dx v))
-- Product Rule: d/dx (u * v) -> (+ (* u (d/dx v)) (* v (d/dx u)))
-- Quotient Rule: d/dx (u / v) -> (/ (- (* v (d/dx u)) (* u (d/dx v))) (^ v 2))
-- Power Rule: d/dx (^ u n) -> (* n (^ u (- n 1)) (d/dx u)) (where n can be a number or expression not containing var)
-- Chain Rule (for known functions):
-  - Maintain a table of derivatives for elementary functions (e.g., sin, cos, log, exp).
-  - d/dx (f u) -> (* (derivative-of-f-wrt-u u) (d/dx u))
-  - Example: d/dx (sin (^ x 2)) -> (* (cos (^ x 2)) (* 2 x))
-- Crucially, call simplify on the result of each differentiation step.
-
-### Phase 4: Factorization (factorize)
-
-This is generally the most complex part.
-
-1. Implement factorize Function:
-- Extract Common Factors (for sums):
-  - (+ (* a b) (* a c)) -> (* a (+ b c))
-  - This requires inspecting terms of a sum and finding common parts.
-- Recognize Patterns:
-   - Difference of Squares: (- (^ a 2) (^ b 2)) -> (* (+ a b) (- a b))
-   - Perfect Square Trinomials: (+ (^ a 2) (* 2 a b) (^ b 2)) -> (^ (+ a b) 2)
-- Polynomial Factorization (start simple):
-   - Factoring integers (trivial for your system).
-   - Factoring quadratics ax^2 + bx + c.
-   - General polynomial factorization over integers or rationals is a very advanced topic (e.g., Rational Root Theorem, Kronecker's method, Berlekamp algorithm for finite fields, Cantor-Zassenhaus). You might want to limit the scope initially.
-- factorize often involves trial and error or heuristic approaches.
-- May also benefit from calling simplify.

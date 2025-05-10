@@ -145,20 +145,20 @@ D. [DONE] Trigonometric Functions
   - Pythagorean Identity: In simplify-sum, add a rule to recognize (+ (^ (sin x) 2) (^ (cos x) 2)) and simplify it to 1.
   - Tan definition: (/ (sin x) (cos x)) should be recognized as (tan x)
 
-E. Trigonometric Functions, part 2
+E. (partialy done, rest deferred) Trigonometric Functions, part 2
 
 - sin(A+B) -> sin(A)cos(B)+cos(A)sin(B)
 - sin(A-B) -> sin(A)cos(B)-cos(A)sin(B)
 - cos(A+B) -> cos(A)cos(B)-sin(A)sin(B)
 - cos(A-B) -> cos(A)cos(B)+sin(A)sin(B)
-- sin(2A) -> 2sin(A)cos(A)
+- sin(2A) <-> 2sin(A)cos(A)
 - cos(2A) -> cos^2(A)-sin^2(A) (or 2cos^2(A)-1 or 1-2sin^2(A)
 
-- Euler's Formula:
+- Euler's Formula: (deferred)
   - The identity (exp (* i x)) <-> (+ (cos x) (* i (sin x))) (or (^ e (* i x))) 
 
 
-### Phase 4: Differentiation (differentiate or diff)
+### Phase 5: Differentiation (differentiate or diff)
 
 1. Implement differentiate Function:
 - Signature: (differentiate expr var)
@@ -176,7 +176,7 @@ E. Trigonometric Functions, part 2
   - Example: d/dx (sin (^ x 2)) -> (* (cos (^ x 2)) (* 2 x))
 - Crucially, call simplify on the result of each differentiation step.
 
-### Phase 5: Factorization (factorize)
+### Phase 6: Factorization (factorize)
 
 This is generally the most complex part.
 
@@ -194,7 +194,7 @@ This is generally the most complex part.
 - factorize often involves trial and error or heuristic approaches.
 - May also benefit from calling simplify.
 
-### Phase 6
+### Phase 7
 
 - Taylor series
 - limits

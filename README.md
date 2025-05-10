@@ -115,6 +115,13 @@ B. Fractional Exponents, sqrt, and abs Function
   - generally, (^ (base^N) (1/N)) should be base if N is odd, and (abs base) if N is even and positive. (This assumes base can be complex or negative; if base is known real and positive, abs is not needed).
 - General Power Rules:
   - Ensure existing rules like (^ (^ base m) k) -> (^ base (* m k)) and (^ (* f1 f2) k) -> (* (^ f1 k) (^ f2 k)) are robust and correctly interact with new fractional exponent logic.
+  - Rendering for sqrt in infix output and latex
+
+
+-   **Negative Bases with Fractional Exponents**: Implement the rule in `simplify-power` for `(^ neg-const rational-exp)` to introduce `i` (e.g., `(^ -4 (1/2)) -> (* 2 i)`). This will involve checking if the exponent is of the form `num/(2k*den)` where `num/den` is odd/odd.
+-   **`abs` Function**: Introduce `(abs x)` and its simplification rules.
+-   **`sqrt(x^2)`-like rules**: Implement `(^ (base^N) (1/N))` simplifying to `base` or `(abs base)`.
+
 
 C. Exponential and Logarithmic Functions (Natural)
 

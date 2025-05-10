@@ -284,6 +284,9 @@
     ((number? expr) (number->string expr))
     ((symbol? expr) (symbol->string expr))
     ((not (pair? expr)) (error "expr->infix-string: Invalid expression structure" expr))
+    ;; Add this new condition for sqrt BEFORE the general list/operator handling
+    ((and (power? expr) (equal? (exponent expr) 1/2)) ; Check for (^ base 1/2)
+     (string-append "sqrt(" (expr->infix-string-recursive (base expr) #f 0 #f #f) ")"))
     (else ; It's a list (op arg1 ...)
      (let* ((op (car expr)) (args (cdr expr)) (num-args (length args)))
        (if (and (memq op '(+ *)) (= num-args 1))
@@ -377,9 +380,12 @@
        (cond ((string=? s "pi") "\\pi") 
              (else (latex-function-name-map s))))) 
     ((not (pair? expr)) (error "expr->latex: Invalid expression structure" expr))
+    ;; Add this new condition for sqrt BEFORE the general list/operator handling
+    ((and (power? expr) (equal? (exponent expr) 1/2)) ; Check for (^ base 1/2)
+     (string-append "\\sqrt{" (expr->latex-recursive (base expr) #f 0 #f #f) "}"))
     (else ; It's a list (op arg1 ...)
      (let* ((op (car expr)) (args (cdr expr)) (num-args (length args)))
-       (if (and (memq op '(+ *)) (= num-args 1))
+         (if (and (memq op '(+ *)) (= num-args 1))
            (expr->latex-recursive (car args) parent-op-symbol parent-prec parent-is-left-assoc am-i-left-child-of-parent)
            (let ((op-properties (get-infix-op-properties op num-args)))
              (cond

@@ -1067,3 +1067,129 @@
   (assert-equal (prefix-expr->infix-string '(ln x)) "ln(x)"))
 (define-test "infix-render-constant-e"
   (assert-equal (prefix-expr->infix-string 'e) "e"))
+
+
+;;; --- Tests for sin Function ---
+(define-test "simplify-sin-zero" (assert-equal (simplify '(sin 0)) 0))
+(define-test "simplify-sin-pi" (assert-equal (simplify '(sin pi)) 0))
+(define-test "simplify-sin-2pi" (assert-equal (simplify '(sin (* 2 pi))) 0))
+(define-test "simplify-sin-pi-over-2" (assert-equal (simplify '(sin (/ pi 2))) 1))
+(define-test "simplify-sin-pi-over-3" (assert-equal (simplify '(sin (/ pi 3))) (simplify '(/ (^ 3 1/2) 2))))
+(define-test "simplify-sin-pi-over-4" (assert-equal (simplify '(sin (/ pi 4))) (simplify '(/ (^ 2 1/2) 2))))
+(define-test "simplify-sin-pi-over-6" (assert-equal (simplify '(sin (/ pi 6))) 1/2))
+(define-test "simplify-sin-neg-arg" (assert-equal (simplify '(sin (- x))) '(- (sin x))))
+(define-test "simplify-sin-neg-pi-over-2" (assert-equal (simplify '(sin (- (/ pi 2)))) -1))
+(define-test "simplify-sin-symbolic" (assert-equal (simplify '(sin x)) '(sin x)))
+
+;;; --- Tests for cos Function ---
+(define-test "simplify-cos-zero" (assert-equal (simplify '(cos 0)) 1))
+(define-test "simplify-cos-pi" (assert-equal (simplify '(cos pi)) -1))
+(define-test "simplify-cos-2pi" (assert-equal (simplify '(cos (* 2 pi))) 1))
+(define-test "simplify-cos-pi-over-2" (assert-equal (simplify '(cos (/ pi 2))) 0))
+(define-test "simplify-cos-pi-over-3" (assert-equal (simplify '(cos (/ pi 3))) 1/2))
+(define-test "simplify-cos-pi-over-4" (assert-equal (simplify '(cos (/ pi 4))) (simplify '(/ (^ 2 1/2) 2))))
+(define-test "simplify-cos-pi-over-6" (assert-equal (simplify '(cos (/ pi 6))) (simplify '(/ (^ 3 1/2) 2))))
+(define-test "simplify-cos-neg-arg" (assert-equal (simplify '(cos (- x))) '(cos x)))
+(define-test "simplify-cos-neg-pi" (assert-equal (simplify '(cos (- pi))) -1))
+(define-test "simplify-cos-symbolic" (assert-equal (simplify '(cos x)) '(cos x)))
+
+;;; --- Tests for tan Function ---
+(define-test "simplify-tan-zero" (assert-equal (simplify '(tan 0)) 0))
+(define-test "simplify-tan-pi" (assert-equal (simplify '(tan pi)) 0))
+(define-test "simplify-tan-pi-over-4" (assert-equal (simplify '(tan (/ pi 4))) 1))
+(define-test "simplify-tan-pi-over-6" (assert-equal (simplify '(tan (/ pi 6))) (simplify '(/ 1 (^ 3 1/2)))))
+(define-test "simplify-tan-pi-over-3" (assert-equal (simplify '(tan (/ pi 3))) (simplify '(^ 3 1/2))))
+(define-test "simplify-tan-pi-over-2-undefined" (assert-equal (simplify '(tan (/ pi 2))) '(tan (/ pi 2))))
+(define-test "simplify-tan-neg-arg" (assert-equal (simplify '(tan (- x))) '(- (tan x))))
+(define-test "simplify-tan-symbolic" (assert-equal (simplify '(tan x)) '(tan x)))
+
+;;; --- Tests for Trigonometric Identities ---
+(define-test "simplify-pythagorean-identity-sin-cos"
+  (assert-equal (simplify '(+ (^ (sin x) 2) (^ (cos x) 2))) 1))
+(define-test "simplify-pythagorean-identity-cos-sin"
+  (assert-equal (simplify '(+ (^ (cos x) 2) (^ (sin x) 2))) 1))
+(define-test "simplify-pythagorean-identity-with-arg"
+  (assert-equal (simplify '(+ (^ (sin (+ x 1)) 2) (^ (cos (+ x 1)) 2))) 1))
+(define-test "simplify-tan-definition"
+  (assert-equal (simplify '(/ (sin x) (cos x))) '(tan x)))
+(define-test "simplify-tan-definition-with-arg"
+  (assert-equal (simplify '(/ (sin (+ x y)) (cos (+ x y)))) '(tan (+ x y))))
+(define-test "simplify-tan-definition-evaluates-arg" ; e.g. tan(0)
+  (assert-equal (simplify '(/ (sin 0) (cos 0))) 0))
+
+
+;;; --- Tests for LaTeX rendering of sin, cos, tan, pi ---
+(define-test "latex-render-sin-x" (assert-equal (prefix-expr->markdown-latex '(sin x)) "$\\sin\\left(x\\right)$"))
+(define-test "latex-render-cos-x" (assert-equal (prefix-expr->markdown-latex '(cos x)) "$\\cos\\left(x\\right)$"))
+(define-test "latex-render-tan-x" (assert-equal (prefix-expr->markdown-latex '(tan x)) "$\\tan\\left(x\\right)$"))
+(define-test "latex-render-pi" (assert-equal (prefix-expr->markdown-latex 'pi) "$\\pi$"))
+(define-test "latex-render-sin-pi-over-2" (assert-equal (prefix-expr->markdown-latex '(sin (/ pi 2))) "$\\sin\\left(\\frac{\\pi}{2}\\right)$"))
+
+;;; --- Tests for Infix string rendering of sin, cos, tan, pi ---
+(define-test "infix-render-sin-x" (assert-equal (prefix-expr->infix-string '(sin x)) "sin(x)"))
+(define-test "infix-render-cos-x" (assert-equal (prefix-expr->infix-string '(cos x)) "cos(x)"))
+(define-test "infix-render-tan-x" (assert-equal (prefix-expr->infix-string '(tan x)) "tan(x)"))
+(define-test "infix-render-pi" (assert-equal (prefix-expr->infix-string 'pi) "pi"))
+
+(define-test "expand-sin-A-plus-B"
+  ;; sin(A+B) -> sin(A)cos(B)+cos(A)sin(B)
+  ;; Expected form after simplify will sort terms and factors.
+  ;; Assuming (sin A) < (cos A) and (sin B) < (cos B) by term<? on their string forms,
+  ;; and A < B.
+  ;; Product terms: (* (cos B) (sin A)) and (* (cos A) (sin B))
+  ;; simplify will order these terms in the sum.
+  (assert-equal (expand '(sin (+ A B)))
+                (simplify '(+ (* (sin A) (cos B)) (* (cos A) (sin B))))))
+
+(define-test "expand-sin-A-minus-B"
+  ;; sin(A-B) -> sin(A)cos(B)-cos(A)sin(B)
+  ;; expand '(sin (- A B)) becomes expand '(sin (+ A (- B)))
+  ;; -> sin(A)cos(-B) + cos(A)sin(-B)
+  ;; -> sin(A)cos(B) - cos(A)sin(B)
+  (assert-equal (expand '(sin (- A B)))
+                (simplify '(+ (* (sin A) (cos B)) (* -1 (cos A) (sin B))))))
+
+(define-test "expand-cos-A-plus-B"
+  ;; cos(A+B) -> cos(A)cos(B)-sin(A)sin(B)
+  (assert-equal (expand '(cos (+ A B)))
+                (simplify '(+ (* (cos A) (cos B)) (* -1 (sin A) (sin B))))))
+
+(define-test "expand-cos-A-minus-B"
+  ;; cos(A-B) -> cos(A)cos(B)+sin(A)sin(B)
+  ;; expand '(cos (- A B)) becomes expand '(cos (+ A (- B)))
+  ;; -> cos(A)cos(-B) - sin(A)sin(-B)
+  ;; -> cos(A)cos(B) + sin(A)sin(B)
+  (assert-equal (expand '(cos (- A B)))
+                (simplify '(+ (* (cos A) (cos B)) (* (sin A) (sin B))))))
+
+(define-test "expand-sin-2A"
+  ;; sin(2A) -> 2sin(A)cos(A)
+  (assert-equal (expand '(sin (* 2 A)))
+                (simplify '(* 2 (sin A) (cos A)))))
+
+(define-test "expand-cos-2A"
+  ;; cos(2A) -> cos^2(A)-sin^2(A)
+  (assert-equal (expand '(cos (* 2 A)))
+                (simplify '(+ (^ (cos A) 2) (* -1 (^ (sin A) 2))))))
+
+;; Contraction Test (using `simplify`)
+
+(define-test "simplify-2sinAcosA-to-sin2A"
+  ;; 2sin(A)cos(A) -> sin(2A)
+  (assert-equal (simplify '(* 2 (sin A) (cos A)))
+                '(sin (* 2 A))))
+
+(define-test "simplify-2cosAsinA-to-sin2A"
+  ;; 2cos(A)sin(A) -> sin(2A) (order of sin/cos factors)
+  (assert-equal (simplify '(* 2 (cos A) (sin A)))
+                '(sin (* 2 A))))
+
+(define-test "simplify-sinA2cosA-to-sin2A"
+  ;; sin(A)*2*cos(A) -> sin(2A) (order of 2)
+  (assert-equal (simplify '(* (sin A) 2 (cos A)))
+                '(sin (* 2 A))))
+
+(define-test "simplify-product-with-other-factors-2sinAcosA"
+  ;; x * 2 * sin(A) * cos(A) * y -> x * y * sin(2A)
+  (assert-equal (simplify '(* x 2 (sin A) (cos A) y))
+                (simplify '(* x y (sin (* 2 A))))))

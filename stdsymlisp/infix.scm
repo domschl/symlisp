@@ -396,6 +396,12 @@
            (string-append "e^{" arg-latex "}"))))
     ((ln? expr) ; ADDED: Render (ln x) as \ln(x)
      (string-append "\\ln\\left(" (expr->latex-recursive (ln-arg expr) #f 0 #f #f) "\\right)"))
+    ((sin? expr) ; ADDED
+     (string-append "\\sin\\left(" (expr->latex-recursive (sin-arg expr) #f 0 #f #f) "\\right)"))
+    ((cos? expr) ; ADDED
+     (string-append "\\cos\\left(" (expr->latex-recursive (cos-arg expr) #f 0 #f #f) "\\right)"))
+    ((tan? expr) ; ADDED
+     (string-append "\\tan\\left(" (expr->latex-recursive (tan-arg expr) #f 0 #f #f) "\\right)"))
     ;; ... other specific function renderings like sin, cos, tan if they exist ...
     (else ; It's a list (op arg1 ...)
      (let* ((op (car expr)) (args (cdr expr)) (num-args (length args)))

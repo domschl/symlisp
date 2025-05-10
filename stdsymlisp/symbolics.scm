@@ -284,6 +284,10 @@
 (define (make-ln arg)
   (list 'ln arg))
 
+(define (make-sin arg) (list 'sin arg))
+(define (make-cos arg) (list 'cos arg))
+(define (make-tan arg) (list 'tan arg))
+
 ;; Forward declaration for simplify, as helpers might call it or be called by it.
 (define simplify #f)
 
@@ -380,58 +384,90 @@
 (define (add-coefficients c1 c2)
   (simplify (make-sum (list c1 c2))))
 
+(define (apply-sum-identity-rules terms-list)
+  ;; This function would house the logic for applying rules specific to sums.
+  ;; For now, let's imagine it just handles the Pythagorean identity.
+  ;; It would return (values modified-terms-list new-constants-generated)
+  (let search-pythagorean ((terms-to-scan terms-list)
+                           (accumulated-non-identity-terms '())
+                           (ones-added 0))
+    (if (null? terms-to-scan)
+        (values (reverse accumulated-non-identity-terms) ones-added)
+        (let ((term1 (car terms-to-scan)))
+          (cond
+            ;; Case 1: term1 is sin^2(A)
+            ((and (power? term1) (equal? (exponent term1) 2) (sin? (base term1)))
+             (let ((argA (sin-arg (base term1))))
+               (let find-cos-partner ((remaining (cdr terms-to-scan)) (skipped-terms '()))
+                 (cond
+                   ((null? remaining) ; No cos^2(A) partner found
+                    (search-pythagorean (cdr terms-to-scan) (cons term1 accumulated-non-identity-terms) ones-added))
+                   ((and (power? (car remaining)) (equal? (exponent (car remaining)) 2) (cos? (base (car remaining)))
+                         (equal? (cos-arg (base (car remaining))) argA))
+                    ;; Partner cos^2(A) found!
+                    (search-pythagorean (append (reverse skipped-terms) (cdr remaining)) accumulated-non-identity-terms (+ ones-added 1)))
+                   (else ; Not a partner, keep searching
+                    (find-cos-partner (cdr remaining) (cons (car remaining) skipped-terms)))))))
+            
+            ;; Case 2: term1 is cos^2(A)
+            ((and (power? term1) (equal? (exponent term1) 2) (cos? (base term1)))
+             (let ((argA (cos-arg (base term1))))
+               (let find-sin-partner ((remaining (cdr terms-to-scan)) (skipped-terms '()))
+                 (cond
+                   ((null? remaining) ; No sin^2(A) partner found
+                    (search-pythagorean (cdr terms-to-scan) (cons term1 accumulated-non-identity-terms) ones-added))
+                   ((and (power? (car remaining)) (equal? (exponent (car remaining)) 2) (sin? (base (car remaining)))
+                         (equal? (sin-arg (base (car remaining))) argA))
+                    ;; Partner sin^2(A) found!
+                    (search-pythagorean (append (reverse skipped-terms) (cdr remaining)) accumulated-non-identity-terms (+ ones-added 1)))
+                   (else ; Not a partner, keep searching
+                    (find-sin-partner (cdr remaining) (cons (car remaining) skipped-terms)))))))
+
+            ;; Default: term1 is not part of a recognized Pythagorean pair start
+            (else
+             (search-pythagorean (cdr terms-to-scan) (cons term1 accumulated-non-identity-terms) ones-added)))))))
 
 (define (simplify-sum expr)
   (let* ((initial-operands (operands expr)))
-    ;; Iteratively process the sum until no more structural changes from negation distribution occur.
     (let main-sum-loop ((current-operands-list initial-operands) (iteration-count 0))
-      (if (> iteration-count 10) ; Safeguard against potential infinite loops
+      (if (> iteration-count 10)
           (error "simplify-sum: Exceeded iteration limit for expression" expr)
-          (let* (;; Step 1: Simplify each operand individually.
-                 (simplified-terms (map simplify current-operands-list))
-                 ;; Step 2: Flatten the list of terms. E.g., (x (+ y z)) -> (x y z)
+          (let* ((simplified-terms (map simplify current-operands-list))
                  (flat-terms (flatten-sum-terms-iterative simplified-terms))
-                 
-                 ;; Step 2.5: Distribute negations over sums.
-                 ;; E.g., (- (+ a b)) becomes (- a) (- b) in the list of terms.
-                 ;; This returns (values new-term-list changed?)
                  (negation-distribution-result
-                  (let process-negations ((terms-to-scan flat-terms) (accumulated-new-terms '()) (any-change-made? #f))
-                    (if (null? terms-to-scan)
-                        (values (reverse accumulated-new-terms) any-change-made?)
+                  (let process-negations ((terms-to-scan flat-terms) (accumulated '()) (changed? #f))
+                    ;; ... your existing negation distribution logic ...
+                    ;; This helper would return (values new-terms changed?)
+                    (if (null? terms-to-scan) (values (reverse accumulated) changed?)
                         (let ((current-term (car terms-to-scan)))
                           (if (and (negation? current-term) (sum? (negated-expr current-term)))
-                              (let* ((sum-inside-negation (negated-expr current-term))
-                                     ;; Create (-t1), (-t2), ... for each term in the sum
-                                     (distributed-negated-terms 
-                                      (map make-negation (operands sum-inside-negation))))
-                                ;; Prepend these new terms (reversed, to maintain order relative to each other)
-                                ;; to the accumulated list and continue scanning the rest of the original terms.
-                                (process-negations (cdr terms-to-scan)
-                                                   (append (reverse distributed-negated-terms) accumulated-new-terms)
-                                                   #t)) ; Mark that a change was made
-                              ;; No distribution for this term, just add it to accumulated.
                               (process-negations (cdr terms-to-scan)
-                                                 (cons current-term accumulated-new-terms)
-                                                 any-change-made?))))))
-                 (terms-after-negation-distribution (car negation-distribution-result))
+                                                 (append (reverse (map make-negation (operands (negated-expr current-term)))) accumulated)
+                                                 #t)
+                              (process-negations (cdr terms-to-scan) (cons current-term accumulated) changed?))))))
+                 (terms-after-negation (car negation-distribution-result))
                  (negation-was-distributed? (cadr negation-distribution-result)))
 
             (if negation-was-distributed?
-                ;; If negations were distributed, the structure changed.
-                ;; The new list of terms (terms-after-negation-distribution) needs to be re-simplified
-                ;; and the whole sum simplification process restarted with these terms.
-                (main-sum-loop terms-after-negation-distribution (+ iteration-count 1))
+                (main-sum-loop terms-after-negation (+ iteration-count 1))
                 
                 ;; If no negations were distributed in this pass, proceed with term collection.
                 ;; 'flat-terms' is the stable list of terms to work with.
                 (let ((final-flat-terms flat-terms)) 
                   (if (null? final-flat-terms)
                       0 ; Sum of no terms is 0
-                      (let* (;; Step 3: Separate numeric constants and sum them.
-                             (numeric-constant-terms (filter constant? final-flat-terms))
-                             (other-terms (filter (lambda (t) (not (constant? t))) final-flat-terms))
-                             (numeric-sum (if (null? numeric-constant-terms) 0 (apply + numeric-constant-terms)))
+                (let* (;; Step X: Apply identity rules to the list of terms
+                       (identity-rule-result (apply-sum-identity-rules terms-after-negation))
+                       (terms-after-identities (car identity-rule-result))
+                       (constants-from-identities (cadr identity-rule-result))
+
+                       ;; Step 3: Separate numeric constants and sum them.
+                       (numeric-constant-terms (filter constant? terms-after-identities))
+                       (other-terms (filter (lambda (t) (not (constant? t))) terms-after-identities))
+                       ;; Add constants generated by identities (e.g., the '1's)
+                       (numeric-sum (+ constants-from-identities
+                                       (if (null? numeric-constant-terms) 0 (apply + numeric-constant-terms))))
+                       
                              ;; Step 4: Group non-constant terms by their base and sum coefficients.
                              (term-groups
                               (let collect-groups ((terms-to-process other-terms) (groups '()))
@@ -542,76 +578,96 @@
               ;; Otherwise, add it to the accumulated output factors.
               (collect-flat (cdr input-factors) (cons factor output-factors)))))))
 
+(define (apply-product-identity-rules-to-factors current-const-val non-constant-factors-list)
+  (let* ((factors-with-const (if (equal? current-const-val 1)
+                                 non-constant-factors-list
+                                 (cons current-const-val non-constant-factors-list)))
+         ;; --- Rule: 2 * sin(A) * cos(A) -> sin(2A) ---
+         ;; This needs to find 2, sin(A), and cos(A) in factors-with-const
+         (found-2 (find-if (lambda (f) (equal? f 2)) factors-with-const))
+         (remaining-after-2 (if found-2 (remove 2 factors-with-const) factors-with-const)))
+
+    (if found-2
+        (let* ((found-sinA #f) (argA #f) (remaining-after-sinA remaining-after-2))
+          ;; Find sin(A)
+          (set! found-sinA (find-if (lambda (f) (sin? f)) remaining-after-2))
+          (if found-sinA
+              (begin
+                (set! argA (sin-arg found-sinA))
+                (set! remaining-after-sinA (remove found-sinA remaining-after-2)))
+              #f) ; sin(A) not found
+
+          (if (and found-sinA argA)
+              (let ((found-cosA-partner (find-if (lambda (f) (and (cos? f) (equal? (cos-arg f) argA))) remaining-after-sinA)))
+                (if found-cosA-partner
+                    ;; Pattern found!
+                    (let* ((remaining-factors (remove found-cosA-partner remaining-after-sinA))
+                           (new-term (make-sin (make-product (list 2 argA))))
+                           ;; Separate the new constant and non-constant parts from remaining-factors
+                           (new-const-val-from-remaining (apply * (filter constant? remaining-factors)))
+                           (new-non-const-from-remaining (filter (lambda (f) (not (constant? f))) remaining-factors)))
+                      (values new-const-val-from-remaining (cons new-term new-non-const-from-remaining)))
+                    ;; cos(A) partner not found
+                    (values current-const-val non-constant-factors-list))) ; Return original
+              ;; sin(A) not found after finding 2
+              (values current-const-val non-constant-factors-list))) ; Return original
+        ;; 2 not found
+        (values current-const-val non-constant-factors-list)))) ; Return original
+
+;; Simplification for products (with flattening, ordering, and power-grouping)
 ;; Simplification for products (with flattening, ordering, and power-grouping)
 (define (simplify-product expr)
   (let* ((raw-operands (operands expr))
-         ;; Step 1: Simplify each operand individually.
          (simplified-operands (map simplify raw-operands))
-         ;; Step 2: Flatten nested products.
          (flat-initial-factors (flatten-product-factors-iterative simplified-operands)))
-
-    ;; Step 3: Check for 0 as a factor. If present, the whole product is 0.
     (if (member 0 flat-initial-factors)
         0
-        (let* (;; Step 4: Separate initial numeric constants from other (non-constant) factors.
-               (numeric-constants (filter constant? flat-initial-factors))
+        (let* ((numeric-constants (filter constant? flat-initial-factors))
                (other-initial-factors (filter (lambda (f) (not (constant? f))) flat-initial-factors))
                (base-const-val (if (null? numeric-constants) 1 (apply * numeric-constants))))
-
-          ;; If the initial constant part is 0 (e.g., from (* 0 x)), the whole product is 0.
-          ;; This check is somewhat redundant due to the member check above, but harmless.
           (if (and (number? base-const-val) (= base-const-val 0))
               0
-              ;; Step 5: Process non-constant factors to pull out negations and update constant.
               (call-with-values
-               (lambda () ; Producer for intermediate-const-val and processed-non-constants-before-grouping
+               (lambda ()
                  (let loop ((current-const base-const-val)
                             (remaining-others other-initial-factors)
                             (acc-non-const '()))
                    (if (null? remaining-others)
                        (values current-const (reverse acc-non-const))
                        (let ((factor (car remaining-others)))
-                         (if (negation? factor) ; e.g., (- x)
+                         (if (negation? factor)
                              (loop (* current-const -1)
                                    (cdr remaining-others)
-                                   (cons (negated-expr factor) acc-non-const)) ; Add x
+                                   (cons (negated-expr factor) acc-non-const))
                              (loop current-const
                                    (cdr remaining-others)
                                    (cons factor acc-non-const)))))))
-               (lambda (intermediate-const-val processed-non-constants-before-grouping)
-                 ;; Step 6: Sort the remaining non-constant factors for canonical grouping.
-                 (let* ((sorted-factors-before-grouping (list-sort term<? processed-non-constants-before-grouping))
-                        ;; Step 7: Group identical factors into powers.
-                        ;; group-factors-into-powers now simplifies the terms it creates.
-                        ;; So, (^ i 2) becomes -1 here.
-                        (grouped-terms (group-factors-into-powers sorted-factors-before-grouping))
-
-                        ;; Step 8: Re-evaluate constants and sort final non-constant factors.
-                        ;; Some grouped terms might have become constants (e.g., (^ i 2) -> -1).
-                        ;; Also, filter out any '1's that resulted from grouping (e.g. x^0 -> 1)
-                        (final-non-constant-factors-unsorted (filter (lambda (f) (and (not (constant? f)) (not (equal? f 1)))) grouped-terms))
-                        (final-non-constant-factors (list-sort term<? final-non-constant-factors-unsorted)) ; Added sort here
-                        (newly-formed-constants (filter constant? grouped-terms))
-                        
-                        (final-const-val (apply * intermediate-const-val newly-formed-constants)))
-
-                   ;; Step 9: Construct the final simplified product.
-                   (cond
-                     ((and (number? final-const-val) (= final-const-val 0)) 0)
-                     ((null? final-non-constant-factors)
-                      ;; If no non-constant factors left, the result is just the constant value.
-                      ;; (This handles cases like (* 1), (* -1), (* 5), (* i i) -> -1)
-                      final-const-val)
-                     ((and (number? final-const-val) (= final-const-val 1))
-                      (if (null? (cdr final-non-constant-factors)) ; Only one non-constant factor
-                          (car final-non-constant-factors)
-                          (make-product final-non-constant-factors)))
-                     ((and (number? final-const-val) (= final-const-val -1))
-                      (if (null? (cdr final-non-constant-factors))
-                          (make-negation (car final-non-constant-factors))
-                          (make-negation (make-product final-non-constant-factors))))
-                     (else ; Constant is other than 0, 1, -1, or non-constant factors exist.
-                      (make-product (cons final-const-val final-non-constant-factors))))))))))))
+               (lambda (intermediate-const-val processed-non-constants-before-rules)
+                 ;; --- APPLY PRODUCT IDENTITY RULES HERE ---
+                 (call-with-values
+                  (lambda () (apply-product-identity-rules-to-factors intermediate-const-val processed-non-constants-before-rules))
+                  (lambda (const-after-rules factors-after-rules)
+                    ;; --- END APPLY PRODUCT IDENTITY RULES ---
+                    (let* ((sorted-factors-before-grouping (list-sort term<? factors-after-rules))
+                           (grouped-terms (group-factors-into-powers sorted-factors-before-grouping))
+                           ;; apply-product-contraction-rules is removed from here, handled above
+                           (final-non-constant-factors-unsorted (filter (lambda (f) (and (not (constant? f)) (not (equal? f 1)))) grouped-terms))
+                           (final-non-constant-factors (list-sort term<? final-non-constant-factors-unsorted))
+                           (newly-formed-constants (filter constant? grouped-terms))
+                           (final-const-val (apply * const-after-rules newly-formed-constants)))
+                      (cond
+                        ((and (number? final-const-val) (= final-const-val 0)) 0)
+                        ((null? final-non-constant-factors) final-const-val)
+                        ((and (number? final-const-val) (= final-const-val 1))
+                         (if (null? (cdr final-non-constant-factors))
+                             (car final-non-constant-factors)
+                             (make-product final-non-constant-factors)))
+                        ((and (number? final-const-val) (= final-const-val -1))
+                         (if (null? (cdr final-non-constant-factors))
+                             (make-negation (car final-non-constant-factors))
+                             (make-negation (make-product final-non-constant-factors))))
+                        (else
+                         (make-product (cons final-const-val final-non-constant-factors))))))))))))))
 
 (define (simplify-abs expr)
   (let ((arg (simplify (abs-arg expr)))) ; Simplify argument first
@@ -832,6 +888,9 @@
       ((and (constant? s-den) (= s-den 1)) s-num)
       ;; Numerator and denominator are equal (and not zero)
       ((equal? s-num s-den) 1)
+      ;; Tan definition check:
+      ((and (sin? s-num) (cos? s-den) (equal? (sin-arg s-num) (cos-arg s-den)))
+       (simplify (make-tan (sin-arg s-num)))) ; Simplify the resulting tan expression
       ;; Default case
       (else (list '/ s-num s-den)))))
 
@@ -890,6 +949,81 @@
       ;; Default: no further simplification
       (else (make-ln arg)))))
 
+(define (simplify-sin expr)
+  (let ((arg (simplify (sin-arg expr))))
+    (cond
+      ;; sin(0) -> 0
+      ((equal? arg 0) 0)
+      ;; sin(pi) -> 0
+      ((equal? arg 'pi) 0)
+      ;; sin(2*pi), sin(3*pi), etc. -> 0 (integer multiples of pi)
+      ((and (product? arg)
+            (equal? (length (operands arg)) 2)
+            (let ((f1 (car (operands arg))) (f2 (cadr (operands arg))))
+              (or (and (integer? f1) (equal? f2 'pi))
+                  (and (integer? f2) (equal? f1 'pi)))))
+       0)
+      ;; sin(pi/2) -> 1
+      ((equal? arg '(/ pi 2)) 1)
+      ;; sin(pi/3) -> sqrt(3)/2
+      ((equal? arg '(/ pi 3)) (simplify '(/ (^ 3 1/2) 2)))
+      ;; sin(pi/4) -> sqrt(2)/2
+      ((equal? arg '(/ pi 4)) (simplify '(/ (^ 2 1/2) 2)))
+      ;; sin(pi/6) -> 1/2
+      ((equal? arg '(/ pi 6)) 1/2)
+      ;; sin(-x) -> -sin(x)
+      ((negation? arg) (simplify (make-negation (make-sin (negated-expr arg)))))
+      ;; Default
+      (else (make-sin arg)))))
+
+(define (simplify-cos expr)
+  (let ((arg (simplify (cos-arg expr))))
+    (cond
+      ;; cos(0) -> 1
+      ((equal? arg 0) 1)
+      ;; cos(pi) -> -1
+      ((equal? arg 'pi) -1)
+      ;; cos(2*pi) -> 1 (even multiples of pi)
+      ((and (product? arg)
+            (equal? (length (operands arg)) 2)
+            (let ((f1 (car (operands arg))) (f2 (cadr (operands arg))))
+              (and (or (and (integer? f1) (even? f1) (equal? f2 'pi))
+                       (and (integer? f2) (even? f2) (equal? f1 'pi))))))
+       1)
+      ;; cos(3*pi) -> -1 (odd multiples of pi, already covered by pi if simplified)
+      ;; cos(pi/2) -> 0
+      ((equal? arg '(/ pi 2)) 0)
+      ;; cos(pi/3) -> 1/2
+      ((equal? arg '(/ pi 3)) 1/2)
+      ;; cos(pi/4) -> sqrt(2)/2
+      ((equal? arg '(/ pi 4)) (simplify '(/ (^ 2 1/2) 2)))
+      ;; cos(pi/6) -> sqrt(3)/2
+      ((equal? arg '(/ pi 6)) (simplify '(/ (^ 3 1/2) 2)))
+      ;; cos(-x) -> cos(x)
+      ((negation? arg) (simplify (make-cos (negated-expr arg))))
+      ;; Default
+      (else (make-cos arg)))))
+
+(define (simplify-tan expr)
+  (let ((arg (simplify (tan-arg expr))))
+    (cond
+      ;; tan(0) -> 0
+      ((equal? arg 0) 0)
+      ;; tan(pi) -> 0
+      ((equal? arg 'pi) 0)
+      ;; tan(pi/4) -> 1
+      ((equal? arg '(/ pi 4)) 1)
+      ;; tan(pi/6) -> 1/sqrt(3)
+      ((equal? arg '(/ pi 6)) (simplify '(/ 1 (^ 3 1/2))))
+      ;; tan(pi/3) -> sqrt(3)
+      ((equal? arg '(/ pi 3)) (simplify '(^ 3 1/2)))
+      ;; tan(pi/2) is undefined, so return original if no other rule applies
+      ((equal? arg '(/ pi 2)) (make-tan arg))
+      ;; tan(-x) -> -tan(x)
+      ((negation? arg) (simplify (make-negation (make-tan (negated-expr arg)))))
+      ;; Default
+      (else (make-tan arg)))))
+
 ;; Main simplify function
 (set! simplify
       (lambda (expr)
@@ -910,6 +1044,9 @@
           ((abs? expr) (simplify-abs expr))
           ((exp? expr) (simplify-exp expr))
           ((ln? expr) (simplify-ln expr))    
+          ((sin? expr) (simplify-sin expr))
+          ((cos? expr) (simplify-cos expr))
+          ((tan? expr) (simplify-tan expr))
 
           ;; ... add other specific functions like (simplify-sin expr) if they have rules ...
 
@@ -1064,6 +1201,48 @@
       ;; Default: No expansion rule applied for the power expression itself
       (else power-expr))))
 
+(define (expand-sin-expression sin-expr) ; sin-expr is like (sin expanded-arg)
+  (let ((arg (sin-arg sin-expr))) ; Argument is already expanded
+    (cond
+      ;; sin(A+B) -> sin(A)cos(B)+cos(A)sin(B)
+      ((and (sum? arg) (= (length (operands arg)) 2))
+       (let ((termA (car (operands arg))) (termB (cadr (operands arg))))
+         ;; Recursively call expand on the new structure, then simplify
+         (expand (make-sum (list (make-product (list (make-sin termA) (make-cos termB)))
+                                 (make-product (list (make-cos termA) (make-sin termB))))))))
+
+      ;; sin(2A) which is sin (* 2 A)
+      ((and (product? arg) (= (length (operands arg)) 2) (equal? (car (operands arg)) 2))
+       (let ((termA (cadr (operands arg))))
+         (expand (make-product (list 2 (make-sin termA) (make-cos termA))))))
+      
+      ;; Default: no specific expansion rule for sin's argument structure
+      (else sin-expr))))
+
+(define (expand-cos-expression cos-expr) ; cos-expr is like (cos expanded-arg)
+  (let ((arg (cos-arg cos-expr))) ; Argument is already expanded
+    (cond
+      ;; cos(A+B) -> cos(A)cos(B)-sin(A)sin(B)
+      ((and (sum? arg) (= (length (operands arg)) 2))
+       (let ((termA (car (operands arg))) (termB (cadr (operands arg))))
+         ;; Recursively call expand on the new structure, then simplify
+         (expand (make-sum (list (make-product (list (make-cos termA) (make-cos termB)))
+                                 (make-product (list -1
+                                                     (make-sin termA)
+                                                     (make-sin termB))))))))
+
+      ;; cos(2A) which is cos (* 2 A)
+      ((and (product? arg) (= (length (operands arg)) 2) (equal? (car (operands arg)) 2))
+       (let ((termA (cadr (operands arg))))
+         ;; cos(2A) = cos^2(A) - sin^2(A)
+         (expand (make-sum (list (make-product (list (make-cos termA) (make-cos termA)))
+                                 (make-product (list -1
+                                                     (make-sin termA)
+                                                     (make-sin termA))))))))
+
+      ;; Default: no specific expansion rule for cos's argument structure
+      (else cos-expr))))
+
 ;; Main expand function
 ;; Recursively expands expressions and simplifies the result.
 (set! expand
@@ -1077,6 +1256,8 @@
                ;; Step 2: Apply expansion rules to the current expression form.
                (rule-applied-expr
                 (cond
+                  ((sin? expr-with-expanded-operands) (expand-sin-expression expr-with-expanded-operands))
+                  ((cos? expr-with-expanded-operands) (expand-cos-expression expr-with-expanded-operands))
                   ((product? expr-with-expanded-operands) (expand-product-distributive expr-with-expanded-operands))
                   ((power? expr-with-expanded-operands) (expand-power-rules expr-with-expanded-operands))
                   ;; Add other top-level expansion rules here if any (e.g., for sums, though not typical for "expansion")

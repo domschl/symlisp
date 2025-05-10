@@ -901,3 +901,37 @@
   (assert-false (variable? 5)))
 (define-test "predicate-variable?-6"
   (assert-false (variable? '(+ x 1))))
+
+;; Tests for (^ -1 rational-exponent)
+(define-test "simplify-power-neg-one-half"
+  (assert-equal (simplify '(^ -1 1/2)) 'i))
+(define-test "simplify-power-neg-one-third"
+  (assert-equal (simplify '(^ -1 1/3)) -1))
+(define-test "simplify-power-neg-one-two-thirds"
+  (assert-equal (simplify '(^ -1 2/3)) 1))
+(define-test "simplify-power-neg-one-three-halves" ; (^ i 3)
+  (assert-equal (simplify '(^ -1 3/2)) '(- i)))
+(define-test "simplify-power-neg-one-one-fourth" ; (^ i 1/2)
+  (assert-equal (simplify '(^ -1 1/4)) '(^ i 1/2)))
+(define-test "simplify-power-neg-one-three-fourths" ; (^ i 3/2)
+  (assert-equal (simplify '(^ -1 3/4)) '(^ i 3/2)))
+
+;; Tests for negative constant bases with rational exponents
+(define-test "simplify-power-neg-base-sqrt-neg-four" ; (-4)^(1/2) -> (* (^ -1 1/2) (^ 4 1/2)) -> (* i 2)
+  (assert-equal (simplify '(^ -4 1/2)) '(* 2 i)))
+(define-test "simplify-power-neg-base-sqrt-neg-nine"
+  (assert-equal (simplify '(^ -9 1/2)) '(* 3 i)))
+(define-test "simplify-power-neg-base-cuberoot-neg-eight" ; (-8)^(1/3) -> -2
+  (assert-equal (simplify '(^ -8 1/3)) -2))
+(define-test "simplify-power-neg-base-cuberoot-neg-27"
+  (assert-equal (simplify '(^ -27 1/3)) -3))
+(define-test "simplify-power-neg-base-rational-exp-neg-8_2_3" ; (-8)^(2/3) -> ((-8)^(1/3))^2 -> (-2)^2 -> 4
+  (assert-equal (simplify '(^ -8 2/3)) 4))
+(define-test "simplify-power-neg-base-rational-exp-neg-4_3_2" ; (-4)^(3/2) -> (* (^ -1 3/2) (^ 4 3/2)) -> (* (- i) 8)
+  (assert-equal (simplify '(^ -4 3/2)) '(* -8 i))) ; simplify-product might sort to this
+(define-test "simplify-power-neg-base-fourthroot-neg-16" ; (-16)^(1/4) -> (* (^ -1 1/4) (^ 16 1/4)) -> (* (^ i 1/2) 2)
+  (assert-equal (simplify '(^ -16 1/4)) '(* 2 (^ i 1/2))))
+(define-test "simplify-power-neg-base-odd-den-even-num" ; e.g. (-2)^(2/3) -> (2)^(2/3)
+  (assert-equal (simplify '(^ -2 2/3)) '(^ 2 2/3)))
+(define-test "simplify-power-neg-base-odd-den-odd-num-no-further-int-simpl" ; e.g. (-5)^(1/3) -> - (5^(1/3))
+  (assert-equal (simplify '(^ -5 1/3)) '(- (^ 5 1/3))))

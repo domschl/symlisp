@@ -69,6 +69,7 @@ Again another Scheme, this time:
 - [x] char compare
 - [x] Latex output (jupyter kernel), via (display-markdown (prefix-expr->markdown-latex '(+ 1 x))), text math output, better symbolics term collection
 - [x] Phase 3.A: Special functions accessors, treatment of `i`.
+- [x] Phase 3.B: Fractional Exponents, sqrt, and abs Function
 
 Larger steps:
 
@@ -92,7 +93,7 @@ A. [DONE] Core Constants and Imaginary Unit i
 - (* ... i ... i ...): simplify-product should recognize (* i i) within its factors and replace it with -1, effectively simplifying products of multiple i's.
 - predicate and accessor functions for abs, ln, exp, sin, cos, tan, sqrt
 
-B. Fractional Exponents, sqrt, and abs Function
+B. [DONE] Fractional Exponents, sqrt, and abs Function
 
 - Rational Exponents for ^:
   - Extend simplify-power to robustly handle rational exponents m/n.
@@ -115,6 +116,7 @@ B. Fractional Exponents, sqrt, and abs Function
   - generally, (^ (base^N) (1/N)) should be base if N is odd, and (abs base) if N is even and positive. (This assumes base can be complex or negative; if base is known real and positive, abs is not needed).
 - General Power Rules:
   - Ensure existing rules like (^ (^ base m) k) -> (^ base (* m k)) and (^ (* f1 f2) k) -> (* (^ f1 k) (^ f2 k)) are robust and correctly interact with new fractional exponent logic.
+  - Rendering for sqrt in infix output and latex
 
 C. Exponential and Logarithmic Functions (Natural)
 

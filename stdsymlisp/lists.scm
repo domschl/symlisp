@@ -38,6 +38,30 @@
     ((pred (car lst)) (pred (car lst))) ; Return the true value from pred
     (else (exists pred (cdr lst)))))
 
+;; (count pred lst)
+;; Returns the number of elements in lst for which pred is true.
+(define (count pred lst)
+  (let loop ((current-list lst) (n 0))
+    (if (null? current-list)
+        n
+        (if (pred (car current-list))
+            (loop (cdr current-list) (+ n 1))
+            (loop (cdr current-list) n)))))
+
+;; (remove-duplicates lst)
+;; Returns a new list containing the elements of lst with duplicates removed.
+;; The order of the first occurrence of each element is preserved.
+;; Uses 'equal?' for comparison.
+(define (remove-duplicates lst)
+  (let loop ((remaining lst) (result-acc '()))
+    (if (null? remaining)
+        (reverse result-acc) ; Reverse to restore original order of first occurrences
+        (let ((current-item (car remaining)))
+          ;; Check if current-item is already in the accumulator (which holds unique items found so far)
+          (if (member current-item result-acc)
+              (loop (cdr remaining) result-acc)
+              (loop (cdr remaining) (cons current-item result-acc)))))))
+
 ;; (list-take lst k)
 ;; Returns a new list containing the first k elements of lst.
 ;; If k is 0, returns '().

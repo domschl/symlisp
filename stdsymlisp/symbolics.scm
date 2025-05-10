@@ -20,6 +20,11 @@
 (define (constant? expr)
   (number? expr))
 
+;; (rational? expr) -> #t if expr is a rational number.
+;; In SymLisp, all numbers are currently rationals.
+(define (rational? expr)
+  (number? expr))
+
 ;; (variable? expr) -> #t if expr is a symbol and not a known operator, #f otherwise
 (define (variable? expr)
   (and (symbol? expr)
@@ -604,16 +609,13 @@
   (let ((b (simplify (base expr)))
         (exp-val (simplify (exponent expr))))
     (cond
-      ;; 1. Constant folding: b is const, exp-val is const
-      ((and (constant? b) (constant? exp-val))
-       (if (integer? exp-val) ;; SymLisp's 'expt' builtin only handles integer exponents
-           (if (and (number? b) (= b 0) (number? exp-val) (<= exp-val 0)) ; 0^0 or 0 to negative power
-               (if (= exp-val 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
-               (expt b exp-val))
-           ;; exp-val is a non-integer rational.
-           ;; Defer to later rules for specific cases like integer roots.
-           ;; If no specific rule applies, it remains symbolic.
-           (make-power b exp-val)))
+      ;; 1. Constant folding for INTEGER exponents: b is const, exp-val is const and integer.
+      ;;    If exp-val is rational but not integer, this rule is skipped, allowing
+      ;;    later rules (like clause 7 for integer roots) to apply.
+      ((and (constant? b) (constant? exp-val) (integer? exp-val))
+       (if (and (number? b) (= b 0) (<= exp-val 0)) ; 0^0 or 0 to negative integer power
+           (if (= exp-val 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
+           (expt b exp-val))) ; expt is the Scheme power function (requires integer exponent)
 
       ;; 2. Rule for i^n where n is an integer
       ((and (eq? b 'i) (integer? exp-val))
@@ -623,19 +625,18 @@
            ((= rem 1) 'i)
            ((= rem 2) -1)
            ((= rem 3) (make-negation 'i))
-           (else (make-power b exp-val))))) ; Should not be reached
+           (else (make-power b exp-val)))))
 
-      ;; 3. Standard identities
+      ;; 3. Standard identities (some overlap with make-power but are good for clarity)
       ((and (constant? exp-val) (= exp-val 0)) 1) ; x^0 = 1
       ((and (constant? exp-val) (= exp-val 1)) b) ; x^1 = x
       ((and (constant? b) (= b 0)) ; 0^x = 0 for x > 0 (constant x)
-       (if (and (constant? exp-val) (> exp-val 0))
+       (if (and (constant? exp-val) (> exp-val 0)) ; Covers 0^(positive rational) too
            0
-           (make-power b exp-val)))
+           (make-power b exp-val))) ; e.g. 0^(-1/2) or 0^y remains symbolic
       ((and (constant? b) (= b 1)) 1) ; 1^x = 1
 
       ;; 4. Structural Rule: Power of a power: (^ (^ base_b exp_b) exp_val) -> (^ base_b (* exp_b exp_val))
-      ;; Note: 'b' is already simplified. If b is a power, (base b) and (exponent b) access its parts.
       ((power? b)
        (simplify (make-power (base b) (simplify (make-product (list (exponent b) exp-val))))))
 
@@ -657,34 +658,36 @@
       ((and (integer? b) (> b 0) (rational? exp-val) (not (integer? exp-val)))
        (let ((num-exp (numerator exp-val))
              (den-exp (denominator exp-val)))
-         ;; This rule handles non-integer rational exponents.
-         ;; If den-exp became 1 after simplify, exp-val would be integer, caught earlier.
-         (if (= b 1) ; (^ 1 anything) is 1, already handled by "base=1" rule, but good check.
+         (if (= b 1) 
              1
-             (let* ((prime-factor-list (prime-factors b))) ; e.g., (2 2 3) for 12
-               (if (null? prime-factor-list) ; Should only happen if b was 1, handled.
-                   (make-power b exp-val) ; Or return 1 if b is 1.
+             (let* ((prime-factor-list (prime-factors b))) 
+               (if (null? prime-factor-list) 
+                   (make-power b exp-val) ; Should ideally only be for b=1 if prime-factors returns () for 1
                    (let* ((unique-primes (remove-duplicates prime-factor-list))
-                          (grouped-prime-powers ; e.g., ((2 . 2) (3 . 1)) for 12
+                          (grouped-prime-powers 
                            (map (lambda (p) (cons p (count (lambda (x) (= x p)) prime-factor-list)))
                                 unique-primes))
                           (new-factors
-                           (map (lambda (prime-power-pair) ; e.g., (2 . 2) for prime 2, original power 2
+                           (map (lambda (prime-power-pair) 
                                   (let* ((prime (car prime-power-pair))
                                          (original-power (cdr prime-power-pair))
-                                         ;; New exponent for this prime: original-power * (num-exp / den-exp)
-                                         ;; = (original-power * num-exp) / den-exp
                                          (new-exponent-num (* original-power num-exp))
-                                         ;; Simplify the new exponent fraction: new-exponent-num / den-exp
                                          (common-divisor (gcd new-exponent-num den-exp))
                                          (final-exponent-num (/ new-exponent-num common-divisor))
                                          (final-exponent-den (/ den-exp common-divisor)))
-                                    (if (= final-exponent-den 1) ; Resulting exponent is integer
-                                        (make-power prime final-exponent-num)
+                                    (if (= final-exponent-den 1) 
+                                        (make-power prime final-exponent-num) ; This simplifies to just prime if final-exponent-num is 1
                                         (make-power prime (/ final-exponent-num final-exponent-den)))))
-                                grouped-prime-powers)))
-                     (simplify (make-product new-factors))))))))
-      
+                                grouped-prime-powers))
+                          (product-of-new-factors (make-product new-factors))
+                          (current-power-form (list '^ b exp-val))) ; The form this rule is trying to simplify
+                     
+                     ;; Check if the transformation resulted in the exact same power expression.
+                     ;; If so, return it to prevent infinite recursion.
+                     (if (equal? product-of-new-factors current-power-form)
+                         current-power-form
+                         (simplify product-of-new-factors))))))))
+         
       ;; 8. Default: No specific simplification rule applied
       (else (make-power b exp-val)))))
 

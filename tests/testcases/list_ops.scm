@@ -168,3 +168,40 @@
 (define-test "list-sort-terms"
   (assert-equal (list-sort term<-pred '(b 10 (* x y) a 5 (+ 1 z)))
                 '(5 10 a b (* x y) (+ 1 z)))) ; Example order, actual depends on expr->string for compounds
+
+;; --- COUNT ---
+(define-test "count-empty-list"
+  (assert-equal (count number? '()) 0))
+(define-test "count-all-match"
+  (assert-equal (count number? '(1 2 3)) 3))
+(define-test "count-some-match"
+  (assert-equal (count even? '(1 2 3 4 5 6)) 3))
+(define-test "count-no-match"
+  (assert-equal (count symbol? '(1 2 3)) 0))
+(define-test "count-symbols"
+  (assert-equal (count symbol? '(a b 1 c 2)) 3))
+(define-test "count-specific-value"
+  (assert-equal (count (lambda (x) (equal? x 'a)) '(a b a c a d)) 3))
+(define-test "count-nested-lists-shallow"
+  (assert-equal (count list? '((1) 2 (3 4) 5)) 2))
+
+;; --- REMOVE-DUPLICATES ---
+(define-test "remove-duplicates-empty-list"
+  (assert-equal (remove-duplicates '()) '()))
+(define-test "remove-duplicates-no-duplicates"
+  (assert-equal (remove-duplicates '(1 2 3 a b)) '(1 2 3 a b)))
+(define-test "remove-duplicates-numbers"
+  (assert-equal (remove-duplicates '(1 2 1 3 2 2 4 1)) '(1 2 3 4)))
+(define-test "remove-duplicates-symbols"
+  (assert-equal (remove-duplicates '(a b a c b b d a)) '(a b c d)))
+(define-test "remove-duplicates-mixed-types"
+  (assert-equal (remove-duplicates '(1 a 1 b a 2 1 c)) '(1 a b 2 c)))
+(define-test "remove-duplicates-all-same"
+  (assert-equal (remove-duplicates '(x x x x x)) '(x)))
+(define-test "remove-duplicates-single-element"
+  (assert-equal (remove-duplicates '(5)) '(5)))
+(define-test "remove-duplicates-with-lists"
+  (assert-equal (remove-duplicates '((1 2) (3 4) (1 2) (5 6) (3 4)))
+                '((1 2) (3 4) (5 6))))
+(define-test "remove-duplicates-preserves-order"
+  (assert-equal (remove-duplicates '(c a b a c d b)) '(c a b d)))

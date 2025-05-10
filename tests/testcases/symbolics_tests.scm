@@ -7,6 +7,8 @@
 
 ;;; --- Tests for Predicates ---
 
+
+
 (define-test "symbolics-constant?-is-number-positive-integer"
   (assert-equal (constant? 5) #t))
 (define-test "symbolics-constant?-is-number-zero"
@@ -780,3 +782,122 @@
 (define-test "expand-product-involving-i-and-sum"
   ;; (* i (+ x i)) -> (+ (* i x) (* i i)) -> (+ (* i x) -1) -> (+ -1 (* i x))
   (assert-equal (expand '(* i (+ x i))) '(+ -1 (* i x))))
+
+;;; --- Tests for Fractional Exponents and Sqrt ---
+
+;; sqrt conversion to power
+(define-test "simplify-sqrt-conversion"
+  (assert-equal (simplify '(sqrt x)) '(^ x 1/2)))
+(define-test "simplify-sqrt-of-constant" ; sqrt(4) -> (^ 4 1/2) -> simplify-power -> 2
+  (assert-equal (simplify '(sqrt 4)) 2))
+(define-test "simplify-sqrt-of-product" ; sqrt(* x y) -> (^ (* x y) 1/2) -> (* (^ x 1/2) (^ y 1/2))
+  (assert-equal (simplify '(sqrt (* x y))) '(* (^ x 1/2) (^ y 1/2))))
+(define-test "simplify-sqrt-of-power" ; sqrt(^ x 4) -> (^ (^ x 4) 1/2) -> (^ x 2)
+  (assert-equal (simplify '(sqrt (^ x 4))) '(^ x 2)))
+
+;; Simplifying roots of positive integers
+(define-test "simplify-power-integer-perfect-square-root"
+  (assert-equal (simplify '(^ 9 1/2)) 3))
+(define-test "simplify-power-integer-perfect-cube-root"
+  (assert-equal (simplify '(^ 27 1/3)) 3))
+(define-test "simplify-power-integer-perfect-fourth-root"
+  (assert-equal (simplify '(^ 16 1/4)) 2))
+(define-test "simplify-power-integer-root-simplify-factors-sqrt12"
+  ;; (^ 12 1/2) -> (^ (* 2 2 3) 1/2) -> (* (^ (2^2) 1/2) (^ 3 1/2)) -> (* 2 (^ 3 1/2))
+  (assert-equal (simplify '(^ 12 1/2)) '(* 2 (^ 3 1/2))))
+(define-test "simplify-power-integer-root-simplify-factors-sqrt18"
+  ;; (^ 18 1/2) -> (^ (* 2 3 3) 1/2) -> (* (^ 2 1/2) (^ (3^2) 1/2)) -> (* 3 (^ 2 1/2))
+  (assert-equal (simplify '(^ 18 1/2)) '(* 3 (^ 2 1/2))))
+(define-test "simplify-power-integer-root-simplify-factors-sqrt72"
+  ;; (^ 72 1/2) -> (^ (* 2 2 2 3 3) 1/2) -> (^ (* (2^3) (3^2)) 1/2)
+  ;; -> (* (^ (2^3) 1/2) (^ (3^2) 1/2)) -> (* (^ (2^3) 1/2) 3)
+  ;; -> (* 3 (^ (* 2 (2^2)) 1/2)) -> (* 3 (* (^ 2 1/2) (^ (2^2) 1/2))) -> (* 3 (* 2 (^ 2 1/2)))
+  ;; -> (* 6 (^ 2 1/2))
+  (assert-equal (simplify '(^ 72 1/2)) '(* 6 (^ 2 1/2))))
+(define-test "simplify-power-integer-root-no-simplification"
+  (assert-equal (simplify '(^ 7 1/2)) '(^ 7 1/2)))
+(define-test "simplify-power-integer-root-prime-base"
+  (assert-equal (simplify '(^ 5 1/3)) '(^ 5 1/3)))
+
+;; Simplifying rational powers of positive integers
+(define-test "simplify-power-integer-rational-exp-8_2_3"
+  ;; (^ 8 2/3) -> (^ (2^3) 2/3) -> 2^(3*2/3) -> 2^2 -> 4
+  (assert-equal (simplify '(^ 8 2/3)) 4))
+(define-test "simplify-power-integer-rational-exp-32_2_5"
+  ;; (^ 32 2/5) -> (^ (2^5) 2/5) -> 2^(5*2/5) -> 2^2 -> 4
+  (assert-equal (simplify '(^ 32 2/5)) 4))
+(define-test "simplify-power-integer-rational-exp-27_2_3"
+  ;; (^ 27 2/3) -> (^ (3^3) 2/3) -> 3^(3*2/3) -> 3^2 -> 9
+  (assert-equal (simplify '(^ 27 2/3)) 9))
+(define-test "simplify-power-integer-rational-exp-4_3_2"
+  ;; (^ 4 3/2) -> (^ (2^2) 3/2) -> 2^(2*3/2) -> 2^3 -> 8
+  (assert-equal (simplify '(^ 4 3/2)) 8))
+(define-test "simplify-power-integer-rational-exp-partially-simplifies"
+  ;; (^ 12 3/2) -> (^ (* (2^2) 3) 3/2) -> (* (^ (2^2) 3/2) (^ 3 3/2))
+  ;; -> (* (2^3) (^ 3 3/2)) -> (* 8 (^ 3 3/2))
+  (assert-equal (simplify '(^ 12 3/2)) '(* 8 (^ 3 3/2))))
+(define-test "simplify-power-integer-rational-exp-already-simplified-form"
+  (assert-equal (simplify '(^ 5 2/3)) '(^ 5 2/3)))
+
+;; Interaction with other power rules
+(define-test "simplify-power-power-of-power-with-fractional"
+  ;; (^ (^ x 6) 1/2) -> (^ x (* 6 1/2)) -> (^ x 3)
+  (assert-equal (simplify '(^ (^ x 6) 1/2)) '(^ x 3)))
+(define-test "simplify-power-power-of-power-with-fractional-inner"
+  ;; (^ (^ x 1/2) 4) -> (^ x (* 1/2 4)) -> (^ x 2)
+  (assert-equal (simplify '(^ (^ x 1/2) 4)) '(^ x 2)))
+(define-test "simplify-power-power-of-product-with-fractional"
+  ;; (^ (* x y) 1/2) -> (* (^ x 1/2) (^ y 1/2))
+  (assert-equal (simplify '(^ (* x y) 1/2)) '(* (^ x 1/2) (^ y 1/2))))
+
+;; Edge cases for numeric root simplification
+(define-test "simplify-power-base-one-fractional-exponent"
+  (assert-equal (simplify '(^ 1 1/2)) 1))
+(define-test "simplify-power-base-one-complex-fractional-exponent"
+  (assert-equal (simplify '(^ 1 7/13)) 1))
+
+;;; --- Tests for Basic Predicates ---
+(define-test "predicate-constant?-1"
+  (assert-true (constant? 5)))
+(define-test "predicate-constant?-2"
+  (assert-true (constant? -10)))
+(define-test "predicate-constant?-3"
+  (assert-true (constant? 0)))
+(define-test "predicate-constant?-4"
+  (assert-true (constant? 1/2)))
+(define-test "predicate-constant?-5"
+  (assert-true (constant? -3/4)))
+(define-test "predicate-constant?-6"
+  (assert-false (constant? 'x)))
+(define-test "predicate-constant?-7"
+  (assert-false (constant? '(+ x 1))))
+
+(define-test "predicate-rational?-1"
+  (assert-true (rational? 5)))
+(define-test "predicate-rational?-2"
+  (assert-true (rational? -10)))
+(define-test "predicate-rational?-3"
+  (assert-true (rational? 0)))
+(define-test "predicate-rational?-4"
+  (assert-true (rational? 1/2)))
+(define-test "predicate-rational?-5"
+  (assert-true (rational? -3/4)))
+(define-test "predicate-rational?-6"
+  (assert-false (rational? 'x)))
+(define-test "predicate-rational?-7"
+  (assert-false (rational? '(+ x 1))))
+(define-test "predicate-rational?-8"
+  (assert-false (rational? "hello"))) ; Test with a string
+
+(define-test "predicate-variable?-1"
+  (assert-true (variable? 'x)))
+(define-test "predicate-variable?-2"
+  (assert-true (variable? 'my-var)))
+(define-test "predicate-variable?-3"
+  (assert-false (variable? '+))) ; Known operator
+(define-test "predicate-variable?-4"
+  (assert-false (variable? 'sqrt))) ; Known operator
+(define-test "predicate-variable?-5"
+  (assert-false (variable? 5)))
+(define-test "predicate-variable?-6"
+  (assert-false (variable? '(+ x 1))))

@@ -12,7 +12,7 @@
 
 ;; Helper: List of known operators. This might grow.
 ;; For now, it helps distinguish variables from operators if they are symbols.
-(define *known-operators* '(+ - * / ^ sin cos tan log exp sqrt)) ; Add more as needed
+(define *known-operators* '(+ - * / ^ abs sin cos tan log exp sqrt)) ; Add more as needed
 
 ;; Predicates
 
@@ -84,8 +84,21 @@
        (null? (cddr (cdr expr))) ; Must have exactly two operands
        ))
 
-;; Add more specific predicates for other functions (sin, cos, etc.) as needed
-;; e.g., (sine? expr), (cosine? expr)
+;; Helper for unary function predicates
+(define (unary-op-check expr op-symbol)
+  (and (compound-expr? expr)
+       (eq? (car expr) op-symbol)
+       (pair? (cdr expr))      ; Must have one operand
+       (null? (cddr expr))))   ; Must have exactly one operand
+
+;; Predicates for new special functions
+(define (abs? expr) (unary-op-check expr 'abs))
+(define (ln? expr) (unary-op-check expr 'ln))
+(define (exp? expr) (unary-op-check expr 'exp))
+(define (sin? expr) (unary-op-check expr 'sin))
+(define (cos? expr) (unary-op-check expr 'cos))
+(define (tan? expr) (unary-op-check expr 'tan))
+(define (sqrt? expr) (unary-op-check expr 'sqrt))
 
 ;; Accessors
 
@@ -179,6 +192,27 @@
   (if (quotient? expr)
       (caddr expr)
       (error "quotient-denominator: Not a quotient expression" expr)))
+
+;; Generic accessor for unary function arguments
+;; Precondition: The corresponding predicate (e.g., abs?) should be true.
+(define (unary-arg expr)
+  (cadr expr))
+
+;; Accessors for new special functions
+(define (abs-arg expr)
+  (if (abs? expr) (unary-arg expr) (error "abs-arg: Not an abs expression" expr)))
+(define (ln-arg expr)
+  (if (ln? expr) (unary-arg expr) (error "ln-arg: Not an ln expression" expr)))
+(define (exp-arg expr)
+  (if (exp? expr) (unary-arg expr) (error "exp-arg: Not an exp expression" expr)))
+(define (sin-arg expr)
+  (if (sin? expr) (unary-arg expr) (error "sin-arg: Not a sin expression" expr)))
+(define (cos-arg expr)
+  (if (cos? expr) (unary-arg expr) (error "cos-arg: Not a cos expression" expr)))
+(define (tan-arg expr)
+  (if (tan? expr) (unary-arg expr) (error "tan-arg: Not a tan expression" expr)))
+(define (sqrt-arg expr)
+  (if (sqrt? expr) (unary-arg expr) (error "sqrt-arg: Not a sqrt expression" expr)))
 
 ;;; --- 1.2: Basic Simplify Function ---
 
@@ -461,10 +495,11 @@
               ;; This base's sequence is done.
               (let* ((final-exponent (simplify accumulated-exponent-for-this-base))
                      (grouped-term
+                      (simplify
                       (cond
                         ((and (number? final-exponent) (zero? final-exponent)) 1)
                         ((and (number? final-exponent) (= final-exponent 1)) current-base)
-                        (else (list '^ current-base final-exponent)))))
+                        (else (list '^ current-base final-exponent))))))
                 ;; Filter out the '1' terms unless it's the only term and the list was originally non-empty
                 (let ((next-grouping (group-factors-into-powers factors-for-this-base-sequence)))
                   (if (and (equal? grouped-term 1) (not (null? next-grouping)))
@@ -494,25 +529,27 @@
 (define (simplify-product expr)
   (let* ((raw-operands (operands expr))
          ;; Step 1: Simplify each operand individually.
-         (simplified-initial-factors (map simplify raw-operands))
-         ;; Step 2: Flatten the list of factors. E.g., (x (* y z)) -> (x y z)
-         (flat-simplified-factors (flatten-product-factors-iterative simplified-initial-factors)))
-    ;; Step 3: Check for a 0 factor, which makes the whole product 0.
-    (if (member 0 flat-simplified-factors)
+         (simplified-operands (map simplify raw-operands))
+         ;; Step 2: Flatten nested products.
+         (flat-initial-factors (flatten-product-factors-iterative simplified-operands)))
+
+    ;; Step 3: Check for 0 as a factor. If present, the whole product is 0.
+    (if (member 0 flat-initial-factors)
         0
-        (let* (;; Step 4: Separate numeric constants from other (non-constant) factors.
-               (numeric-constants (filter constant? flat-simplified-factors))
-               (other-factors (filter (lambda (f) (not (constant? f))) flat-simplified-factors))
-               ;; Step 5: Calculate the product of all numeric constants.
+        (let* (;; Step 4: Separate initial numeric constants from other (non-constant) factors.
+               (numeric-constants (filter constant? flat-initial-factors))
+               (other-initial-factors (filter (lambda (f) (not (constant? f))) flat-initial-factors))
                (base-const-val (if (null? numeric-constants) 1 (apply * numeric-constants))))
-          ;; If the constant part is 0 (e.g., from (* 0 x)), the whole product is 0.
-          (if (and (number? base-const-val) (= base-const-val 0)) ; Ensure base-const-val is number for =
+
+          ;; If the initial constant part is 0 (e.g., from (* 0 x)), the whole product is 0.
+          ;; This check is somewhat redundant due to the member check above, but harmless.
+          (if (and (number? base-const-val) (= base-const-val 0))
               0
-              ;; Step 6: Process non-constant factors to pull out negations and update constant.
+              ;; Step 5: Process non-constant factors to pull out negations and update constant.
               (call-with-values
-               (lambda () ; Producer for final-const-val and processed-non-constants
+               (lambda () ; Producer for intermediate-const-val and processed-non-constants-before-grouping
                  (let loop ((current-const base-const-val)
-                            (remaining-others other-factors)
+                            (remaining-others other-initial-factors)
                             (acc-non-const '()))
                    (if (null? remaining-others)
                        (values current-const (reverse acc-non-const))
@@ -524,62 +561,82 @@
                              (loop current-const
                                    (cdr remaining-others)
                                    (cons factor acc-non-const)))))))
-               (lambda (final-const-val processed-non-constants) ; Consumer
-                 ;; Step 7: Sort the remaining non-constant factors for canonical grouping.
-                 (let* ((sorted-initial-non-constants (list-sort term<? processed-non-constants))
-                        ;; Step 8: Group identical factors into powers.
-                        ;; The list returned by group-factors-into-powers is ordered by first appearance
-                        ;; of the base in sorted-initial-non-constants.
-                        (grouped-terms-intermediate (group-factors-into-powers sorted-initial-non-constants))
-                        ;; Step 8.5: Sort the final list of grouped terms.
-                        (grouped-non-constants (list-sort term<? grouped-terms-intermediate))
-                        ;; Step 9: Filter out any '1's that resulted from grouping (e.g. x^0 -> 1)
-                        (final-grouped-factors (filter (lambda (f) (not (equal? f 1))) grouped-non-constants)))
-                   ;; Step 10: Construct the final simplified product.
+               (lambda (intermediate-const-val processed-non-constants-before-grouping)
+                 ;; Step 6: Sort the remaining non-constant factors for canonical grouping.
+                 (let* ((sorted-factors-before-grouping (list-sort term<? processed-non-constants-before-grouping))
+                        ;; Step 7: Group identical factors into powers.
+                        ;; group-factors-into-powers now simplifies the terms it creates.
+                        ;; So, (^ i 2) becomes -1 here.
+                        (grouped-terms (group-factors-into-powers sorted-factors-before-grouping))
+
+                        ;; Step 8: Re-evaluate constants and sort final non-constant factors.
+                        ;; Some grouped terms might have become constants (e.g., (^ i 2) -> -1).
+                        ;; Also, filter out any '1's that resulted from grouping (e.g. x^0 -> 1)
+                        (final-non-constant-factors-unsorted (filter (lambda (f) (and (not (constant? f)) (not (equal? f 1)))) grouped-terms))
+                        (final-non-constant-factors (list-sort term<? final-non-constant-factors-unsorted)) ; Added sort here
+                        (newly-formed-constants (filter constant? grouped-terms))
+                        
+                        (final-const-val (apply * intermediate-const-val newly-formed-constants)))
+
+                   ;; Step 9: Construct the final simplified product.
                    (cond
                      ((and (number? final-const-val) (= final-const-val 0)) 0)
-                     ((null? final-grouped-factors) final-const-val) ; Only constant remains.
-                     ((and (number? final-const-val) (= final-const-val 1)) ; Constant is 1, omit it.
-                      (if (null? (cdr final-grouped-factors))
-                          (car final-grouped-factors) ; Single factor.
-                          (make-product final-grouped-factors)))
-                     ((and (number? final-const-val) (= final-const-val -1)) ; Constant is -1.
-                      (if (null? final-grouped-factors)
-                          -1 ; Product was just -1.
-                          (make-negation ; Negate the product of other factors.
-                           (if (null? (cdr final-grouped-factors))
-                               (car final-grouped-factors)
-                               (make-product final-grouped-factors)))))
-                     (else ; Constant is other than 0, 1, -1.
-                      (make-product (cons final-const-val final-grouped-factors))))))))))))
+                     ((null? final-non-constant-factors)
+                      ;; If no non-constant factors left, the result is just the constant value.
+                      ;; (This handles cases like (* 1), (* -1), (* 5), (* i i) -> -1)
+                      final-const-val)
+                     ((and (number? final-const-val) (= final-const-val 1))
+                      (if (null? (cdr final-non-constant-factors)) ; Only one non-constant factor
+                          (car final-non-constant-factors)
+                          (make-product final-non-constant-factors)))
+                     ((and (number? final-const-val) (= final-const-val -1))
+                      (if (null? (cdr final-non-constant-factors))
+                          (make-negation (car final-non-constant-factors))
+                          (make-negation (make-product final-non-constant-factors))))
+                     (else ; Constant is other than 0, 1, -1, or non-constant factors exist.
+                      (make-product (cons final-const-val final-non-constant-factors))))))))))))
 
 
 ; Revised simplify-power:
 (define (simplify-power expr)
   (let ((b (simplify (base expr)))
-        (e (simplify (exponent expr))))
+        (exp-val (simplify (exponent expr)))) ; Renamed 'e' to 'exp-val'
     (cond
       ;; Constant folding
-      ((and (constant? b) (constant? e))
-       (if (and (number? b) (= b 0) (number? e) (<= e 0)) ; 0^0 or 0 to negative power
-           (if (= e 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
-           (expt b e))) ; expt is the Scheme power function
+      ((and (constant? b) (constant? exp-val))
+       (if (and (number? b) (= b 0) (number? exp-val) (<= exp-val 0)) ; 0^0 or 0 to negative power
+           (if (= exp-val 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
+           (expt b exp-val))) ; expt is the Scheme power function
+
+      ;; Rule for i^n where n is an integer
+      ((eq? b 'i)
+       (if (integer? exp-val) ; Check if the exponent's value is an integer
+           (let ((rem (modulo exp-val 4)))
+             (cond
+               ((= rem 0) 1)  ; e.g., i^0, i^4, i^-4
+               ((= rem 1) 'i) ; e.g., i^1, i^5, i^-3
+               ((= rem 2) -1) ; e.g., i^2, i^6, i^-2
+               ((= rem 3) (make-negation 'i)) ; e.g., i^3, i^7, i^-1 -> (- i)
+               ;; This else case should ideally not be reached if modulo is correct.
+               (else (make-power b exp-val))))
+           (make-power b exp-val))) ; Exponent is not an integer, return (^ i exp-val)
+
       ;; Standard identities
-      ((and (constant? e) (= e 0)) 1) ; x^0 = 1 (for x != 0, handled above for b=0, e=0)
-      ((and (constant? e) (= e 1)) b) ; x^1 = x
+      ((and (constant? exp-val) (= exp-val 0)) 1) ; x^0 = 1 (for x != 0, handled above for b=0, exp-val=0)
+      ((and (constant? exp-val) (= exp-val 1)) b) ; x^1 = x
       ((and (constant? b) (= b 0)) ; 0^x = 0 for x > 0 (0^0 and 0^neg handled by constant folding)
-       (if (and (constant? e) (> e 0)) ; Ensure exponent is a positive number
+       (if (and (constant? exp-val) (> exp-val 0)) ; Ensure exponent is a positive number
            0
-           (make-power b e))) ; If exponent is not a positive number, don't simplify to 0 yet
+           (make-power b exp-val))) ; If exponent is not a positive number, don't simplify to 0 yet
       ((and (constant? b) (= b 1)) 1) ; 1^x = 1
       ;; New rule: Power of a negation
-      ((and (negation? b) (integer? e) (>= e 0))
+      ((and (negation? b) (integer? exp-val) (>= exp-val 0))
        (let ((base-of-negation (negated-expr b)))
-         (if (even? e)
-             (simplify (make-power base-of-negation e))
-             (simplify (make-negation (make-power base-of-negation e))))))
+         (if (even? exp-val)
+             (simplify (make-power base-of-negation exp-val))
+             (simplify (make-negation (make-power base-of-negation exp-val))))))
       ;; Default
-      (else (make-power b e)))))
+      (else (make-power b exp-val)))))
 
 ;; Helper to create a negation, possibly simplifying double negations
 ;; This is used by simplify-product when prod-const is -1

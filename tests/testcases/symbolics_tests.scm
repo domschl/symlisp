@@ -732,3 +732,51 @@
   ;; -> (+ (* 4 (^ x 2)) (* 8 x y) (* 4 (^ y 2)))
   (assert-equal (expand '(^ (* 2 (+ x y)) 2))
                 '(+ (* 4 (^ x 2)) (* 4 (^ y 2)) (* 8 x y))))
+
+;;; --- Tests for Imaginary Unit i ---
+
+;; Powers of i
+(define-test "simplify-power-i-squared"
+  (assert-equal (simplify '(^ i 2)) -1))
+(define-test "simplify-power-i-cubed"
+  (assert-equal (simplify '(^ i 3)) '(- i)))
+(define-test "simplify-power-i-fourth"
+  (assert-equal (simplify '(^ i 4)) 1))
+(define-test "simplify-power-i-fifth"
+  (assert-equal (simplify '(^ i 5)) 'i))
+(define-test "simplify-power-i-zero"
+  (assert-equal (simplify '(^ i 0)) 1))
+(define-test "simplify-power-i-one"
+  (assert-equal (simplify '(^ i 1)) 'i))
+(define-test "simplify-power-i-negative-exponent-1" ; i^-1 = i^3 = -i
+  (assert-equal (simplify '(^ i -1)) '(- i)))
+(define-test "simplify-power-i-negative-exponent-2" ; i^-2 = i^2 = -1
+  (assert-equal (simplify '(^ i -2)) -1))
+(define-test "simplify-power-i-non-integer-exponent"
+  (assert-equal (simplify '(^ i x)) '(^ i x)))
+(define-test "simplify-power-i-rational-exponent" ; e.g. sqrt(i) - not simplified by current rules
+  (assert-equal (simplify '(^ i 1/2)) '(^ i 1/2)))
+
+;; Products involving i
+(define-test "simplify-product-i-times-i"
+  (assert-equal (simplify '(* i i)) -1))
+(define-test "simplify-product-i-times-i-times-i"
+  (assert-equal (simplify '(* i i i)) '(- i)))
+(define-test "simplify-product-i-times-i-times-i-times-i"
+  (assert-equal (simplify '(* i i i i)) 1))
+(define-test "simplify-product-constant-times-i-squared"
+  (assert-equal (simplify '(* 3 i i)) -3))
+(define-test "simplify-product-mixed-factors-with-i-squared"
+  (assert-equal (simplify '(* x i y i)) '(- (* x y))) ; simplify-product sorts to (* -1 x y)
+(define-test "simplify-product-mixed-factors-with-i-cubed"
+  (assert-equal (simplify '(* x i y i z i)) '(* x y z (- i)))) ; simplify-product sorts
+
+;; Expand with i
+(define-test "expand-product-i-times-i"
+  (assert-equal (expand '(* i i)) -1))
+(define-test "expand-power-of-sum-with-i"
+  ;; (^ (+ 1 i) 2) -> (+ (^ 1 2) (* 2 1 i) (^ i 2)) -> (+ 1 (* 2 i) -1) -> (* 2 i)
+  (assert-equal (expand '(^ (+ 1 i) 2)) '(* 2 i)))
+(define-test "expand-product-involving-i-and-sum"
+  ;; (* i (+ x i)) -> (+ (* i x) (* i i)) -> (+ (* i x) -1) -> (+ -1 (* i x))
+  (assert-equal (expand '(* i (+ x i))) '(+ -1 (* i x))))

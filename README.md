@@ -68,11 +68,13 @@ Again another Scheme, this time:
 - [x] Symbolix phase 2, expand, complete.
 - [x] char compare
 - [x] Latex output (jupyter kernel), via (display-markdown (prefix-expr->markdown-latex '(+ 1 x))), text math output, better symbolics term collection
+- [x] Phase 3.A: Special functions accessors, treatment of `i`.
 
 Larger steps:
 
 - [ ] Symbolics libs (s.b.)
 - [ ] review against standard(s)
+- [ ] Better error handling: `assert-error` support, fix of many unbalanced gc_lock/removes in error paths
 - [ ] single-page doc suitable as instruction for LLMs (language description and limitations) 
 - [ ] MCP server (stdio based, jsonrpc 2.0)
 
@@ -80,9 +82,69 @@ Larger steps:
 
 ## Symbolics steps
 
-- 2.5 Special functions: ln, log, exp, sin, cos, tan, sqrt (involves constants e, pi, i, inf?, nan?)
+### Phase 3: Special functions: abs, ln, exp, sin, cos, tan, sqrt (involves constants e, pi, i)
 
-### Phase 3: Differentiation (differentiate or diff)
+A. [DONE] Core Constants and Imaginary Unit i
+
+- Define Symbolic Constants: Introduce e (base of natural logarithm), pi (π), and i (imaginary unit) as distinct, recognized symbolic constants.
+- Basic Properties of i: (^ i 2) -> -1: Implement this in simplify-power. This is the fundamental definition.
+- Higher integer powers of i: simplify-power should also handle (^ i 3) -> (- i), (^ i 4) -> 1, (^ i n) cyclically.
+- (* ... i ... i ...): simplify-product should recognize (* i i) within its factors and replace it with -1, effectively simplifying products of multiple i's.
+- predicate and accessor functions for abs, ln, exp, sin, cos, tan, sqrt
+
+B. Fractional Exponents, sqrt, and abs Function
+
+- Rational Exponents for ^:
+  - Extend simplify-power to robustly handle rational exponents m/n.
+  - Ensure (^ base 0) -> 1 and (^ base 1) -> base continue to work correctly.
+- sqrt Function and Representation:
+  - Introduce (sqrt base) as a recognized function.
+  - Internally, simplify should convert (sqrt base) to (^ base (1/2)) for consistent rule application.
+  - expr->string and expr->latex-recursive should be updated to render (^ base (1/2)) as sqrt(base) (or \sqrt{base}) for user-friendly output.
+- Simplifying Roots of Integers (e.g., sqrt(12)):
+  - When simplifying (^ N (1/M)) where N is an integer: Use `prime-factors` C function to get the prime factorization of N. For each prime factor p^k in N, the term becomes (^ (p^k) (1/M)) = p^(k/M). If k is a multiple of M, p^(k/M) simplifies to an integer.
+- Negative Bases with Fractional Exponents (Introducing i from roots):
+  - In simplify-power, for (^ base exponent) where base is a negative constant and exponent is 1/(2k) (e.g., 1/2, 1/4): Rewrite as (^ (* -1 abs-base) exponent) -> (* (^ -1 exponent) (^ abs-base exponent)). (^ -1 (1/2)) must simplify to i.
+- abs Function and sqrt(x^2)-like Simplifications:
+  - Introduce a symbolic function (abs x).
+  - Add simplification rules for abs in simplify:
+  - abs(constant) -> |constant| (e.g., abs(-5) -> 5), abs((- expr)) -> (abs expr).
+  - If expr can be determined to be non-negative (e.g., (^ y 2)), then abs(expr) -> expr.
+- In simplify-power for (^ (base^M) (1/N)):
+  - This simplifies to (^ base (/ M N)).
+  - generally, (^ (base^N) (1/N)) should be base if N is odd, and (abs base) if N is even and positive. (This assumes base can be complex or negative; if base is known real and positive, abs is not needed).
+- General Power Rules:
+  - Ensure existing rules like (^ (^ base m) k) -> (^ base (* m k)) and (^ (* f1 f2) k) -> (* (^ f1 k) (^ f2 k)) are robust and correctly interact with new fractional exponent logic.
+
+C. Exponential and Logarithmic Functions (Natural)
+
+- exp Function (Exponential):
+  - Represent as (exp x). This is generally clearer than always using (^ e x) for rules specific to the exponential function, e (from section A) is the base.
+- Add (ln x) as a recognized function.
+  - Simplification rules in simplify: (ln 1) -> 0, (ln e) -> 1
+  - (ln (exp x)) -> x (or (ln (^ e x)) -> x if using power form for exp).
+  - ((exp (ln x)) -> x (or (^ e (ln x)) -> x) (Domain: x > 0. Consider how to handle this. For now, you might assume valid inputs or simplify symbolically).
+  - (ln (^ base exponent)) -> (* exponent (ln base)) (Domain considerations for base > 0).
+  - (ln (* f1 f2)) -> (+ (ln f1) (ln f2)) (Domain: f1, f2 > 0).
+
+D. Trigonometric Functions
+
+- Functions: Introduce (sin x), (cos x), (tan x).
+- pi (Constant): Use pi (from section A).
+- Simplification for Specific Values (Numerical Evaluation):
+  - In simplify (when the argument to sin, cos, tan is a known constant):
+    - sin(0) -> 0, cos(0) -> 1, tan(0) -> 0.
+    - sin(pi) -> 0, cos(pi) -> -1, tan(pi) -> 0.
+    - sin((/ pi 2)) -> 1, cos((/ pi 2)) -> 0. (Tan undefined here).
+    - Extend for other simple multiples/fractions of pi (e.g., pi/4, pi/3, pi/6).
+- Trigonometric Identities:
+  - Pythagorean Identity: In simplify-sum, add a rule to recognize (+ (^ (sin x) 2) (^ (cos x) 2)) and simplify it to 1.
+  - Tan definition: Consider if (tan x) should simplify to (/ (sin x) (cos x)) as a canonical form, or if simplify should recognize this pattern.
+- Euler's Formula:
+  - The identity (exp (* i x)) <-> (+ (cos x) (* i (sin x))) (or (^ e (* i x))) is powerful for deriving many trig identities but adds complexity to simplify as it can convert between exponential and trigonometric forms. 
+
+
+### Phase 4: Differentiation (differentiate or diff)
 
 1. Implement differentiate Function:
 - Signature: (differentiate expr var)
@@ -100,7 +162,7 @@ Larger steps:
   - Example: d/dx (sin (^ x 2)) -> (* (cos (^ x 2)) (* 2 x))
 - Crucially, call simplify on the result of each differentiation step.
 
-### Phase 4: Factorization (factorize)
+### Phase 5: Factorization (factorize)
 
 This is generally the most complex part.
 
@@ -118,7 +180,7 @@ This is generally the most complex part.
 - factorize often involves trial and error or heuristic approaches.
 - May also benefit from calling simplify.
 
-### Phase 5
+### Phase 6
 
 - Taylor series
 - limits

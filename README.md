@@ -1,8 +1,8 @@
 [![SymLisp CI](https://github.com/domschl/symlisp/actions/workflows/ci.yml/badge.svg)](https://github.com/domschl/symlisp/actions/workflows/ci.yml)
 
-## SymLisp: A Scheme-like Interpreter for Symbolic Computation
+## SymLisp: A Scheme-like Interpreter for Symbolic Computation written entirely by AI systems
 
-SymLisp is a lightweight, embeddable Scheme-like interpreter with a focus on symbolic computation capabilities. It is written in C, with its core interpreter logic initially bootstrapped with the assistance of AI (Gemini 2.5 Pro (preview) for the main interpreter and Claude 3.7 for the Jupyter kernel).
+SymLisp is a lightweight, embeddable Scheme-like interpreter with a focus on symbolic computation capabilities. It is written in C  (core interpreter logic), written by Gemini 2.5 Pro preview, it's own Scheme (Symbolics and standard library extensions), written by Gemini 2.5 Pro preview, and Python (Jupyter Kernel) by Claude 3.7.
 
 The system includes a growing symbolic algebra system, also written in Scheme, allowing for expression simplification and expansion.
 

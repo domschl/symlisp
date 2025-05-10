@@ -835,7 +835,7 @@
 (define-test "simplify-power-integer-rational-exp-partially-simplifies"
   ;; (^ 12 3/2) -> (^ (* (2^2) 3) 3/2) -> (* (^ (2^2) 3/2) (^ 3 3/2))
   ;; -> (* (2^3) (^ 3 3/2)) -> (* 8 (^ 3 3/2))
-  (assert-equal (simplify '(^ 12 3/2)) '(* 8 (^ 3 3/2))))
+  (assert-equal (simplify '(^ 12 3/2)) '(* 24 (^ 3 1/2))))
 (define-test "simplify-power-integer-rational-exp-already-simplified-form"
   (assert-equal (simplify '(^ 5 2/3)) '(^ 5 2/3)))
 

@@ -653,37 +653,50 @@
              (simplify (make-negation (make-power base-of-negation exp-val))))))
 
       ;; 7. Numeric Specific Rule: Simplifying roots of positive integers: (^ N rational-exp)
-      ;; e.g., (^ 12 (1/2)) -> (* 2 (^ 3 (1/2)))
-      ;; e.g., (^ 8 (2/3)) -> 4
       ((and (integer? b) (> b 0) (rational? exp-val) (not (integer? exp-val)))
        (let ((num-exp (numerator exp-val))
              (den-exp (denominator exp-val)))
-         (if (= b 1) 
+         (if (= b 1)
              1
-             (let* ((prime-factor-list (prime-factors b))) 
-               (if (null? prime-factor-list) 
-                   (make-power b exp-val) ; Should ideally only be for b=1 if prime-factors returns () for 1
+             (let* ((prime-factor-list (prime-factors b)))
+               (if (null? prime-factor-list)
+                   (make-power b exp-val)
                    (let* ((unique-primes (remove-duplicates prime-factor-list))
-                          (grouped-prime-powers 
+                          (grouped-prime-powers
                            (map (lambda (p) (cons p (count (lambda (x) (= x p)) prime-factor-list)))
                                 unique-primes))
                           (new-factors
-                           (map (lambda (prime-power-pair) 
+                           (map (lambda (prime-power-pair)
                                   (let* ((prime (car prime-power-pair))
                                          (original-power (cdr prime-power-pair))
-                                         (new-exponent-num (* original-power num-exp))
-                                         (common-divisor (gcd new-exponent-num den-exp))
-                                         (final-exponent-num (/ new-exponent-num common-divisor))
-                                         (final-exponent-den (/ den-exp common-divisor)))
-                                    (if (= final-exponent-den 1) 
-                                        (make-power prime final-exponent-num) ; This simplifies to just prime if final-exponent-num is 1
-                                        (make-power prime (/ final-exponent-num final-exponent-den)))))
+                                         ;; Calculate the new exponent for this prime: (original-power * num-exp) / den-exp
+                                         (new-exponent-numerator (* original-power num-exp))
+                                         ;; Simplify this new exponent fraction
+                                         (common-divisor (gcd new-exponent-numerator den-exp))
+                                         (reduced-exp-num (/ new-exponent-numerator common-divisor))
+                                         (reduced-exp-den (/ den-exp common-divisor)))
+                                    (if (= reduced-exp-den 1) ; Exponent is a whole number
+                                        (make-power prime reduced-exp-num)
+                                        ;; Exponent is still fractional: reduced-exp-num / reduced-exp-den
+                                        ;; Extract integer and fractional parts.
+                                        ;; E.g., if exponent is 3/2, int-part is 1, frac-part is 1/2.
+                                        ;; Then (^ p 3/2) becomes (* (^ p 1) (^ p 1/2)).
+                                        (let* ((integer-part-of-exponent (quotient reduced-exp-num reduced-exp-den))
+                                               (fractional-numerator (remainder reduced-exp-num reduced-exp-den)))
+                                          (cond
+                                            ((= fractional-numerator 0) ; Should have been caught by reduced-exp-den = 1
+                                             (make-power prime integer-part-of-exponent))
+                                            ((= integer-part-of-exponent 0) ; Purely fractional exponent < 1 (e.g. 1/2)
+                                             (make-power prime (/ fractional-numerator reduced-exp-den)))
+                                            (else ; Mixed exponent (e.g. 3/2 -> 1 + 1/2)
+                                             ;; Construct (* (prime^integer_part) (prime^fractional_part))
+                                             ;; make-product will handle simplification of this small product
+                                             (make-product (list (make-power prime integer-part-of-exponent)
+                                                                 (make-power prime (/ fractional-numerator reduced-exp-den))))))))))
                                 grouped-prime-powers))
                           (product-of-new-factors (make-product new-factors))
-                          (current-power-form (list '^ b exp-val))) ; The form this rule is trying to simplify
-                     
-                     ;; Check if the transformation resulted in the exact same power expression.
-                     ;; If so, return it to prevent infinite recursion.
+                          (current-power-form (list '^ b exp-val)))
+
                      (if (equal? product-of-new-factors current-power-form)
                          current-power-form
                          (simplify product-of-new-factors))))))))

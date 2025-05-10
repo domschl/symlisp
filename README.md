@@ -70,6 +70,7 @@ Again another Scheme, this time:
 - [x] Latex output (jupyter kernel), via (display-markdown (prefix-expr->markdown-latex '(+ 1 x))), text math output, better symbolics term collection
 - [x] Phase 3.A: Special functions accessors, treatment of `i`.
 - [x] Phase 3.B: Fractional Exponents, sqrt, and abs Function
+- [x] Phase 3.C: Exponential and Logarithmic Functions (Natural)
 
 Larger steps:
 
@@ -118,7 +119,7 @@ B. [DONE] Fractional Exponents, sqrt, and abs Function
   - Ensure existing rules like (^ (^ base m) k) -> (^ base (* m k)) and (^ (* f1 f2) k) -> (* (^ f1 k) (^ f2 k)) are robust and correctly interact with new fractional exponent logic.
   - Rendering for sqrt in infix output and latex
 
-C. Exponential and Logarithmic Functions (Natural)
+C. [Done] Exponential and Logarithmic Functions (Natural)
 
 - exp Function (Exponential):
   - Represent as (exp x). This is generally clearer than always using (^ e x) for rules specific to the exponential function, e (from section A) is the base.

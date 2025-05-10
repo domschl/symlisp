@@ -935,3 +935,55 @@
   (assert-equal (simplify '(^ -2 2/3)) '(^ 2 2/3)))
 (define-test "simplify-power-neg-base-odd-den-odd-num-no-further-int-simpl" ; e.g. (-5)^(1/3) -> - (5^(1/3))
   (assert-equal (simplify '(^ -5 1/3)) '(- (^ 5 1/3))))
+
+;;; --- Tests for abs Function ---
+(define-test "simplify-abs-constant-positive"
+  (assert-equal (simplify '(abs 5)) 5))
+(define-test "simplify-abs-constant-negative"
+  (assert-equal (simplify '(abs -5)) 5))
+(define-test "simplify-abs-constant-zero"
+  (assert-equal (simplify '(abs 0)) 0))
+(define-test "simplify-abs-of-i"
+  (assert-equal (simplify '(abs i)) 1))
+(define-test "simplify-abs-of-negation"
+  (assert-equal (simplify '(abs (- x))) '(abs x)))
+(define-test "simplify-abs-of-double-negation"
+  (assert-equal (simplify '(abs (- (- x)))) '(abs x)))
+(define-test "simplify-abs-of-simplified-negation" ; abs(-(x+y)) -> abs(x+y)
+  (assert-equal (simplify '(abs (- (+ x y)))) '(abs (+ x y))))
+(define-test "simplify-abs-of-variable"
+  (assert-equal (simplify '(abs x)) '(abs x)))
+(define-test "simplify-abs-of-sum"
+  (assert-equal (simplify '(abs (+ x y))) '(abs (+ x y))))
+(define-test "simplify-abs-power-even-exponent-var" ; abs(x^2) -> x^2
+  (assert-equal (simplify '(abs (^ x 2))) '(^ x 2)))
+(define-test "simplify-abs-power-even-exponent-var-higher" ; abs(x^4) -> x^4
+  (assert-equal (simplify '(abs (^ x 4))) '(^ x 4)))
+(define-test "simplify-abs-power-odd-exponent-var" ; abs(x^3) -> abs(x^3)
+  (assert-equal (simplify '(abs (^ x 3))) '(abs (^ x 3))))
+(define-test "simplify-abs-power-const-base-even-exp" ; abs((-2)^2) -> abs(4) -> 4
+  (assert-equal (simplify '(abs (^ -2 2))) 4))
+(define-test "simplify-abs-power-i-base-even-exp" ; abs(i^2) -> abs(-1) -> 1
+  (assert-equal (simplify '(abs (^ i 2))) 1))
+(define-test "simplify-abs-already-abs"
+  (assert-equal (simplify '(abs (abs x))) '(abs x))) ; simplify-abs simplifies arg first
+
+;;; --- Tests for Nth root of Nth power rule ---
+(define-test "simplify-power-sqrt-x-squared" ; (^ (^ x 2) 1/2) -> (abs x)
+  (assert-equal (simplify '(^ (^ x 2) 1/2)) '(abs x)))
+(define-test "simplify-power-fourthroot-x-fourth" ; (^ (^ x 4) 1/4) -> (abs x)
+  (assert-equal (simplify '(^ (^ x 4) 1/4)) '(abs x)))
+(define-test "simplify-power-cuberoot-x-cubed" ; (^ (^ x 3) 1/3) -> x
+  (assert-equal (simplify '(^ (^ x 3) 1/3)) 'x))
+(define-test "simplify-power-sqrt-const-squared-pos" ; (^ (^ 3 2) 1/2) -> (abs 3) -> 3
+  (assert-equal (simplify '(^ (^ 3 2) 1/2)) 3))
+(define-test "simplify-power-sqrt-const-squared-neg" ; (^ (^ -3 2) 1/2) -> (abs -3) -> 3
+  (assert-equal (simplify '(^ (^ -3 2) 1/2)) 3))
+(define-test "simplify-power-cuberoot-const-cubed-neg" ; (^ (^ -2 3) 1/3) -> -2
+  (assert-equal (simplify '(^ (^ -2 3) 1/3)) -2))
+(define-test "simplify-power-sqrt-i-squared" ; (^ (^ i 2) 1/2) -> (abs i) -> 1
+  (assert-equal (simplify '(^ (^ i 2) 1/2)) 1))
+(define-test "simplify-power-fourthroot-i-fourth" ; (^ (^ i 4) 1/4) -> (abs i) -> 1
+  (assert-equal (simplify '(^ (^ i 4) 1/4)) 1))
+(define-test "simplify-power-sqrt-sum-squared" ; (^ (^ (+ x y) 2) 1/2) -> (abs (+ x y))
+  (assert-equal (simplify '(^ (^ (+ x y) 2) 1/2)) '(abs (+ x y))))

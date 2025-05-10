@@ -12,7 +12,7 @@
 
 ;; Helper: List of known operators. This might grow.
 ;; For now, it helps distinguish variables from operators if they are symbols.
-(define *known-operators* '(+ - * / ^ abs sin cos tan log exp sqrt)) ; Add more as needed
+(define *known-operators* '(+ - * / ^ abs sin cos tan ln exp sqrt)) ; Add more as needed
 
 ;; Predicates
 
@@ -274,9 +274,15 @@
     ((and (number? exponent) (= exponent 1)) base)
     (else (list '^ base exponent))))
 
-;; Helper to construct an abs expression
+;; Helper to construct an expression
 (define (make-abs arg)
   (list 'abs arg))
+
+(define (make-exp arg)
+  (list 'exp arg))
+
+(define (make-ln arg)
+  (list 'ln arg))
 
 ;; Forward declaration for simplify, as helpers might call it or be called by it.
 (define simplify #f)
@@ -829,6 +835,60 @@
       ;; Default case
       (else (list '/ s-num s-den)))))
 
+;; Simplification function for exp
+(define (simplify-exp expr)
+  (let ((arg (simplify (exp-arg expr)))) ; Simplify argument first
+    (cond
+      ;; Rule: (exp 0) -> 1
+      ((equal? arg 0) 1)
+      ;; Rule: (exp 1) -> e  -- NEW RULE
+      ((equal? arg 1) 'e)
+      ;; Rule: (exp (ln x)) -> x
+      ((ln? arg)
+       (ln-arg arg)) 
+      ;; Rule: (exp (* k (ln X))) -> (^ X k)
+      ((product? arg)
+       (let* ((factors (operands arg))
+              (ln-factor (find-if ln? factors))) 
+         (if ln-factor
+             (let ((inner-ln-arg (ln-arg ln-factor))
+                   ;; Call remove with only two arguments
+                   (other-factors (remove ln-factor factors))) 
+               (if (null? other-factors) 
+                   inner-ln-arg 
+                   (simplify (make-power inner-ln-arg (simplify (make-product other-factors))))))
+             (make-exp arg)))) 
+      ;; Default: no further simplification
+      (else (make-exp arg)))))
+
+;; Simplification function for ln
+(define (simplify-ln expr)
+  (let ((arg (simplify (ln-arg expr)))) ; Simplify argument first
+    (cond
+      ;; Rule: (ln 1) -> 0
+      ((equal? arg 1) 0)
+      ;; Rule: (ln e) -> 1 (e is the symbolic constant)
+      ((equal? arg 'e) 1)
+      ;; Rule: (ln (exp x)) -> x
+      ((exp? arg)
+       (exp-arg arg)) ; Argument of exp is already simplified
+      ;; Rule: (ln (^ base exponent)) -> (* exponent (ln base))
+      ((power? arg)
+       (let ((base (base arg))
+             (exponent (exponent arg)))
+         ;; Assuming base > 0 for symbolic simplification
+         (simplify (make-product (list exponent (make-ln base))))))
+      ;; Rule: (ln (* f1 f2 ...)) -> (+ (ln f1) (ln f2) ...)
+      ((product? arg)
+       (let ((factors (operands arg)))
+         ;; Assuming factors > 0 for symbolic simplification
+         ;; If any factor is 0 or negative, this rule is problematic in strict math,
+         ;; but symbolically we apply it.
+         (if (member 0 factors) ; (ln 0) is undefined.
+             (make-ln arg) ; Or handle as an error/special value. For now, no change.
+             (simplify (make-sum (map make-ln factors))))))
+      ;; Default: no further simplification
+      (else (make-ln arg)))))
 
 ;; Main simplify function
 (set! simplify
@@ -847,9 +907,9 @@
           
           ;; Rule for sqrt: (sqrt x) -> (^ x 1/2) for symbolic processing
           ((sqrt? expr) (simplify (make-power (sqrt-arg expr) 1/2)))
-
-          ;; Rule for abs
           ((abs? expr) (simplify-abs expr))
+          ((exp? expr) (simplify-exp expr))
+          ((ln? expr) (simplify-ln expr))    
 
           ;; ... add other specific functions like (simplify-sin expr) if they have rules ...
 

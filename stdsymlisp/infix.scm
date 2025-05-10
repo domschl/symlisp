@@ -276,7 +276,7 @@
            (string-append item1 delim (string-join (cdr lst) delim))))))
 
 ;; Main function to convert prefix S-expression to infix string
-(define (prefix-expr->string expr)
+(define (prefix-expr->infix-string expr)
   (expr->infix-string-recursive expr #f 0 #f #f))
 
 (define (expr->infix-string-recursive expr parent-op-symbol parent-prec parent-is-left-assoc am-i-left-child-of-parent)
@@ -377,16 +377,26 @@
     ((symbol? expr)
      (let ((s (symbol->string expr)))
        (cond ((string=? s "pi") "\\pi")
-             ((string=? s "e") "e") 
-             ((string=? s "i") "i") 
-             (else (latex-function-name-map s))))) 
+             ((string=? s "e") "e") ; ADDED for symbolic constant e
+             ((string=? s "i") "i")
+             (else (latex-function-name-map s)))))
     ((not (pair? expr)) (error "expr->latex: Invalid expression structure" expr))
-    ;; Specific structure for sqrt from power form
-    ((and (power? expr) (equal? (exponent expr) 1/2)) 
+    ((and (power? expr) (equal? (exponent expr) 1/2)) ; sqrt
      (string-append "\\sqrt{" (expr->latex-recursive (base expr) #f 0 #f #f) "}"))
-    ;; ADDED: Specific structure for abs
-    ((abs? expr) ; This checks if (car expr) is 'abs
+    ((abs? expr)
      (string-append "|" (expr->latex-recursive (abs-arg expr) #f 0 #f #f) "|"))
+    ((exp? expr)
+     (let* ((arg-expr (exp-arg expr))
+            (arg-latex (expr->latex-recursive arg-expr #f 0 #f #f))) ; Render argument
+       ;; If the argument expression is a list representing an operation with arguments
+       ;; (e.g., a sum like (+ x 1) or a unary minus like (- y)),
+       ;; then wrap its LaTeX in \left( \right).
+       (if (and (pair? arg-expr) (list? (cdr arg-expr)) (not (null? (cdr arg-expr))))
+           (string-append "e^{\\left(" arg-latex "\\right)}")
+           (string-append "e^{" arg-latex "}"))))
+    ((ln? expr) ; ADDED: Render (ln x) as \ln(x)
+     (string-append "\\ln\\left(" (expr->latex-recursive (ln-arg expr) #f 0 #f #f) "\\right)"))
+    ;; ... other specific function renderings like sin, cos, tan if they exist ...
     (else ; It's a list (op arg1 ...)
      (let* ((op (car expr)) (args (cdr expr)) (num-args (length args)))
          (if (and (memq op '(+ *)) (= num-args 1))

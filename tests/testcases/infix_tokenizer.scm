@@ -174,83 +174,83 @@
   (assert-equal (string->prefix-expr "-f(x) + g(y)") '(+ (- (f x)) (g y))))
 
 (define-test "expr->string-simple-add"
-  (assert-equal (prefix-expr->string '(+ 1 2)) "1 + 2"))
+  (assert-equal (prefix-expr->infix-string '(+ 1 2)) "1 + 2"))
 
 (define-test "expr->string-simple-vars"
-  (assert-equal (prefix-expr->string '(* a b)) "a * b"))
+  (assert-equal (prefix-expr->infix-string '(* a b)) "a * b"))
 
 (define-test "expr->string-precedence-1"
-  (assert-equal (prefix-expr->string '(+ 1 (* 2 3))) "1 + 2 * 3"))
+  (assert-equal (prefix-expr->infix-string '(+ 1 (* 2 3))) "1 + 2 * 3"))
 
 (define-test "expr->string-precedence-2"
-  (assert-equal (prefix-expr->string '(* (+ 1 2) 3)) "(1 + 2) * 3"))
+  (assert-equal (prefix-expr->infix-string '(* (+ 1 2) 3)) "(1 + 2) * 3"))
 
 (define-test "expr->string-left-assoc-minus"
-  (assert-equal (prefix-expr->string '(- (- a b) c)) "a - b - c")) ; (a-b)-c
+  (assert-equal (prefix-expr->infix-string '(- (- a b) c)) "a - b - c")) ; (a-b)-c
 
 (define-test "expr->string-left-assoc-plus-minus"
-  (assert-equal (prefix-expr->string '(+ (- a b) c)) "a - b + c"))
+  (assert-equal (prefix-expr->infix-string '(+ (- a b) c)) "a - b + c"))
 
 (define-test "expr->string-right-assoc-power"
-  (assert-equal (prefix-expr->string '(^ a (^ b c))) "a ^ b ^ c")) ; a^(b^c)
+  (assert-equal (prefix-expr->infix-string '(^ a (^ b c))) "a ^ b ^ c")) ; a^(b^c)
 
 (define-test "expr->string-power-precedence"
-  (assert-equal (prefix-expr->string '(* (^ a b) c)) "a ^ b * c"))
+  (assert-equal (prefix-expr->infix-string '(* (^ a b) c)) "a ^ b * c"))
 
 (define-test "expr->string-power-precedence-rhs"
-  (assert-equal (prefix-expr->string '(* c (^ a b))) "c * a ^ b"))
+  (assert-equal (prefix-expr->infix-string '(* c (^ a b))) "c * a ^ b"))
 
 (define-test "expr->string-unary-minus-simple"
-  (assert-equal (prefix-expr->string '(- x)) "-x"))
+  (assert-equal (prefix-expr->infix-string '(- x)) "-x"))
 
 (define-test "expr->string-unary-minus-in-expr"
-  (assert-equal (prefix-expr->string '(+ a (- b))) "a + -b"))
+  (assert-equal (prefix-expr->infix-string '(+ a (- b))) "a + -b"))
 
 (define-test "expr->string-unary-minus-higher-precedence"
-  (assert-equal (prefix-expr->string '(* a (- b))) "a * -b"))
+  (assert-equal (prefix-expr->infix-string '(* a (- b))) "a * -b"))
   
 (define-test "expr->string-double-unary-minus"
-  (assert-equal (prefix-expr->string '(- (- x))) "-(-x)")) ; or "--x" if unary minus op char is just "-"
+  (assert-equal (prefix-expr->infix-string '(- (- x))) "-(-x)")) ; or "--x" if unary minus op char is just "-"
 
 (define-test "expr->string-function-simple"
-  (assert-equal (prefix-expr->string '(f x y)) "f(x, y)"))
+  (assert-equal (prefix-expr->infix-string '(f x y)) "f(x, y)"))
 
 (define-test "expr->string-function-no-args"
-  (assert-equal (prefix-expr->string '(g)) "g()"))
+  (assert-equal (prefix-expr->infix-string '(g)) "g()"))
 
 (define-test "expr->string-function-nested"
-  (assert-equal (prefix-expr->string '(f (g x) y)) "f(g(x), y)"))
+  (assert-equal (prefix-expr->infix-string '(f (g x) y)) "f(g(x), y)"))
 
 (define-test "expr->string-function-with-expr-args"
-  (assert-equal (prefix-expr->string '(f (+ x 1) (* y z))) "f(x + 1, y * z)"))
+  (assert-equal (prefix-expr->infix-string '(f (+ x 1) (* y z))) "f(x + 1, y * z)"))
 
 (define-test "expr->string-variadic-plus"
-  (assert-equal (prefix-expr->string '(+ a b c d)) "a + b + c + d"))
+  (assert-equal (prefix-expr->infix-string '(+ a b c d)) "a + b + c + d"))
 
 (define-test "expr->string-variadic-times"
-  (assert-equal (prefix-expr->string '(* a b c d)) "a * b * c * d"))
+  (assert-equal (prefix-expr->infix-string '(* a b c d)) "a * b * c * d"))
 
 (define-test "expr->string-variadic-plus-times-mixed"
-  (assert-equal (prefix-expr->string '(+ a (* b c) d (* e f g))) "a + b * c + d + e * f * g"))
+  (assert-equal (prefix-expr->infix-string '(+ a (* b c) d (* e f g))) "a + b * c + d + e * f * g"))
 
 (define-test "expr->string-complex-from-expand"
   ;; (+ (* 3 a (^ x 2)) (* 3 x (^ a 2)) (^ a 3) (^ x 3))
   ;; Expected: "3 * a * x ^ 2 + 3 * x * a ^ 2 + a ^ 3 + x ^ 3" (order might vary based on term<? if simplify was involved)
   ;; For direct conversion without prior sort:
-  (assert-equal (prefix-expr->string '(+ (* 3 a (^ x 2)) (* 3 x (^ a 2)) (^ a 3) (^ x 3)))
+  (assert-equal (prefix-expr->infix-string '(+ (* 3 a (^ x 2)) (* 3 x (^ a 2)) (^ a 3) (^ x 3)))
                 "3 * a * x ^ 2 + 3 * x * a ^ 2 + a ^ 3 + x ^ 3"))
 
 (define-test "expr->string-division"
-  (assert-equal (prefix-expr->string '(/ (+ a b) c)) "(a + b) / c"))
+  (assert-equal (prefix-expr->infix-string '(/ (+ a b) c)) "(a + b) / c"))
 
 (define-test "expr->string-unary-plus-identity" ; Assuming (+ x) prints as x
-  (assert-equal (prefix-expr->string '(+ x)) "x"))
+  (assert-equal (prefix-expr->infix-string '(+ x)) "x"))
 
 (define-test "expr->string-unary-times-identity" ; Assuming (* x) prints as x
-  (assert-equal (prefix-expr->string '(* x)) "x"))
+  (assert-equal (prefix-expr->infix-string '(* x)) "x"))
 
 (define-test "expr->string-unary-plus-in-expr" ; Assuming (+ x) prints as x
-  (assert-equal (prefix-expr->string '(+ (+ x) y)) "x + y"))
+  (assert-equal (prefix-expr->infix-string '(+ (+ x) y)) "x + y"))
 
 
 ;;;-----------------------------------------------------------------------------

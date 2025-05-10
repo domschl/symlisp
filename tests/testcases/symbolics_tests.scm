@@ -1003,3 +1003,67 @@
 
 (define-test "simplify-power-M-over-N-with-abs-base-no-abs-trigger" ; (^ (^ (abs y) 6) 1/3) -> (^ (abs y) 2)
   (assert-equal (simplify '(^ (^ (abs y) 6) 1/3)) '(^ (abs y) 2)))
+
+;;; --- Tests for exp Function ---
+(define-test "simplify-exp-zero"
+  (assert-equal (simplify '(exp 0)) 1))
+(define-test "simplify-exp-of-ln" ; exp(ln(x)) -> x
+  (assert-equal (simplify '(exp (ln x))) 'x))
+(define-test "simplify-exp-of-ln-const" ; exp(ln(5)) -> 5
+  (assert-equal (simplify '(exp (ln 5))) 5))
+(define-test "simplify-exp-of-product-with-ln-k-first" ; exp(2 * ln(x)) -> x^2
+  (assert-equal (simplify '(exp (* 2 (ln x)))) '(^ x 2)))
+(define-test "simplify-exp-of-product-with-ln-ln-first" ; exp(ln(x) * 2) -> x^2
+  (assert-equal (simplify '(exp (* (ln x) 2))) '(^ x 2)))
+(define-test "simplify-exp-of-product-with-ln-symbolic-k" ; exp(y * ln(x)) -> x^y
+  (assert-equal (simplify '(exp (* y (ln x)))) '(^ x y)))
+(define-test "simplify-exp-symbolic-arg"
+  (assert-equal (simplify '(exp x)) '(exp x)))
+(define-test "simplify-exp-of-one-is-e" ; exp(1) -> e (This rule was not explicitly in README but is standard)
+  (assert-equal (simplify '(exp 1)) 'e))
+
+
+;;; --- Tests for ln Function ---
+(define-test "simplify-ln-one"
+  (assert-equal (simplify '(ln 1)) 0))
+(define-test "simplify-ln-e"
+  (assert-equal (simplify '(ln e)) 1))
+(define-test "simplify-ln-of-exp" ; ln(exp(x)) -> x
+  (assert-equal (simplify '(ln (exp x))) 'x))
+(define-test "simplify-ln-of-exp-const" ; ln(exp(5)) -> 5
+  (assert-equal (simplify '(ln (exp 5))) 5))
+(define-test "simplify-ln-of-power" ; ln(x^2) -> 2*ln(x)
+  (assert-equal (simplify '(ln (^ x 2))) '(* 2 (ln x))))
+(define-test "simplify-ln-of-power-symbolic-exp" ; ln(x^y) -> y*ln(x)
+  (assert-equal (simplify '(ln (^ x y))) '(* y (ln x))))
+(define-test "simplify-ln-of-product" ; ln(x*y) -> ln(x) + ln(y)
+  (assert-equal (simplify '(ln (* x y))) '(+ (ln x) (ln y))))
+(define-test "simplify-ln-of-product-multiple" ; ln(x*y*z) -> ln(x) + ln(y) + ln(z)
+  (assert-equal (simplify '(ln (* x y z))) '(+ (ln x) (ln y) (ln z))))
+(define-test "simplify-ln-of-product-with-constant" ; ln(2*x) -> ln(2) + ln(x)
+  (assert-equal (simplify '(ln (* 2 x))) '(+ (ln 2) (ln x))))
+(define-test "simplify-ln-symbolic-arg"
+  (assert-equal (simplify '(ln x)) '(ln x)))
+(define-test "simplify-ln-of-zero-in-product" ; ln(x*0) -> ln(0) - stays for now
+  (assert-equal (simplify '(ln (* x 0))) '(ln 0)))
+
+
+;;; --- Tests for LaTeX rendering of exp and ln ---
+(define-test "latex-render-exp-x"
+  (assert-equal (prefix-expr->markdown-latex '(exp x)) "$e^{x}$"))
+(define-test "latex-render-ln-x"
+  (assert-equal (prefix-expr->markdown-latex '(ln x)) "$\\ln\\left(x\\right)$"))
+(define-test "latex-render-exp-complex-arg"
+  (assert-equal (prefix-expr->markdown-latex '(exp (+ x 1))) "$e^{\\left(x + 1\\right)}$"))
+(define-test "latex-render-ln-complex-arg"
+  (assert-equal (prefix-expr->markdown-latex '(ln (/ x 2))) "$\\ln\\left(\\frac{x}{2}\\right)$"))
+(define-test "latex-render-constant-e"
+  (assert-equal (prefix-expr->markdown-latex 'e) "$e$"))
+
+;;; --- Tests for Infix string rendering of exp and ln ---
+(define-test "infix-render-exp-x"
+  (assert-equal (prefix-expr->infix-string '(exp x)) "exp(x)"))
+(define-test "infix-render-ln-x"
+  (assert-equal (prefix-expr->infix-string '(ln x)) "ln(x)"))
+(define-test "infix-render-constant-e"
+  (assert-equal (prefix-expr->infix-string 'e) "e"))

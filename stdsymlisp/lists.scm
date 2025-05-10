@@ -38,6 +38,24 @@
     ((pred (car lst)) (pred (car lst))) ; Return the true value from pred
     (else (exists pred (cdr lst)))))
 
+;; (find-if pred lst)
+;; Returns the first element in lst that satisfies pred.
+;; If no element satisfies pred, returns #f.
+(define (find-if pred lst)
+  (cond
+    ((null? lst) #f)
+    ((pred (car lst)) (car lst))
+    (else (find-if pred (cdr lst)))))
+
+;; (remove item lst)
+;; Returns a new list with the first occurrence of 'item' (compared using equal?)
+;; removed from 'lst'. If 'item' is not found, returns a copy of 'lst'.
+(define (remove item lst)
+  (cond
+    ((null? lst) '())
+    ((equal? item (car lst)) (cdr lst)) ; Found, return the rest of the list
+    (else (cons (car lst) (remove item (cdr lst))))))
+
 ;; (count pred lst)
 ;; Returns the number of elements in lst for which pred is true.
 (define (count pred lst)

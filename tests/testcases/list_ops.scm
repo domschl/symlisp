@@ -205,3 +205,48 @@
                 '((1 2) (3 4) (5 6))))
 (define-test "remove-duplicates-preserves-order"
   (assert-equal (remove-duplicates '(c a b a c d b)) '(c a b d)))
+
+;; --- FIND-IF ---
+(define-test "find-if-empty-list"
+  (assert-equal (find-if number? '()) #f))
+(define-test "find-if-number-present"
+  (assert-equal (find-if number? '(a b 3 c d)) 3))
+(define-test "find-if-first-element-matches"
+  (assert-equal (find-if symbol? '(x 1 2)) 'x))
+(define-test "find-if-last-element-matches"
+  (assert-equal (find-if (lambda (x) (equal? x 'z)) '(a b c z)) 'z))
+(define-test "find-if-no-match"
+  (assert-equal (find-if list? '(1 2 3 4)) #f))
+(define-test "find-if-list-present"
+  (assert-equal (find-if list? '(1 (2 3) 4)) '(2 3)))
+(define-test "find-if-predicate-returns-specific-true-value"
+  (assert-equal (find-if (lambda (x) (and (number? x) (> x 5))) '(1 2 6 3 7)) 6))
+(define-test "find-if-on-list-of-booleans-find-true"
+  (assert-equal (find-if (lambda (x) (eq? x #t)) '(#f #f #t #f)) #t))
+(define-test "find-if-on-list-of-booleans-find-false"
+  (assert-equal (find-if (lambda (x) (eq? x #f)) '(#t #t #f #t)) #f))
+
+
+;; --- REMOVE (first occurrence) ---
+(define-test "remove-empty-list"
+  (assert-equal (remove 'a '()) '()))
+(define-test "remove-item-present-numbers"
+  (assert-equal (remove 3 '(1 2 3 4 3)) '(1 2 4 3)))
+(define-test "remove-item-present-symbols"
+  (assert-equal (remove 'b '(a b c b d)) '(a c b d)))
+(define-test "remove-first-item"
+  (assert-equal (remove 'x '(x y z)) '(y z)))
+(define-test "remove-last-item"
+  (assert-equal (remove 'z '(x y z)) '(x y)))
+(define-test "remove-item-not-present"
+  (assert-equal (remove 5 '(1 2 3 4)) '(1 2 3 4)))
+(define-test "remove-from-single-element-list-match"
+  (assert-equal (remove 'a '(a)) '()))
+(define-test "remove-from-single-element-list-no-match"
+  (assert-equal (remove 'b '(a)) '(a)))
+(define-test "remove-list-from-list-of-lists"
+  (assert-equal (remove '(2 3) '( (1 2) (2 3) (4 5) (2 3) )) '((1 2) (4 5) (2 3))))
+(define-test "remove-non-destructive"
+  (let ((original-list '(10 20 30 20 40)))
+    (remove 20 original-list) ; Call remove
+    (assert-equal original-list '(10 20 30 20 40)))) ; Original should be unchanged

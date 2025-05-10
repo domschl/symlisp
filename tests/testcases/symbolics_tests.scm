@@ -987,3 +987,19 @@
   (assert-equal (simplify '(^ (^ i 4) 1/4)) 1))
 (define-test "simplify-power-sqrt-sum-squared" ; (^ (^ (+ x y) 2) 1/2) -> (abs (+ x y))
   (assert-equal (simplify '(^ (^ (+ x y) 2) 1/2)) '(abs (+ x y))))
+
+(define-test "simplify-power-sqrt-sum-squared" ; (^ (^ (+ x y) 2) 1/2) -> (abs (+ x y))
+  (assert-equal (simplify '(^ (^ (+ x y) 2) 1/2)) '(abs (+ x y))))
+
+;; Tests for (^ (base^M) (1/N)) -> (^ base (/ M N)) where M != N
+(define-test "simplify-power-M-over-N-exponent-1" ; (^ (^ x 6) 1/3) -> (^ x 2)
+  (assert-equal (simplify '(^ (^ x 6) 1/3)) '(^ x 2)))
+
+(define-test "simplify-power-M-over-N-exponent-2" ; (^ (^ x 2) 1/4) -> (^ x 1/2)
+  (assert-equal (simplify '(^ (^ x 2) 1/4)) '(^ x 1/2)))
+
+(define-test "simplify-power-M-over-N-exponent-constants" ; (^ (^ 2 4) 1/2) -> (^ 2 2) -> 4
+  (assert-equal (simplify '(^ (^ 2 4) 1/2)) 4))
+
+(define-test "simplify-power-M-over-N-with-abs-base-no-abs-trigger" ; (^ (^ (abs y) 6) 1/3) -> (^ (abs y) 2)
+  (assert-equal (simplify '(^ (^ (abs y) 6) 1/3)) '(^ (abs y) 2)))

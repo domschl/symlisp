@@ -1,13 +1,273 @@
 [![SymLisp CI](https://github.com/domschl/symlisp/actions/workflows/ci.yml/badge.svg)](https://github.com/domschl/symlisp/actions/workflows/ci.yml)
 
-T.B.D.
+## SymLisp: A Scheme-like Interpreter for Symbolic Computation
 
-Again another Scheme, this time:
+SymLisp is a lightweight, embeddable Scheme-like interpreter with a focus on symbolic computation capabilities. It is written in C, with its core interpreter logic initially bootstrapped with the assistance of AI (Gemini 2.5 Pro (preview) for the main interpreter and Claude 3.7 for the Jupyter kernel).
 
-- Main interpreter by Gemini 2.5 Pro (preview)
-- Jupyter kernel by Claude 3.7 thinking
+The system includes a growing symbolic algebra system, also written in Scheme, allowing for expression simplification and expansion.
 
-## todos
+### Features
+*   Scheme-like syntax and core functionality.
+*   Support for rational numbers (via GMP) and arbitrary-precision integers.
+*   Basic symbolic manipulation: simplification and expansion of algebraic and trigonometric expressions.
+*   UTF-8 support for strings and symbols.
+*   A simple Read-Eval-Print Loop (REPL).
+*   A Jupyter kernel for interactive notebook usage, supporting Markdown and LaTeX output for symbolic expressions.
+*   A standard library written in Scheme, providing list utilities, infix parsing, and symbolic operations.
+
+## Build Instructions
+
+SymLisp uses CMake for building.
+
+1.  **Prerequisites**:
+    *   A C compiler (GCC or Clang recommended)
+    *   CMake (version 3.10 or higher)
+    *   GMP (GNU Multiple Precision Arithmetic Library)
+    *   Valgrind (optional, for memory checking during tests)
+    *   Python 3 and pip (for Jupyter kernel installation)
+
+2.  **Compilation Steps**:
+    ```bash
+    git clone https://github.com/domschl/symlisp.git # Or your repository URL
+    cd symlisp
+    mkdir build
+    cd build
+    cmake ..
+    make
+    ```
+    This will build the main interpreter (`symlisp`) and the test executable.
+
+3.  **Running Tests**:
+    ```bash
+    ctest # From the build directory
+    # For memory checking with Valgrind (if configured in CMakeLists.txt)
+    ctest -T memcheck
+    ```
+
+## Usage
+
+### REPL (Read-Eval-Print Loop)
+After building, you can run the REPL:
+```bash
+./build/src/symlisp
+```
+This will start an interactive session where you can type SymLisp expressions.
+
+### Jupyter Kernel
+1.  **Installation**:
+    Ensure you have Jupyter installed (`pip install jupyterlab notebook`).
+    From the root directory of the SymLisp project:
+    ```bash
+    pip install -e ./jupyter/kernel
+    ```
+    This installs the kernel in editable mode.
+
+2.  **Running**:
+    You can then start Jupyter Lab or Notebook:
+    ```bash
+    jupyter lab
+    # or
+    jupyter notebook
+    ```
+    You should be able to create new notebooks using the "SymLisp" kernel.
+
+## Language Reference
+
+SymLisp provides a set of built-in functions (implemented in C) and standard library functions (implemented in Scheme, typically loaded from the `stdsymlisp/` directory).
+
+### Special Forms
+These are fundamental syntactic constructs recognized directly by the interpreter:
+*   `quote` or `'`: Prevents evaluation of an expression.
+*   `lambda`: Defines an anonymous procedure.
+*   `define`: Defines variables and procedures in the current environment.
+*   `if`: Conditional execution.
+*   `set!`: Assigns a new value to an existing binding.
+*   `begin`: Sequences expressions, returning the value of the last.
+*   `let`, `let*`, `letrec`: Local bindings.
+*   `cond`: Multi-branch conditional.
+*   `and`, `or`: Logical conjunction and disjunction (short-circuiting).
+*   `define-syntax`: Defines macros (currently non-hygienic, limited scope).
+
+### Core Language & Evaluation
+*   `eval expr [env]`: (built-in) Evaluates `expr`. If `env` is provided, evaluates in that environment.
+*   `apply proc args-list`: (built-in) Applies `proc` to `args-list`.
+*   `interaction-environment`: (built-in) Returns the global REPL environment.
+*   `environment`: (built-in) Creates a new, empty environment whose parent is the interaction environment.
+*   `error message-string [obj ...]`: (built-in) Signals an error.
+
+### List Processing
+*   `cons obj1 obj2`: (built-in) Creates a new pair.
+*   `list obj ...`: (built-in) Creates a new list.
+*   `cons* obj1 obj2 ...`: (built-in) `(cons obj1 (cons obj2 ... (cons objN-1 objN) ...))`.
+*   `car pair`: (built-in) Returns the first element of a pair.
+*   `cdr pair`: (built-in) Returns the second element of a pair.
+*   `caar`, `cadr`, `cddr`, `caddr`: (built-ins) Compositions of `car` and `cdr`.
+*   `set-car! pair obj`: (built-in) Modifies the car of `pair`.
+*   `set-cdr! pair obj`: (built-in) Modifies the cdr of `pair`.
+*   `pair? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is a pair.
+*   `null? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is the empty list.
+*   `list? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is a proper list.
+*   `length list`: (built-in) Returns the length of `list`.
+*   `append list ...`: (built-in) Concatenates lists. The last argument becomes the tail of the new list.
+*   `reverse list`: (built-in) Returns a new list with elements in reverse order.
+*   `assoc key alist`: (standard library, `lists.scm`) Finds the first pair in `alist` whose car is `equal?` to `key`.
+*   `memq obj list`: (standard library, `lists.scm`) Searches `list` for `obj` using `eq?`.
+*   `member obj list`: (standard library, `lists.scm`) Searches `list` for `obj` using `equal?`.
+*   `exists pred list`: (standard library, `lists.scm`) Returns the first true value returned by `(pred element)` for elements in `list`.
+*   `find-if pred list`: (standard library, `lists.scm`) Returns the first element in `list` that satisfies `pred`.
+*   `remove item list`: (standard library, `lists.scm`) Returns a new list with the first `equal?` occurrence of `item` removed.
+*   `count pred list`: (standard library, `lists.scm`) Counts elements in `list` satisfying `pred`.
+*   `remove-duplicates list`: (standard library, `lists.scm`) Removes duplicate elements from `list` (uses `equal?`).
+*   `list-take list k`: (standard library, `lists.scm`) Returns the first `k` elements of `list`.
+*   `list-drop list k`: (standard library, `lists.scm`) Returns `list` after dropping the first `k` elements.
+*   `merge-sorted-lists list1 list2 pred`: (standard library, `lists.scm`) Merges two sorted lists.
+*   `list-sort pred list`: (standard library, `lists.scm`) Sorts `list` using `pred`.
+*   `iota count [start step]`: (standard library, `lists.scm`) Generates a list of numbers.
+
+### Higher-Order Functions
+*   `map proc list1 [list2 ...]`: (built-in, from `sl_higher_order.c`) Applies `proc` to corresponding elements of lists.
+*   `filter pred list`: (built-in, from `sl_higher_order.c`) Returns a list of elements from `list` satisfying `pred`.
+*   `for-each proc list1 [list2 ...]`: (built-in, from `sl_higher_order.c`) Applies `proc` to elements for side effects.
+*   `fold-left proc initial list1 [list2 ...]`: (built-in, from `sl_higher_order.c`) Left-associative fold.
+*   `reduce proc initial list1 [list2 ...]`: (built-in, alias for `fold-left`).
+*   `fold-right proc initial list1 [list2 ...]`: (built-in, from `sl_higher_order.c`) Right-associative fold.
+*   `filter-map proc list`: (standard library, `lists.scm`) Applies `proc`, collects non-`#f` results.
+
+### Numbers & Arithmetic
+*   `+ [num ...]`: (built-in) Addition. `(+)` is 0.
+*   `- num1 [num ...]`: (built-in) Subtraction. `(- x)` is negation.
+*   `* [num ...]`: (built-in) Multiplication. `(*)` is 1.
+*   `/ num1 [num ...]`: (built-in) Division. `(/ x)` is 1/x.
+*   `modulo int1 int2`: (built-in) Modulo operation (result has sign of `int2`, R7RS floor).
+*   `remainder int1 int2`: (built-in) Remainder operation (result has sign of `int1`, R7RS truncate).
+*   `denominator num`: (built-in) Returns the denominator of `num`.
+*   `numerator num`: (built-in) Returns the numerator of `num`.
+*   `quotient int1 int2`: (built-in) Integer division (truncates towards zero).
+*   `gcd int ...`: (built-in) Greatest Common Divisor. `(gcd)` is 0.
+*   `lcm int ...`: (built-in) Least Common Multiple. `(lcm)` is 1.
+*   `expt base exponent`: (built-in) `base` raised to the power of `exponent` (integer exponents).
+*   `square num`: (built-in) `num * num`.
+*   `exact-integer-sqrt n`: (built-in) Returns `(list s r)` where `s*s + r = n`.
+*   `abs num`: (built-in) Absolute value.
+*   `max num ...`: (built-in) Maximum of numbers.
+*   `min num ...`: (built-in) Minimum of numbers.
+*   `= num1 num2`: (built-in) Numeric equality.
+*   `> num1 num2`: (built-in) Numeric greater than.
+*   `< num1 num2`: (built-in) Numeric less than.
+*   `>= num1 num2`: (built-in) Numeric greater than or equal.
+*   `<= num1 num2`: (built-in) Numeric less than or equal.
+*   `number? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is a number.
+*   `integer? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is an integer.
+*   `odd? integer`: (built-in, predicate from `sl_predicates.c`) Tests if `integer` is odd.
+*   `even? integer`: (built-in, predicate from `sl_predicates.c`) Tests if `integer` is even.
+*   `prime? integer`: (built-in, predicate from `sl_predicates.c`) Probabilistic primality test.
+*   `zero? num`: (standard library, `lists.scm` but numeric) Tests if `num` is zero.
+*   `number->string num [radix]`: (built-in, from `sl_strings.c`) Converts `num` to string. Radix other than 10 for integers only.
+*   `string->number str [radix]`: (built-in, from `sl_strings.c`) Converts `str` to number or `#f`. Supports integers (radix 2-62), fractions `N/D` (radix 10), decimals (radix 10).
+*   `float num [precision]`: (built-in) Returns string representation of `num` to `precision` decimal places.
+*   `prime-factors n`: (built-in) Returns a list of prime factors of integer `n`.
+*   `next-prime n`: (built-in) Returns the smallest prime strictly greater than integer `n`.
+
+### Strings
+*   `string char ...`: (built-in, from `sl_strings.c`) Creates a string from characters.
+*   `string-length str`: (built-in, from `sl_strings.c`) Number of Unicode code points in `str`.
+*   `string-ref str k`: (built-in, from `sl_strings.c`) Character at 0-based index `k`.
+*   `string-append str ...`: (built-in, from `sl_strings.c`) Concatenates strings.
+*   `substring str start [end]`: (built-in, from `sl_strings.c`) Extracts substring (indices are code point based).
+*   `string-join list-of-strings delimiter-string`: (built-in, from `sl_strings.c`) Joins strings with a delimiter.
+*   `string-split str delimiter-char`: (built-in, from `sl_strings.c`) Splits `str` by a single `delimiter-char`. Consecutive delimiters yield empty strings.
+*   `string-tokenize str delimiter-set-string`: (built-in, from `sl_strings.c`) Splits `str` by any char in `delimiter-set-string`. Consecutive delimiters are treated as one.
+*   `string-upcase str`: (built-in, from `sl_strings.c`) Converts `str` to uppercase (simple Unicode mapping).
+*   `string-downcase str`: (built-in, from `sl_strings.c`) Converts `str` to lowercase (simple Unicode mapping).
+*   `string=? str1 str2`: (built-in, from `sl_strings.c`) Case-sensitive string equality.
+*   `string<? str1 str2`: (built-in, from `sl_strings.c`) Case-sensitive string less than.
+*   `string>? str1 str2`: (built-in, from `sl_strings.c`) Case-sensitive string greater than.
+*   `string<=? str1 str2`: (built-in, from `sl_strings.c`) Case-sensitive string less than or equal.
+*   `string>=? str1 str2`: (built-in, from `sl_strings.c`) Case-sensitive string greater than or equal.
+*   `string-ci=? str1 str2`: (built-in, from `sl_strings.c`) Case-insensitive string equality.
+*   `string-ci<? str1 str2`: (built-in, from `sl_strings.c`) Case-insensitive string less than.
+*   `string-ci>? str1 str2`: (built-in, from `sl_strings.c`) Case-insensitive string greater than.
+*   `string-ci<=? str1 str2`: (built-in, from `sl_strings.c`) Case-insensitive string less than or equal.
+*   `string-ci>=? str1 str2`: (built-in, from `sl_strings.c`) Case-insensitive string greater than or equal.
+*   `string? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is a string.
+*   `string->list str`: (built-in, from `sl_strings.c`) Converts `str` to a list of characters.
+*   `list->string list-of-chars`: (built-in, from `sl_strings.c`) Converts a list of characters to `str`.
+*   `symbol->string sym`: (built-in, from `sl_strings.c`) Converts `sym` to its string name.
+*   `string->symbol str`: (built-in, from `sl_strings.c`) Converts `str` to a symbol (interned).
+*   `expr->string expr`: (built-in, from `sl_strings.c`) Converts `expr` to its external string representation.
+*   `string->expr str`: (built-in, from `sl_strings.c`) Parses `str` into a single SymLisp expression.
+*   `string->infix-tokens str`: (built-in, from `sl_strings.c`) Tokenizes an infix string (primarily for `string->prefix-expr`).
+
+### Characters
+*   `char? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is a character.
+*   `char-alphabetic? char`: (built-in, predicate from `sl_predicates.c`)
+*   `char-numeric? char`: (built-in, predicate from `sl_predicates.c`)
+*   `char-whitespace? char`: (built-in, predicate from `sl_predicates.c`)
+*   `char-upper-case? char`: (built-in, predicate from `sl_predicates.c`)
+*   `char-lower-case? char`: (built-in, predicate from `sl_predicates.c`)
+*   `char=? char1 char2`: (built-in, from `sl_strings.c`) Character equality.
+*   `char<? char1 char2`: (built-in, from `sl_strings.c`) Character less than.
+*   `char>? char1 char2`: (built-in, from `sl_strings.c`) Character greater than.
+*   `char<=? char1 char2`: (built-in, from `sl_strings.c`) Character less than or equal.
+*   `char>=? char1 char2`: (built-in, from `sl_strings.c`) Character greater than or equal.
+*   `char-ci=? char1 char2`: (built-in, from `sl_strings.c`) Case-insensitive char equality.
+*   `char-ci<? char1 char2`: (built-in, from `sl_strings.c`) Case-insensitive char less than.
+*   `char-ci>? char1 char2`: (built-in, from `sl_strings.c`) Case-insensitive char greater than.
+*   `char-ci<=? char1 char2`: (built-in, from `sl_strings.c`) Case-insensitive char less than or equal.
+*   `char-ci>=? char1 char2`: (built-in, from `sl_strings.c`) Case-insensitive char greater than or equal.
+*   `char-upcase char`: (built-in, from `sl_strings.c`) Converts `char` to uppercase.
+*   `char-downcase char`: (built-in, from `sl_strings.c`) Converts `char` to lowercase.
+
+### Booleans & General Predicates
+*   `#t`, `#f`: Boolean true and false.
+*   `not obj`: (built-in) Logical negation. `(not #f)` is `#t`, otherwise `#f`.
+*   `boolean? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is `#t` or `#f`.
+*   `symbol? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is a symbol.
+*   `procedure? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is a procedure (built-in or closure).
+*   `eq? obj1 obj2`: (built-in) Identity comparison (pointer equality).
+*   `equal? obj1 obj2`: (built-in) Structural equality.
+
+### Input/Output & System
+*   `display obj`: (built-in, from `sl_output.c`) Prints `obj` to standard output (strings without quotes).
+*   `newline`: (built-in, from `sl_output.c`) Prints a newline to standard output.
+*   `write obj`: (built-in, from `sl_output.c`) Prints `obj`'s external representation to standard output.
+*   `display-markdown obj`: (built-in, from `sl_output.c`) Displays `obj` as Markdown (primarily for Jupyter).
+*   `display-html obj`: (built-in, from `sl_output.c`) Displays `obj` as HTML (primarily for Jupyter).
+*   `load filename-string`: (built-in) Loads and evaluates expressions from a file.
+*   `read`: (built-in) Reads one S-expression from standard input.
+*   `current-time`: (built-in) Returns a high-resolution time object/list.
+*   `gettimeofday`: (built-in) Returns `(list seconds microseconds)`.
+*   `time`: (built-in) Returns seconds since epoch as a number.
+*   `random-integer min max`: (built-in) Returns a random integer between `min` and `max` inclusive.
+*   `error? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is an error object.
+*   `environment? obj`: (built-in, predicate from `sl_predicates.c`) Tests if `obj` is an environment.
+
+### Symbolic Computation (Standard Library - `stdsymlisp/symbolics.scm`)
+*   `simplify expr`: Simplifies `expr` according to algebraic and trigonometric rules.
+*   `expand expr`: Expands `expr` (e.g., distributive property, binomial expansion).
+*   **Symbolic Constants**: `e`, `pi`, `i` are recognized.
+*   **Predicates**:
+    *   `constant? expr`, `variable? expr`, `atomic-expr? expr`, `compound-expr? expr`
+    *   `sum? expr`, `product? expr`, `power? expr`, `negation? expr`, `difference? expr`, `quotient? expr`
+    *   `abs? expr`, `ln? expr`, `exp? expr`, `sin? expr`, `cos? expr`, `tan? expr`, `sqrt? expr`
+*   **Accessors**:
+    *   `operator expr`, `operands expr`
+    *   `terms expr`, `factors expr`
+    *   `base expr`, `exponent expr`
+    *   `negated-expr expr`, `minuend expr`, `subtrahend expr`
+    *   `quotient-numerator expr`, `quotient-denominator expr`
+    *   `abs-arg expr`, `ln-arg expr`, `exp-arg expr`, `sin-arg expr`, `cos-arg expr`, `tan-arg expr`, `sqrt-arg expr`
+
+### Infix/Prefix Conversion (Standard Library - `stdsymlisp/infix.scm`)
+*   `string->prefix-expr infix-string`: Converts an `infix-string` to a SymLisp prefix S-expression. Handles basic arithmetic, `^`, and function calls like `f(a,b)`.
+*   `prefix-expr->infix-string prefix-expr`: Converts a `prefix-expr` back to an infix string.
+*   `prefix-expr->markdown-latex prefix-expr`: Converts a `prefix-expr` to a Markdown string containing LaTeX math (e.g., `$ \sin(x) + 1 $`).
+
+### Utilities (Standard Library - `stdsymlisp/lists.scm`)
+*   `values v1 v2 ...`: Returns a list of its arguments (used for `call-with-values`).
+*   `call-with-values producer-thunk consumer-proc`: Calls `producer-thunk` (which should call `values`), then calls `consumer-proc` with the produced values as arguments.
+
+## Todos
 
 - [x] Environment structure and basic operations (sl_env_create, sl_env_define, sl_env_lookup).
 - [x] Basic eval handling self-evaluating types and symbol lookup.
@@ -157,6 +417,7 @@ E. (partialy done, rest deferred) Trigonometric Functions, part 2
 - Euler's Formula: (deferred)
   - The identity (exp (* i x)) <-> (+ (cos x) (* i (sin x))) (or (^ e (* i x))) 
 
+### Phase 4: Rule engine
 
 ### Phase 5: Differentiation (differentiate or diff)
 

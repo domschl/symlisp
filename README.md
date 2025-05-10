@@ -71,6 +71,7 @@ Again another Scheme, this time:
 - [x] Phase 3.A: Special functions accessors, treatment of `i`.
 - [x] Phase 3.B: Fractional Exponents, sqrt, and abs Function
 - [x] Phase 3.C: Exponential and Logarithmic Functions (Natural)
+- [x] D. Trigonometric Functions
 
 Larger steps:
 
@@ -130,24 +131,34 @@ C. [Done] Exponential and Logarithmic Functions (Natural)
   - (ln (^ base exponent)) -> (* exponent (ln base)) (Domain considerations for base > 0).
   - (ln (* f1 f2)) -> (+ (ln f1) (ln f2)) (Domain: f1, f2 > 0).
 
-D. Trigonometric Functions
+D. [DONE] Trigonometric Functions
 
 - Functions: Introduce (sin x), (cos x), (tan x).
-- pi (Constant): Use pi (from section A).
 - Simplification for Specific Values (Numerical Evaluation):
-  - In simplify (when the argument to sin, cos, tan is a known constant):
+  - In simplify (when the argument to sin, cos, tan is (multiple of) a known constant):
     - sin(0) -> 0, cos(0) -> 1, tan(0) -> 0.
     - sin(pi) -> 0, cos(pi) -> -1, tan(pi) -> 0.
-    - sin((/ pi 2)) -> 1, cos((/ pi 2)) -> 0. (Tan undefined here).
+    - sin((/ pi 2)) -> 1, cos((/ pi 2)) -> 0.
+    - tan() 0->0, pi/6 -> 1/3sqrt(3), pi/4 -> 1, etc.
     - Extend for other simple multiples/fractions of pi (e.g., pi/4, pi/3, pi/6).
 - Trigonometric Identities:
   - Pythagorean Identity: In simplify-sum, add a rule to recognize (+ (^ (sin x) 2) (^ (cos x) 2)) and simplify it to 1.
-  - Tan definition: Consider if (tan x) should simplify to (/ (sin x) (cos x)) as a canonical form, or if simplify should recognize this pattern.
-- Euler's Formula:
-  - The identity (exp (* i x)) <-> (+ (cos x) (* i (sin x))) (or (^ e (* i x))) is powerful for deriving many trig identities but adds complexity to simplify as it can convert between exponential and trigonometric forms. 
+  - Tan definition: (/ (sin x) (cos x)) should be recognized as (tan x)
+
+E. (partialy done, rest deferred) Trigonometric Functions, part 2
+
+- sin(A+B) -> sin(A)cos(B)+cos(A)sin(B)
+- sin(A-B) -> sin(A)cos(B)-cos(A)sin(B)
+- cos(A+B) -> cos(A)cos(B)-sin(A)sin(B)
+- cos(A-B) -> cos(A)cos(B)+sin(A)sin(B)
+- sin(2A) <-> 2sin(A)cos(A)
+- cos(2A) -> cos^2(A)-sin^2(A) (or 2cos^2(A)-1 or 1-2sin^2(A)
+
+- Euler's Formula: (deferred)
+  - The identity (exp (* i x)) <-> (+ (cos x) (* i (sin x))) (or (^ e (* i x))) 
 
 
-### Phase 4: Differentiation (differentiate or diff)
+### Phase 5: Differentiation (differentiate or diff)
 
 1. Implement differentiate Function:
 - Signature: (differentiate expr var)
@@ -165,7 +176,7 @@ D. Trigonometric Functions
   - Example: d/dx (sin (^ x 2)) -> (* (cos (^ x 2)) (* 2 x))
 - Crucially, call simplify on the result of each differentiation step.
 
-### Phase 5: Factorization (factorize)
+### Phase 6: Factorization (factorize)
 
 This is generally the most complex part.
 
@@ -183,7 +194,7 @@ This is generally the most complex part.
 - factorize often involves trial and error or heuristic approaches.
 - May also benefit from calling simplify.
 
-### Phase 6
+### Phase 7
 
 - Taylor series
 - limits

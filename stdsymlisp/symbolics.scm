@@ -262,10 +262,12 @@
     ((null? (cdr factors)) (car factors)) ; Product of one factor is the factor itself
     (else (cons '* factors))))
 
-;; Helper: Construct a power expression
-;; (make-power base exponent)
+;; Helper: Construct a power expression, simplifying trivial exponent cases
 (define (make-power base exponent)
-  (list '^ base exponent))
+  (cond
+    ((and (number? exponent) (= exponent 0)) 1)
+    ((and (number? exponent) (= exponent 1)) base)
+    (else (list '^ base exponent))))
 
 ;; Forward declaration for simplify, as helpers might call it or be called by it.
 (define simplify #f)
@@ -597,45 +599,93 @@
                       (make-product (cons final-const-val final-non-constant-factors))))))))))))
 
 
-; Revised simplify-power:
+;; Revised simplify-power:
 (define (simplify-power expr)
   (let ((b (simplify (base expr)))
-        (exp-val (simplify (exponent expr)))) ; Renamed 'e' to 'exp-val'
+        (exp-val (simplify (exponent expr))))
     (cond
-      ;; Constant folding
+      ;; 1. Constant folding: b is const, exp-val is const
       ((and (constant? b) (constant? exp-val))
-       (if (and (number? b) (= b 0) (number? exp-val) (<= exp-val 0)) ; 0^0 or 0 to negative power
-           (if (= exp-val 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
-           (expt b exp-val))) ; expt is the Scheme power function
+       (if (integer? exp-val) ;; SymLisp's 'expt' builtin only handles integer exponents
+           (if (and (number? b) (= b 0) (number? exp-val) (<= exp-val 0)) ; 0^0 or 0 to negative power
+               (if (= exp-val 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
+               (expt b exp-val))
+           ;; exp-val is a non-integer rational.
+           ;; Defer to later rules for specific cases like integer roots.
+           ;; If no specific rule applies, it remains symbolic.
+           (make-power b exp-val)))
 
-      ;; Rule for i^n where n is an integer
-      ((eq? b 'i)
-       (if (integer? exp-val) ; Check if the exponent's value is an integer
-           (let ((rem (modulo exp-val 4)))
-             (cond
-               ((= rem 0) 1)  ; e.g., i^0, i^4, i^-4
-               ((= rem 1) 'i) ; e.g., i^1, i^5, i^-3
-               ((= rem 2) -1) ; e.g., i^2, i^6, i^-2
-               ((= rem 3) (make-negation 'i)) ; e.g., i^3, i^7, i^-1 -> (- i)
-               ;; This else case should ideally not be reached if modulo is correct.
-               (else (make-power b exp-val))))
-           (make-power b exp-val))) ; Exponent is not an integer, return (^ i exp-val)
+      ;; 2. Rule for i^n where n is an integer
+      ((and (eq? b 'i) (integer? exp-val))
+       (let ((rem (modulo exp-val 4)))
+         (cond
+           ((= rem 0) 1)
+           ((= rem 1) 'i)
+           ((= rem 2) -1)
+           ((= rem 3) (make-negation 'i))
+           (else (make-power b exp-val))))) ; Should not be reached
 
-      ;; Standard identities
-      ((and (constant? exp-val) (= exp-val 0)) 1) ; x^0 = 1 (for x != 0, handled above for b=0, exp-val=0)
+      ;; 3. Standard identities
+      ((and (constant? exp-val) (= exp-val 0)) 1) ; x^0 = 1
       ((and (constant? exp-val) (= exp-val 1)) b) ; x^1 = x
-      ((and (constant? b) (= b 0)) ; 0^x = 0 for x > 0 (0^0 and 0^neg handled by constant folding)
-       (if (and (constant? exp-val) (> exp-val 0)) ; Ensure exponent is a positive number
+      ((and (constant? b) (= b 0)) ; 0^x = 0 for x > 0 (constant x)
+       (if (and (constant? exp-val) (> exp-val 0))
            0
-           (make-power b exp-val))) ; If exponent is not a positive number, don't simplify to 0 yet
+           (make-power b exp-val)))
       ((and (constant? b) (= b 1)) 1) ; 1^x = 1
-      ;; New rule: Power of a negation
+
+      ;; 4. Structural Rule: Power of a power: (^ (^ base_b exp_b) exp_val) -> (^ base_b (* exp_b exp_val))
+      ;; Note: 'b' is already simplified. If b is a power, (base b) and (exponent b) access its parts.
+      ((power? b)
+       (simplify (make-power (base b) (simplify (make-product (list (exponent b) exp-val))))))
+
+      ;; 5. Structural Rule: Power of a product: (^ (* f1 f2 ...) exp_val) -> (* (^ f1 exp_val) (^ f2 exp_val) ...)
+      ((product? b)
+       (simplify (make-product (map (lambda (factor) (make-power factor exp-val))
+                                    (operands b)))))
+      
+      ;; 6. Structural Rule: Power of a negation: (^ (- base_neg) exp_val) where exp_val is an integer
       ((and (negation? b) (integer? exp-val) (>= exp-val 0))
        (let ((base-of-negation (negated-expr b)))
          (if (even? exp-val)
              (simplify (make-power base-of-negation exp-val))
              (simplify (make-negation (make-power base-of-negation exp-val))))))
-      ;; Default
+
+      ;; 7. Numeric Specific Rule: Simplifying roots of positive integers: (^ N rational-exp)
+      ;; e.g., (^ 12 (1/2)) -> (* 2 (^ 3 (1/2)))
+      ;; e.g., (^ 8 (2/3)) -> 4
+      ((and (integer? b) (> b 0) (rational? exp-val) (not (integer? exp-val)))
+       (let ((num-exp (numerator exp-val))
+             (den-exp (denominator exp-val)))
+         ;; This rule handles non-integer rational exponents.
+         ;; If den-exp became 1 after simplify, exp-val would be integer, caught earlier.
+         (if (= b 1) ; (^ 1 anything) is 1, already handled by "base=1" rule, but good check.
+             1
+             (let* ((prime-factor-list (prime-factors b))) ; e.g., (2 2 3) for 12
+               (if (null? prime-factor-list) ; Should only happen if b was 1, handled.
+                   (make-power b exp-val) ; Or return 1 if b is 1.
+                   (let* ((unique-primes (remove-duplicates prime-factor-list))
+                          (grouped-prime-powers ; e.g., ((2 . 2) (3 . 1)) for 12
+                           (map (lambda (p) (cons p (count (lambda (x) (= x p)) prime-factor-list)))
+                                unique-primes))
+                          (new-factors
+                           (map (lambda (prime-power-pair) ; e.g., (2 . 2) for prime 2, original power 2
+                                  (let* ((prime (car prime-power-pair))
+                                         (original-power (cdr prime-power-pair))
+                                         ;; New exponent for this prime: original-power * (num-exp / den-exp)
+                                         ;; = (original-power * num-exp) / den-exp
+                                         (new-exponent-num (* original-power num-exp))
+                                         ;; Simplify the new exponent fraction: new-exponent-num / den-exp
+                                         (common-divisor (gcd new-exponent-num den-exp))
+                                         (final-exponent-num (/ new-exponent-num common-divisor))
+                                         (final-exponent-den (/ den-exp common-divisor)))
+                                    (if (= final-exponent-den 1) ; Resulting exponent is integer
+                                        (make-power prime final-exponent-num)
+                                        (make-power prime (/ final-exponent-num final-exponent-den)))))
+                                grouped-prime-powers)))
+                     (simplify (make-product new-factors))))))))
+      
+      ;; 8. Default: No specific simplification rule applied
       (else (make-power b exp-val)))))
 
 ;; Helper to create a negation, possibly simplifying double negations
@@ -707,6 +757,10 @@
           ((negation? expr) (simplify-negation expr))
           ((difference? expr) (simplify-difference expr))
           ((quotient? expr) (simplify-quotient expr))
+          
+          ;; Rule for sqrt: (sqrt x) -> (^ x 1/2) for symbolic processing
+          ((sqrt? expr) (simplify (make-power (sqrt-arg expr) 1/2)))
+
           ;; ... add other specific functions like (simplify-sin expr) if they have rules ...
 
           ;; 3. General case for expressions that look like function calls:

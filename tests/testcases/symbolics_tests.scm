@@ -767,7 +767,7 @@
 (define-test "simplify-product-constant-times-i-squared"
   (assert-equal (simplify '(* 3 i i)) -3))
 (define-test "simplify-product-mixed-factors-with-i-squared"
-  (assert-equal (simplify '(* x i y i)) '(- (* x y))) ; simplify-product sorts to (* -1 x y)
+  (assert-equal (simplify '(* x i y i)) '(- (* x y)))) ; simplify-product sorts to (* -1 x y)
 (define-test "simplify-product-mixed-factors-with-i-cubed"
   (assert-equal (simplify '(* x i y i z i)) '(* x y z (- i)))) ; simplify-product sorts
 

@@ -371,18 +371,22 @@
 (define (prefix-expr->markdown-latex expr)
   (string-append "$" (expr->latex-recursive expr #f 0 #f #f) "$"))
 
-;; Recursive helper for prefix-expr->markdown-latex
 (define (expr->latex-recursive expr parent-op-symbol parent-prec parent-is-left-assoc am-i-left-child-of-parent)
   (cond
     ((number? expr) (number->string expr))
     ((symbol? expr)
      (let ((s (symbol->string expr)))
-       (cond ((string=? s "pi") "\\pi") 
+       (cond ((string=? s "pi") "\\pi")
+             ((string=? s "e") "e") 
+             ((string=? s "i") "i") 
              (else (latex-function-name-map s))))) 
     ((not (pair? expr)) (error "expr->latex: Invalid expression structure" expr))
-    ;; Add this new condition for sqrt BEFORE the general list/operator handling
-    ((and (power? expr) (equal? (exponent expr) 1/2)) ; Check for (^ base 1/2)
+    ;; Specific structure for sqrt from power form
+    ((and (power? expr) (equal? (exponent expr) 1/2)) 
      (string-append "\\sqrt{" (expr->latex-recursive (base expr) #f 0 #f #f) "}"))
+    ;; ADDED: Specific structure for abs
+    ((abs? expr) ; This checks if (car expr) is 'abs
+     (string-append "|" (expr->latex-recursive (abs-arg expr) #f 0 #f #f) "|"))
     (else ; It's a list (op arg1 ...)
      (let* ((op (car expr)) (args (cdr expr)) (num-args (length args)))
          (if (and (memq op '(+ *)) (= num-args 1))

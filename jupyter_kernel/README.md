@@ -39,6 +39,10 @@ jupyter lab
 
 Select "SymLisp" from the kernel dropdown menu when creating a new notebook.
 
+## Examples
+
+An example notebook demonstrating various features of SymLisp, including symbolic computation and LaTeX output, is available in the main repository: [SymLisp Demo Notebook](../examples/symlisp_demo.ipynb).
+
 ## Features
 
 - Standard Scheme/Lisp syntax

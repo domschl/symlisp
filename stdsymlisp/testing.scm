@@ -28,7 +28,7 @@
   (lambda (value) (assert-equal value #f)))
 
 ;; define-test: Define and run a named test case with ONE assertion
-(define define-test
+(define define-test-simple
   (lambda (name assertion)
     ;; Increment the test counter
     (set! tests-run-count (+ tests-run-count 1))
@@ -64,7 +64,7 @@
     ;; Return the test result
     test-passed))
 
-(define define-test-thunked
+(define define-test
   (lambda (name test-thunk) ; <<< Changed second arg to test-thunk
     (set! tests-run-count (+ tests-run-count 1))
 

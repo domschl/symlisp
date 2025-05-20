@@ -1,52 +1,52 @@
 ;; --- QUASIQUOTE, UNQUOTE, UNQUOTE-SPLICING ---
 
-(define-test-thunked "quasiquote-simple-list"
+(define-test "quasiquote-simple-list"
   (lambda () (assert-equal `(a b c) '(a b c))))
 
-(define-test-thunked "quasiquote-with-unquote"
+(define-test "quasiquote-with-unquote"
   (lambda ()
     (let ((b-val 2) (c-val 3))
       (assert-equal `(a ,b-val ,c-val d) '(a 2 3 d)))))
 
-(define-test-thunked "quasiquote-unquote-expression"
+(define-test "quasiquote-unquote-expression"
   (lambda ()
     (let ((x 5))
       (assert-equal `(value is ,(+ x 10)) '(value is 15)))))
 
-(define-test-thunked "quasiquote-unquote-splicing-simple"
+(define-test "quasiquote-unquote-splicing-simple"
   (lambda ()
     (let ((inner-list '(b c)))
       (assert-equal `(a ,@inner-list d) '(a b c d)))))
 
-(define-test-thunked "quasiquote-unquote-splicing-multiple"
+(define-test "quasiquote-unquote-splicing-multiple"
   (lambda ()
     (let ((list1 '(1 2)) (list2 '(3 4)))
       (assert-equal `(start ,@list1 middle ,@list2 end) '(start 1 2 middle 3 4 end)))))
 
-(define-test-thunked "quasiquote-unquote-splicing-empty-list"
+(define-test "quasiquote-unquote-splicing-empty-list"
   (lambda ()
     (let ((empty '()))
       (assert-equal `(a ,@empty d) '(a d)))))
 
-(define-test-thunked "quasiquote-unquote-splicing-at-beginning"
+(define-test "quasiquote-unquote-splicing-at-beginning"
   (lambda ()
     (let ((prefix '(1 2)))
       (assert-equal `(,@prefix 3 4) '(1 2 3 4)))))
 
-(define-test-thunked "quasiquote-unquote-splicing-at-end"
+(define-test "quasiquote-unquote-splicing-at-end"
   (lambda ()
     (let ((suffix '(3 4)))
       (assert-equal `(1 2 ,@suffix) '(1 2 3 4)))))
 
 
-(define-test-thunked "quasiquote-nested-quasiquote"
+(define-test "quasiquote-nested-quasiquote"
   (lambda ()
     (let ((x 10))
       (assert-equal ``(outer ,,x ,,(+ x 5)) ; evaluates to `(outer ,x ,(+ x 5))
                     '(quasiquote (outer (unquote x) (unquote (+ x 5))))))))
 
 
-(define-test-thunked "quasiquote-nested-eval"
+(define-test "quasiquote-nested-eval"
   (lambda ()
     (let ((x 10))
       ;; `(outer ,`(inner ,,x))
@@ -57,7 +57,7 @@
       (assert-equal `(outer ,`(inner ,,x)) '(outer (inner (unquote x)))))) ; << CHANGED Expected Value
   )
 
-; (define-test-thunked "quasiquote-unquote-inside-nested-quasiquote"
+; (define-test "quasiquote-unquote-inside-nested-quasiquote"
 ;   (lambda ()
 ;     (let ((a 1) (b 2))
 ;       ;; `(list '`(,a ,,b))
@@ -66,7 +66,7 @@
 ;       (assert-equal `(list '`(,a ,,b))
 ;                     '(list (quasiquote ((unquote a) (unquote (unquote b)))))))) ; << CHANGED Expected Value
 
-; (define-test-thunked "quasiquote-unquote-splicing-inside-nested-quasiquote"
+; (define-test "quasiquote-unquote-splicing-inside-nested-quasiquote"
 ;   (lambda () 
 ;     (let ((items '(x y)))
 ;       ;; `(outer-list `(inner ,@items ,,items))
@@ -77,34 +77,34 @@
 ;                     '(outer-list '(inner x y (unquote items)))))))
 
 
-; (define-test-thunked "quasiquote-dotted-pair"
+; (define-test "quasiquote-dotted-pair"
 ;   (lambda ()
 ;     (let ((y 20))
 ;       (assert-equal `(x . ,y) '(x . 20)))))
 
 ;; Test case from Scheme R7RS spec (section 4.2.6)
-(define-test-thunked "quasiquote-r7rs-example1"
+(define-test "quasiquote-r7rs-example1"
   (lambda ()
     (assert-equal `(list ,(+ 1 2) 4) '(list 3 4))))
 
 
-(define-test-thunked "quasiquote-r7rs-example2"
+(define-test "quasiquote-r7rs-example2"
   (lambda ()
     (let ((a 1) (b '(2 3)))
       (assert-equal `(a ,a ,@b) '(a 1 2 3)))))
 
 
-; (define-test-thunked "quasiquote-r7rs-example3"
+; (define-test "quasiquote-r7rs-example3"
 ;   (lambda ()
 ;     (assert-equal `(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e)
 ;                 '(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e)))) ; Level 1 QQ
 
-; (define-test-thunked "quasiquote-r7rs-example3-evaled"
+; (define-test "quasiquote-r7rs-example3-evaled"
 ;   (lambda ()
 ;     (assert-equal (eval `(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e) (interaction-environment))
 ;                 '(a (quasiquote (b (unquote (+ 1 2)) (unquote-splicing (map abs (quote (4 -5 6)))) d)) e))))
 
-; (define-test-thunked "quasiquote-r7rs-example4-evaled"
+; (define-test "quasiquote-r7rs-example4-evaled"
 ;   (lambda ()
 ;     ;; `(a ,(eval `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d)) e)
 ;     ;; -> (a (b 3 4 5 6 d) e)
@@ -112,7 +112,7 @@
 ;                 '(a (b 3 4 5 6 d) e))))
 
 ;; More complex splicing
-(define-test-thunked "quasiquote-splicing-with-atoms"
+(define-test "quasiquote-splicing-with-atoms"
   (lambda ()
     (let ((x 'foo) (y '(bar baz)))
       (assert-equal `(,@(if #t (list x) '()) test ,@y) '(foo test bar baz)))))
@@ -124,7 +124,7 @@
 (define-syntax my-list-macro
   (lambda (form)
     ''(1 2 3)))
-(define-test-thunked "define-syntax-simple-expansion"
+(define-test "define-syntax-simple-expansion"
   (lambda ()
     (assert-equal (my-list-macro) '(1 2 3))))
 
@@ -137,12 +137,12 @@
           (arg2 (caddr form)))
       (list 'list arg2 arg1)))) ; Construct (list <value of arg2> <value of arg1>)
 
-(define-test-thunked "define-syntax-swap-args"
+(define-test "define-syntax-swap-args"
   (lambda ()
     (assert-equal (swap (+ 1 0) (* 2 2)) '(4 1))))
 
 
-(define-test-thunked "define-syntax-swap-symbols"
+(define-test "define-syntax-swap-symbols"
   (lambda ()
     (let ((a 10) (b 20))
     (assert-equal (swap a b) '(20 10)))))
@@ -163,7 +163,7 @@
              '())))))
 
 (define while-test-var 0)
-(define-test-thunked "define-syntax-while-countdown"
+(define-test "define-syntax-while-countdown"
   (lambda ()
     (begin
       (set! while-test-var 3)
@@ -173,7 +173,7 @@
 
 (define while-sum 0)
 (define while-counter 1)
-(define-test-thunked "define-syntax-while-sum"
+(define-test "define-syntax-while-sum"
   (lambda ()
     (begin
       (set! while-sum 0)
@@ -184,7 +184,7 @@
       (assert-equal while-sum 15) ; 1+2+3+4+5
       (assert-equal while-counter 6))))
 
-(define-test-thunked "define-syntax-while-condition-initially-false"
+(define-test "define-syntax-while-condition-initially-false"
   (lambda ()
     (begin
       (set! while-test-var 100)
@@ -193,7 +193,7 @@
   )
 
 (define while-side-effect-check 0)
-(define-test-thunked "define-syntax-while-empty-body"
+(define-test "define-syntax-while-empty-body"
   (lambda ()
     (begin
       (set! while-side-effect-check 3)
@@ -223,7 +223,7 @@
              (begin ,@body) ; Execute body; its result becomes the result of 'if'
              '())))))        ; Return '() if condition is initially false
 
-(define-test-thunked "define-syntax-non-hygienic-shadow-macro-var"
+(define-test "define-syntax-non-hygienic-shadow-macro-var"
   (lambda ()
     (let ((x 2)) ; x starts at 2, condition (> x 0) will be true
       (assert-equal
@@ -242,7 +242,7 @@
   (lambda (form)
     '(+ y 5))) ; The generated code expects a 'y' in its execution scope
 
-(define-test-thunked "define-syntax-non-hygienic-generated-code-captures-y"
+(define-test "define-syntax-non-hygienic-generated-code-captures-y"
   (lambda ()
     (begin ;; <<< Wrap the body in a 'begin'
       (let ((y 10))

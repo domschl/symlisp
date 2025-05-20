@@ -3,8 +3,8 @@
 ;; Note: Testing actual output of display/newline is hard here.
 ;; We just check the return value (should be unspecified -> NIL).
 
-(define-test-thunked "display-return-value" (lambda () (assert-equal (display "hello") '())))
-(define-test-thunked "newline-return-value" (lambda () (assert-equal (newline) '())))
+(define-test "display-return-value" (lambda () (assert-equal (display "hello") '())))
+(define-test "newline-return-value" (lambda () (assert-equal (newline) '())))
 
 ;; Test loading another file
 ;; Create a simple file to be loaded first
@@ -20,7 +20,7 @@
 ;; (define loaded-variable 999)
 
 ;; Assuming tests/testcases/load_target.scm exists:
-(define-test-thunked "load-file-check-var"
+(define-test "load-file-check-var"
   (lambda ()
     (begin
       (load "../tests/testcases/data/load_target.scm") ; Path relative to execution dir

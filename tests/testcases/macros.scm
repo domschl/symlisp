@@ -94,19 +94,22 @@
       (assert-equal `(a ,a ,@b) '(a 1 2 3)))))
 
 
-; (define-test "quasiquote-r7rs-example3"
-;   (assert-equal `(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e)
-;                 '(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e))) ; Level 1 QQ
+; (define-test-thunked "quasiquote-r7rs-example3"
+;   (lambda ()
+;     (assert-equal `(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e)
+;                 '(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e)))) ; Level 1 QQ
 
-; (define-test "quasiquote-r7rs-example3-evaled"
-;   (assert-equal (eval `(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e) (interaction-environment))
-;                 '(a (quasiquote (b (unquote (+ 1 2)) (unquote-splicing (map abs (quote (4 -5 6)))) d)) e)))
+; (define-test-thunked "quasiquote-r7rs-example3-evaled"
+;   (lambda ()
+;     (assert-equal (eval `(a `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) e) (interaction-environment))
+;                 '(a (quasiquote (b (unquote (+ 1 2)) (unquote-splicing (map abs (quote (4 -5 6)))) d)) e))))
 
-; (define-test "quasiquote-r7rs-example4-evaled"
-;   ;; `(a ,(eval `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d)) e)
-;   ;; -> (a (b 3 4 5 6 d) e)
-;   (assert-equal (eval `(a ,(eval `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) (nteraction-environment)) e) (interaction-environment))
-;                 '(a (b 3 4 5 6 d) e)))
+; (define-test-thunked "quasiquote-r7rs-example4-evaled"
+;   (lambda ()
+;     ;; `(a ,(eval `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d)) e)
+;     ;; -> (a (b 3 4 5 6 d) e)
+;     (assert-equal (eval `(a ,(eval `(b ,(+ 1 2) ,@(map abs '(4 -5 6)) d) (nteraction-environment)) e) (interaction-environment))
+;                 '(a (b 3 4 5 6 d) e))))
 
 ;; More complex splicing
 (define-test-thunked "quasiquote-splicing-with-atoms"

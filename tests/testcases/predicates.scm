@@ -174,7 +174,7 @@
 (define-test-thunked "integer?-string" (lambda () (assert-false (integer? "5"))))
 (define-test-thunked "integer?-symbol" (lambda () (assert-false (integer? 'a))))
 (define-test-thunked "integer?-list" (lambda () (assert-false (integer? '(1)))))
-;(define-test "integer?-error-arity" (assert-error? (integer? 1 2)))
+;(define-test-thunked "integer?-error-arity" (lambda () (assert-error? (integer? 1 2))))
 
 ;; odd/even? Tests
 (define-test-thunked "odd?-odd" (lambda () (assert-true (odd? 3))))

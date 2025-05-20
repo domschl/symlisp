@@ -58,195 +58,201 @@
 ;; --- LENGTH ---
 (define-test-thunked "length-simple" (lambda () (assert-equal (length test-list-1) 4)))
 (define-test-thunked "length-nested" (lambda () (assert-equal (length test-list-3) 2))) ; Length is top-level
-(define-test "length-empty" (assert-equal (length test-list-4) 0))
-(define-test "length-single" (assert-equal (length '(1)) 1))
+(define-test-thunked "length-empty" (lambda () (assert-equal (length test-list-4) 0)))
+(define-test-thunked "length-single" (lambda () (assert-equal (length '(1)) 1)))
 
 ;; --- REVERSE ---
-(define-test "reverse-simple" (assert-equal (reverse test-list-1) '(4 3 2 1)))
-(define-test "reverse-symbols" (assert-equal (reverse test-list-2) '(c b a)))
-(define-test "reverse-nested" (assert-equal (reverse test-list-3) '((3 4) (1 2))))
-(define-test "reverse-empty" (assert-equal (reverse test-list-4) '()))
-(define-test "reverse-single" (assert-equal (reverse '(1)) '(1)))
+(define-test-thunked "reverse-simple" (lambda () (assert-equal (reverse test-list-1) '(4 3 2 1))))
+(define-test-thunked "reverse-symbols" (lambda () (assert-equal (reverse test-list-2) '(c b a))))
+(define-test-thunked "reverse-nested" (lambda () (assert-equal (reverse test-list-3) '((3 4) (1 2)))))
+(define-test-thunked "reverse-empty" (lambda () (assert-equal (reverse test-list-4) '())))
+(define-test-thunked "reverse-single" (lambda () (assert-equal (reverse '(1)) '(1))))
 (define reverse-original '(x y z))
 (reverse reverse-original) ; Call reverse
-(define-test "reverse-non-destructive" (assert-equal reverse-original '(x y z))) ; Check original is unchanged
+(define-test-thunked "reverse-non-destructive" (lambda () (assert-equal reverse-original '(x y z)))) ; Check original is unchanged
 
 ;; --- APPEND ---
-(define-test "append-two-lists" (assert-equal (append '(1 2) '(3 4)) '(1 2 3 4)))
-(define-test "append-multiple-lists" (assert-equal (append '(1) '(2 3) '(4 5 6)) '(1 2 3 4 5 6)))
-(define-test "append-with-empty" (assert-equal (append '(1 2) '() '(3 4)) '(1 2 3 4)))
-(define-test "append-to-empty" (assert-equal (append '() '(1 2)) '(1 2)))
-(define-test "append-from-empty" (assert-equal (append '(1 2) '()) '(1 2)))
-(define-test "append-all-empty" (assert-equal (append '() '() '()) '()))
-(define-test "append-no-args" (assert-equal (append) '()))
-(define-test "append-single-arg" (assert-equal (append '(1 2 3)) '(1 2 3)))
-(define-test "append-last-arg-not-list" (assert-equal (append '(1 2) 3) '(1 2 . 3)))
-(define-test "append-last-arg-symbol" (assert-equal (append '(a b) 'c) '(a b . c)))
-(define-test "append-makes-copies"
+(define-test-thunked "append-two-lists" (lambda () (assert-equal (append '(1 2) '(3 4)) '(1 2 3 4))))
+(define-test-thunked "append-multiple-lists" (lambda () (assert-equal (append '(1) '(2 3) '(4 5 6)) '(1 2 3 4 5 6))))
+(define-test-thunked "append-with-empty" (lambda () (assert-equal (append '(1 2) '() '(3 4)) '(1 2 3 4))))
+(define-test-thunked "append-to-empty" (lambda () (assert-equal (append '() '(1 2)) '(1 2))))
+(define-test-thunked "append-from-empty" (lambda () (assert-equal (append '(1 2) '()) '(1 2))))
+(define-test-thunked "append-all-empty" (lambda () (assert-equal (append '() '() '()) '())))
+(define-test-thunked "append-no-args" (lambda () (assert-equal (append) '())))
+(define-test-thunked "append-single-arg" (lambda () (assert-equal (append '(1 2 3)) '(1 2 3))))
+(define-test-thunked "append-last-arg-not-list" (lambda () (assert-equal (append '(1 2) 3) '(1 2 . 3))))
+(define-test-thunked "append-last-arg-symbol" (lambda () (assert-equal (append '(a b) 'c) '(a b . c))))
+(define-test-thunked "append-makes-copies"
+  (lambda ()
   (let ((l1 '(1 2)))
     (let ((l2 (append l1 '(3))))
       (set-car! l1 99) ; Modify original list
-      (assert-equal l2 '(1 2 3))))) ; Appended list should not see the change
+      (assert-equal l2 '(1 2 3)))))) ; Appended list should not see the change
 
 ;; --- SET-CAR! ---
 (define set-car-test-list (list 'a 'b 'c))
-(define-test "set-car!-return-value" (assert-equal (set-car! set-car-test-list 'x) '())) ; Returns unspecified (NIL)
-(define-test "set-car!-effect" (assert-equal set-car-test-list '(x b c))) ; Check list was modified
-(define-test "set-car!-modify-again" (assert-equal (set-car! (cdr set-car-test-list) 'y) '()))
-(define-test "set-car!-effect-again" (assert-equal set-car-test-list '(x y c)))
+(define-test-thunked "set-car!-return-value" (lambda () (assert-equal (set-car! set-car-test-list 'x) '()))) ; Returns unspecified (NIL)
+(define-test-thunked "set-car!-effect" (lambda () (assert-equal set-car-test-list '(x b c)))) ; Check list was modified
+(define-test-thunked "set-car!-modify-again" (lambda () (assert-equal (set-car! (cdr set-car-test-list) 'y) '())))
+(define-test-thunked "set-car!-effect-again" (lambda () (assert-equal set-car-test-list '(x y c))))
 
 ;; --- SET-CDR! ---
 (define set-cdr-test-list (list 1 2 3))
-(define-test "set-cdr!-return-value" (assert-equal (set-cdr! set-cdr-test-list '(9 8)) '())) ; Returns unspecified (NIL)
-(define-test "set-cdr!-effect" (assert-equal set-cdr-test-list '(1 9 8))) ; Check list was modified
-(define-test "set-cdr!-make-dotted" (assert-equal (set-cdr! (cdr set-cdr-test-list) 99) '()))
-(define-test "set-cdr!-effect-dotted" (assert-equal set-cdr-test-list '(1 9 . 99)))
+(define-test-thunked "set-cdr!-return-value" (lambda () (assert-equal (set-cdr! set-cdr-test-list '(9 8)) '()))) ; Returns unspecified (NIL)
+(define-test-thunked "set-cdr!-effect" (lambda () (assert-equal set-cdr-test-list '(1 9 8)))) ; Check list was modified
+(define-test-thunked "set-cdr!-make-dotted" (lambda () (assert-equal (set-cdr! (cdr set-cdr-test-list) 99) '())))
+(define-test-thunked "set-cdr!-effect-dotted" (lambda () (assert-equal set-cdr-test-list '(1 9 . 99))))
 (define set-cdr-test-list-2 (list 'p 'q 'r))
-(define-test "set-cdr!-last-pair" (assert-equal (set-cdr! (cdr set-cdr-test-list-2) '()) '())) ; Make (cdr '(q r)) -> '()
-(define-test "set-cdr!-effect-last-pair" (assert-equal set-cdr-test-list-2 '(p q))) ; List is now shorter
+(define-test-thunked "set-cdr!-last-pair" (lambda () (assert-equal (set-cdr! (cdr set-cdr-test-list-2) '()) '()))) ; Make (cdr '(q r)) -> '()
+(define-test-thunked "set-cdr!-effect-last-pair" (lambda () (assert-equal set-cdr-test-list-2 '(p q)))) ; List is now shorter
 
 ;; --- LENGTH (from stdsymlisp/lists.scm if not builtin) ---
 ;; Assuming length tests from above are for a builtin or previously defined one.
 ;; If length was just added to lists.scm, these are the primary tests for it.
-(define-test "length-new-simple" (assert-equal (length '(a b c d)) 4))
-(define-test "length-new-nested" (assert-equal (length '((1 2) (3 4))) 2))
-(define-test "length-new-empty" (assert-equal (length '()) 0))
-(define-test "length-new-single" (assert-equal (length '(1)) 1))
-(define-test "length-new-dotted-pair" (assert-equal (length '(1 . 2)) 1)) ; Length counts pairs up to non-pair cdr
-(define-test "length-new-improper-list" (assert-equal (length '(1 2 . 3)) 2))
+(define-test-thunked "length-new-simple" (lambda () (assert-equal (length '(a b c d)) 4)))
+(define-test-thunked "length-new-nested" (lambda () (assert-equal (length '((1 2) (3 4))) 2)))
+(define-test-thunked "length-new-empty" (lambda () (assert-equal (length '()) 0)))
+(define-test-thunked "length-new-single" (lambda () (assert-equal (length '(1)) 1)))
+(define-test-thunked "length-new-dotted-pair" (lambda () (assert-equal (length '(1 . 2)) 1))) ; Length counts pairs up to non-pair cdr
+(define-test-thunked "length-new-improper-list" (lambda () (assert-equal (length '(1 2 . 3)) 2)))
 
 ;; --- LIST-TAKE ---
-(define-test "list-take-simple" (assert-equal (list-take '(a b c d e) 3) '(a b c)))
-(define-test "list-take-zero" (assert-equal (list-take '(a b c) 0) '()))
-(define-test "list-take-more-than-length" (assert-equal (list-take '(a b) 5) '(a b)))
-(define-test "list-take-exact-length" (assert-equal (list-take '(a b c) 3) '(a b c)))
-(define-test "list-take-from-empty" (assert-equal (list-take '() 3) '()))
-(define-test "list-take-negative-k" (assert-equal (list-take '(a b c) -1) '()))
-(define-test "list-take-non-destructive"
-  (let ((original '(1 2 3 4)))
-    (list-take original 2)
-    (assert-equal original '(1 2 3 4))))
+(define-test-thunked "list-take-simple" (lambda () (assert-equal (list-take '(a b c d e) 3) '(a b c))))
+(define-test-thunked "list-take-zero" (lambda () (assert-equal (list-take '(a b c) 0) '())))
+(define-test-thunked "list-take-more-than-length" (lambda () (assert-equal (list-take '(a b) 5) '(a b))))
+(define-test-thunked "list-take-exact-length" (lambda () (assert-equal (list-take '(a b c) 3) '(a b c))))
+(define-test-thunked "list-take-from-empty" (lambda () (assert-equal (list-take '() 3) '())))
+(define-test-thunked "list-take-negative-k" (lambda () (assert-equal (list-take '(a b c) -1) '())))
+(define-test-thunked "list-take-non-destructive"
+  (lambda ()
+    (let ((original '(1 2 3 4)))
+      (list-take original 2)
+      (assert-equal original '(1 2 3 4)))))
 
 ;; --- LIST-DROP ---
-(define-test "list-drop-simple" (assert-equal (list-drop '(a b c d e) 2) '(c d e)))
-(define-test "list-drop-zero" (assert-equal (list-drop '(a b c) 0) '(a b c)))
-(define-test "list-drop-more-than-length" (assert-equal (list-drop '(a b) 5) '()))
-(define-test "list-drop-exact-length" (assert-equal (list-drop '(a b c) 3) '()))
-(define-test "list-drop-from-empty" (assert-equal (list-drop '() 3) '()))
-(define-test "list-drop-negative-k" (assert-equal (list-drop '(a b c) -1) '(a b c)))
-(define-test "list-drop-non-destructive"
-  (let ((original '(1 2 3 4)))
-    (list-drop original 2)
-    (assert-equal original '(1 2 3 4))))
+(define-test-thunked "list-drop-simple" (lambda () (assert-equal (list-drop '(a b c d e) 2) '(c d e))))
+(define-test-thunked "list-drop-zero" (lambda () (assert-equal (list-drop '(a b c) 0) '(a b c))))
+(define-test-thunked "list-drop-more-than-length" (lambda () (assert-equal (list-drop '(a b) 5) '())))
+(define-test-thunked "list-drop-exact-length" (lambda () (assert-equal (list-drop '(a b c) 3) '())))
+(define-test-thunked "list-drop-from-empty" (lambda () (assert-equal (list-drop '() 3) '())))
+(define-test-thunked "list-drop-negative-k" (lambda () (assert-equal (list-drop '(a b c) -1) '(a b c))))
+(define-test-thunked "list-drop-non-destructive"
+  (lambda ()
+    (let ((original '(1 2 3 4)))
+      (list-drop original 2)
+      (assert-equal original '(1 2 3 4)))))
 
 ;; --- MERGE-SORTED-LISTS ---
 (define num-pred <)
-(define-test "merge-sorted-empty-both" (assert-equal (merge-sorted-lists '() '() num-pred) '()))
-(define-test "merge-sorted-empty-left" (assert-equal (merge-sorted-lists '() '(1 3 5) num-pred) '(1 3 5)))
-(define-test "merge-sorted-empty-right" (assert-equal (merge-sorted-lists '(2 4 6) '() num-pred) '(2 4 6)))
-(define-test "merge-sorted-interleaved" (assert-equal (merge-sorted-lists '(1 3 5) '(2 4 6) num-pred) '(1 2 3 4 5 6)))
-(define-test "merge-sorted-list1-first" (assert-equal (merge-sorted-lists '(1 2 3) '(4 5 6) num-pred) '(1 2 3 4 5 6)))
-(define-test "merge-sorted-list2-first" (assert-equal (merge-sorted-lists '(4 5 6) '(1 2 3) num-pred) '(1 2 3 4 5 6)))
-(define-test "merge-sorted-with-duplicates" (assert-equal (merge-sorted-lists '(1 3 3 5) '(2 3 4 6) num-pred) '(1 2 3 3 3 4 5 6)))
-(define-test "merge-sorted-one-each" (assert-equal (merge-sorted-lists '(1) '(2) num-pred) '(1 2)))
-(define-test "merge-sorted-one-each-reverse-pred" (assert-equal (merge-sorted-lists '(2) '(1) num-pred) '(1 2)))
+(define-test-thunked "merge-sorted-empty-both" (lambda () (assert-equal (merge-sorted-lists '() '() num-pred) '())))
+(define-test-thunked "merge-sorted-empty-left" (lambda () (assert-equal (merge-sorted-lists '() '(1 3 5) num-pred) '(1 3 5))))
+(define-test-thunked "merge-sorted-empty-right" (lambda () (assert-equal (merge-sorted-lists '(2 4 6) '() num-pred) '(2 4 6))))
+(define-test-thunked "merge-sorted-interleaved" (lambda () (assert-equal (merge-sorted-lists '(1 3 5) '(2 4 6) num-pred) '(1 2 3 4 5 6))))
+(define-test-thunked "merge-sorted-list1-first" (lambda () (assert-equal (merge-sorted-lists '(1 2 3) '(4 5 6) num-pred) '(1 2 3 4 5 6))))
+(define-test-thunked "merge-sorted-list2-first" (lambda () (assert-equal (merge-sorted-lists '(4 5 6) '(1 2 3) num-pred) '(1 2 3 4 5 6))))
+(define-test-thunked "merge-sorted-with-duplicates" (lambda () (assert-equal (merge-sorted-lists '(1 3 3 5) '(2 3 4 6) num-pred) '(1 2 3 3 3 4 5 6))))
+(define-test-thunked "merge-sorted-one-each" (lambda () (assert-equal (merge-sorted-lists '(1) '(2) num-pred) '(1 2))))
+(define-test-thunked "merge-sorted-one-each-reverse-pred" (lambda () (assert-equal (merge-sorted-lists '(2) '(1) num-pred) '(1 2))))
 
 ;; --- LIST-SORT ---
-(define-test "list-sort-empty" (assert-equal (list-sort num-pred '()) '()))
-(define-test "list-sort-single" (assert-equal (list-sort num-pred '(1)) '(1)))
-(define-test "list-sort-sorted" (assert-equal (list-sort num-pred '(1 2 3 4 5)) '(1 2 3 4 5)))
-(define-test "list-sort-reverse-sorted" (assert-equal (list-sort num-pred '(5 4 3 2 1)) '(1 2 3 4 5)))
-(define-test "list-sort-unsorted" (assert-equal (list-sort num-pred '(3 1 4 1 5 9 2 6)) '(1 1 2 3 4 5 6 9)))
-(define-test "list-sort-with-duplicates" (assert-equal (list-sort num-pred '(5 2 8 2 5 1)) '(1 2 2 5 5 8)))
-(define-test "list-sort-non-destructive"
-  (let ((original '(3 1 2)))
-    (list-sort num-pred original)
-    (assert-equal original '(3 1 2))))
+(define-test-thunked "list-sort-empty" (lambda () (assert-equal (list-sort num-pred '()) '())))
+(define-test-thunked "list-sort-single" (lambda () (assert-equal (list-sort num-pred '(1)) '(1))))
+(define-test-thunked "list-sort-sorted" (lambda () (assert-equal (list-sort num-pred '(1 2 3 4 5)) '(1 2 3 4 5))))
+(define-test-thunked "list-sort-reverse-sorted" (lambda () (assert-equal (list-sort num-pred '(5 4 3 2 1)) '(1 2 3 4 5))))
+(define-test-thunked "list-sort-unsorted" (lambda () (assert-equal (list-sort num-pred '(3 1 4 1 5 9 2 6)) '(1 1 2 3 4 5 6 9))))
+(define-test-thunked "list-sort-with-duplicates" (lambda () (assert-equal (list-sort num-pred '(5 2 8 2 5 1)) '(1 2 2 5 5 8))))
+(define-test-thunked "list-sort-non-destructive"
+  (lambda ()
+    (let ((original '(3 1 2)))
+      (list-sort num-pred original)
+      (assert-equal original '(3 1 2)))))
 (define symbol-pred (lambda (s1 s2) (string<? (symbol->string s1) (symbol->string s2))))
-(define-test "list-sort-symbols" (assert-equal (list-sort symbol-pred '(c a b d)) '(a b c d)))
+(define-test-thunked "list-sort-symbols" (lambda () (assert-equal (list-sort symbol-pred '(c a b d)) '(a b c d))))
 (define term<-pred term<?) ; Assuming term<? is available from symbolics
-(define-test "list-sort-terms"
-  (assert-equal (list-sort term<-pred '(b 10 (* x y) a 5 (+ 1 z)))
-                '(5 10 a b (* x y) (+ 1 z)))) ; Example order, actual depends on expr->string for compounds
+(define-test-thunked "list-sort-terms"
+  (lambda ()
+    (assert-equal (list-sort term<-pred '(b 10 (* x y) a 5 (+ 1 z)))
+                  '(5 10 a b (* x y) (+ 1 z))))) ; Example order, actual depends on expr->string for compounds
 
 ;; --- COUNT ---
-(define-test "count-empty-list"
-  (assert-equal (count number? '()) 0))
-(define-test "count-all-match"
-  (assert-equal (count number? '(1 2 3)) 3))
-(define-test "count-some-match"
-  (assert-equal (count even? '(1 2 3 4 5 6)) 3))
-(define-test "count-no-match"
-  (assert-equal (count symbol? '(1 2 3)) 0))
-(define-test "count-symbols"
-  (assert-equal (count symbol? '(a b 1 c 2)) 3))
-(define-test "count-specific-value"
-  (assert-equal (count (lambda (x) (equal? x 'a)) '(a b a c a d)) 3))
-(define-test "count-nested-lists-shallow"
-  (assert-equal (count list? '((1) 2 (3 4) 5)) 2))
+(define-test-thunked "count-empty-list"
+  (lambda () (assert-equal (count number? '()) 0)))
+(define-test-thunked "count-all-match"
+  (lambda () (assert-equal (count number? '(1 2 3)) 3)))
+(define-test-thunked "count-some-match"
+  (lambda () (assert-equal (count even? '(1 2 3 4 5 6)) 3)))
+(define-test-thunked "count-no-match"
+  (lambda () (assert-equal (count symbol? '(1 2 3)) 0)))
+(define-test-thunked "count-symbols"
+  (lambda () (assert-equal (count symbol? '(a b 1 c 2)) 3)))
+(define-test-thunked "count-specific-value"
+  (lambda () (assert-equal (count (lambda (x) (equal? x 'a)) '(a b a c a d)) 3)))
+(define-test-thunked "count-nested-lists-shallow"
+  (lambda () (assert-equal (count list? '((1) 2 (3 4) 5)) 2)))
 
 ;; --- REMOVE-DUPLICATES ---
-(define-test "remove-duplicates-empty-list"
-  (assert-equal (remove-duplicates '()) '()))
-(define-test "remove-duplicates-no-duplicates"
-  (assert-equal (remove-duplicates '(1 2 3 a b)) '(1 2 3 a b)))
-(define-test "remove-duplicates-numbers"
-  (assert-equal (remove-duplicates '(1 2 1 3 2 2 4 1)) '(1 2 3 4)))
-(define-test "remove-duplicates-symbols"
-  (assert-equal (remove-duplicates '(a b a c b b d a)) '(a b c d)))
-(define-test "remove-duplicates-mixed-types"
-  (assert-equal (remove-duplicates '(1 a 1 b a 2 1 c)) '(1 a b 2 c)))
-(define-test "remove-duplicates-all-same"
-  (assert-equal (remove-duplicates '(x x x x x)) '(x)))
-(define-test "remove-duplicates-single-element"
-  (assert-equal (remove-duplicates '(5)) '(5)))
-(define-test "remove-duplicates-with-lists"
-  (assert-equal (remove-duplicates '((1 2) (3 4) (1 2) (5 6) (3 4)))
-                '((1 2) (3 4) (5 6))))
-(define-test "remove-duplicates-preserves-order"
-  (assert-equal (remove-duplicates '(c a b a c d b)) '(c a b d)))
+(define-test-thunked "remove-duplicates-empty-list"
+  (lambda () (assert-equal (remove-duplicates '()) '())))
+(define-test-thunked "remove-duplicates-no-duplicates"
+  (lambda () (assert-equal (remove-duplicates '(1 2 3 a b)) '(1 2 3 a b))))
+(define-test-thunked "remove-duplicates-numbers"
+  (lambda () (assert-equal (remove-duplicates '(1 2 1 3 2 2 4 1)) '(1 2 3 4))))
+(define-test-thunked "remove-duplicates-symbols"
+  (lambda () (assert-equal (remove-duplicates '(a b a c b b d a)) '(a b c d))))
+(define-test-thunked "remove-duplicates-mixed-types"
+  (lambda () (assert-equal (remove-duplicates '(1 a 1 b a 2 1 c)) '(1 a b 2 c))))
+(define-test-thunked "remove-duplicates-all-same"
+  (lambda () (assert-equal (remove-duplicates '(x x x x x)) '(x))))
+(define-test-thunked "remove-duplicates-single-element"
+  (lambda () (assert-equal (remove-duplicates '(5)) '(5))))
+(define-test-thunked "remove-duplicates-with-lists"
+  (lambda () (assert-equal (remove-duplicates '((1 2) (3 4) (1 2) (5 6) (3 4)))
+                '((1 2) (3 4) (5 6)))))
+(define-test-thunked "remove-duplicates-preserves-order"
+  (lambda () (assert-equal (remove-duplicates '(c a b a c d b)) '(c a b d))))
 
 ;; --- FIND-IF ---
-(define-test "find-if-empty-list"
-  (assert-equal (find-if number? '()) #f))
-(define-test "find-if-number-present"
-  (assert-equal (find-if number? '(a b 3 c d)) 3))
-(define-test "find-if-first-element-matches"
-  (assert-equal (find-if symbol? '(x 1 2)) 'x))
-(define-test "find-if-last-element-matches"
-  (assert-equal (find-if (lambda (x) (equal? x 'z)) '(a b c z)) 'z))
-(define-test "find-if-no-match"
-  (assert-equal (find-if list? '(1 2 3 4)) #f))
-(define-test "find-if-list-present"
-  (assert-equal (find-if list? '(1 (2 3) 4)) '(2 3)))
-(define-test "find-if-predicate-returns-specific-true-value"
-  (assert-equal (find-if (lambda (x) (and (number? x) (> x 5))) '(1 2 6 3 7)) 6))
-(define-test "find-if-on-list-of-booleans-find-true"
-  (assert-equal (find-if (lambda (x) (eq? x #t)) '(#f #f #t #f)) #t))
-(define-test "find-if-on-list-of-booleans-find-false"
-  (assert-equal (find-if (lambda (x) (eq? x #f)) '(#t #t #f #t)) #f))
+(define-test-thunked "find-if-empty-list"
+  (lambda () (assert-equal (find-if number? '()) #f)))
+(define-test-thunked "find-if-number-present"
+  (lambda () (assert-equal (find-if number? '(a b 3 c d)) 3)))
+(define-test-thunked "find-if-first-element-matches"
+  (lambda () (assert-equal (find-if symbol? '(x 1 2)) 'x)))
+(define-test-thunked "find-if-last-element-matches"
+  (lambda () (assert-equal (find-if (lambda (x) (equal? x 'z)) '(a b c z)) 'z)))
+(define-test-thunked "find-if-no-match"
+  (lambda () (assert-equal (find-if list? '(1 2 3 4)) #f)))
+(define-test-thunked "find-if-list-present"
+  (lambda () (assert-equal (find-if list? '(1 (2 3) 4)) '(2 3))))
+(define-test-thunked "find-if-predicate-returns-specific-true-value"
+  (lambda () (assert-equal (find-if (lambda (x) (and (number? x) (> x 5))) '(1 2 6 3 7)) 6)))
+(define-test-thunked "find-if-on-list-of-booleans-find-true"
+  (lambda () (assert-equal (find-if (lambda (x) (eq? x #t)) '(#f #f #t #f)) #t)))
+(define-test-thunked "find-if-on-list-of-booleans-find-false"
+  (lambda () (assert-equal (find-if (lambda (x) (eq? x #f)) '(#t #t #f #t)) #f)))
 
 
 ;; --- REMOVE (first occurrence) ---
-(define-test "remove-empty-list"
-  (assert-equal (remove 'a '()) '()))
-(define-test "remove-item-present-numbers"
-  (assert-equal (remove 3 '(1 2 3 4 3)) '(1 2 4 3)))
-(define-test "remove-item-present-symbols"
-  (assert-equal (remove 'b '(a b c b d)) '(a c b d)))
-(define-test "remove-first-item"
-  (assert-equal (remove 'x '(x y z)) '(y z)))
-(define-test "remove-last-item"
-  (assert-equal (remove 'z '(x y z)) '(x y)))
-(define-test "remove-item-not-present"
-  (assert-equal (remove 5 '(1 2 3 4)) '(1 2 3 4)))
-(define-test "remove-from-single-element-list-match"
-  (assert-equal (remove 'a '(a)) '()))
-(define-test "remove-from-single-element-list-no-match"
-  (assert-equal (remove 'b '(a)) '(a)))
-(define-test "remove-list-from-list-of-lists"
-  (assert-equal (remove '(2 3) '( (1 2) (2 3) (4 5) (2 3) )) '((1 2) (4 5) (2 3))))
-(define-test "remove-non-destructive"
-  (let ((original-list '(10 20 30 20 40)))
-    (remove 20 original-list) ; Call remove
-    (assert-equal original-list '(10 20 30 20 40)))) ; Original should be unchanged
+(define-test-thunked "remove-empty-list"
+  (lambda () (assert-equal (remove 'a '()) '())))
+(define-test-thunked "remove-item-present-numbers"
+  (lambda () (assert-equal (remove 3 '(1 2 3 4 3)) '(1 2 4 3))))
+(define-test-thunked "remove-item-present-symbols"
+  (lambda () (assert-equal (remove 'b '(a b c b d)) '(a c b d))))
+(define-test-thunked "remove-first-item"
+  (lambda () (assert-equal (remove 'x '(x y z)) '(y z))))
+(define-test-thunked "remove-last-item"
+  (lambda () (assert-equal (remove 'z '(x y z)) '(x y))))
+(define-test-thunked "remove-item-not-present"
+  (lambda () (assert-equal (remove 5 '(1 2 3 4)) '(1 2 3 4))))
+(define-test-thunked "remove-from-single-element-list-match"
+  (lambda () (assert-equal (remove 'a '(a)) '())))
+(define-test-thunked "remove-from-single-element-list-no-match"
+  (lambda () (assert-equal (remove 'b '(a)) '(a))))
+(define-test-thunked "remove-list-from-list-of-lists"
+  (lambda () (assert-equal (remove '(2 3) '( (1 2) (2 3) (4 5) (2 3) )) '((1 2) (4 5) (2 3)))))
+(define-test-thunked "remove-non-destructive"
+  (lambda ()
+    (let ((original-list '(10 20 30 20 40)))
+      (remove 20 original-list) ; Call remove
+      (assert-equal original-list '(10 20 30 20 40))))) ; Original should be unchanged

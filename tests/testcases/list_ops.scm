@@ -36,28 +36,28 @@
 (define test-list-3 '((1 2) (3 4))) ; Reduced list to 2 again
 
 ;; --- CONS ---
-(define-test "cons-number-list" (assert-equal (cons 0 test-list-1) '(0 1 2 3 4)))
-(define-test "cons-symbol-list" (assert-equal (cons 'x test-list-2) '(x a b c)))
-(define-test "cons-list-list" (assert-equal (cons '(0) test-list-3) '((0) (1 2) (3 4))))
-(define-test "cons-onto-empty" (assert-equal (cons 1 '()) '(1)))
-(define-test "cons-make-dotted" (assert-equal (cons 1 2) '(1 . 2)))
+(define-test-thunked "cons-number-list" (lambda () (assert-equal (cons 0 test-list-1) '(0 1 2 3 4))))
+(define-test-thunked "cons-symbol-list" (lambda () (assert-equal (cons 'x test-list-2) '(x a b c))))
+(define-test-thunked "cons-list-list" (lambda () (assert-equal (cons '(0) test-list-3) '((0) (1 2) (3 4)))))
+(define-test-thunked "cons-onto-empty" (lambda () (assert-equal (cons 1 '()) '(1))))
+(define-test-thunked "cons-make-dotted" (lambda () (assert-equal (cons 1 2) '(1 . 2))))
 
 ;; --- CONS* ---
-(define-test "cons*-single-arg" (assert-equal (cons* 1) 1))
-(define-test "cons*-two-args-proper" (assert-equal (cons* 1 2) '(1 . 2))) ; Note: R7RS says (cons* 1 2) -> (1 . 2)
-(define-test "cons*-two-args-list" (assert-equal (cons* 1 '(2 3)) '(1 2 3)))
+(define-test-thunked "cons*-single-arg" (lambda () (assert-equal (cons* 1) 1)))
+(define-test-thunked "cons*-two-args-proper" (lambda () (assert-equal (cons* 1 2) '(1 . 2)))) ; Note: R7RS says (cons* 1 2) -> (1 . 2)
+(define-test-thunked "cons*-two-args-list" (lambda () (assert-equal (cons* 1 '(2 3)) '(1 2 3))))
 
 ;; --- LIST ---
-(define-test "list-numbers" (assert-equal (list 1 2 3) '(1 2 3)))
-(define-test "list-symbols" (assert-equal (list 'a 'b 'c) '(a b c)))
-(define-test "list-mixed" (assert-equal (list 1 'a #t) '(1 a #t)))
-(define-test "list-nested" (assert-equal (list 1 (list 2 3) 4) '(1 (2 3) 4)))
-(define-test "list-empty" (assert-equal (list) '()))
-(define-test "list-eval-args" (assert-equal (list (+ 1 1) (* 2 3)) '(2 6)))
+(define-test-thunked "list-numbers" (lambda () (assert-equal (list 1 2 3) '(1 2 3))))
+(define-test-thunked "list-symbols" (lambda () (assert-equal (list 'a 'b 'c) '(a b c))))
+(define-test-thunked "list-mixed" (lambda () (assert-equal (list 1 'a #t) '(1 a #t))))
+(define-test-thunked "list-nested" (lambda () (assert-equal (list 1 (list 2 3) 4) '(1 (2 3) 4))))
+(define-test-thunked "list-empty" (lambda () (assert-equal (list) '())))
+(define-test-thunked "list-eval-args" (lambda () (assert-equal (list (+ 1 1) (* 2 3)) '(2 6))))
 
 ;; --- LENGTH ---
-(define-test "length-simple" (assert-equal (length test-list-1) 4))
-(define-test "length-nested" (assert-equal (length test-list-3) 2)) ; Length is top-level
+(define-test-thunked "length-simple" (lambda () (assert-equal (length test-list-1) 4)))
+(define-test-thunked "length-nested" (lambda () (assert-equal (length test-list-3) 2))) ; Length is top-level
 (define-test "length-empty" (assert-equal (length test-list-4) 0))
 (define-test "length-single" (assert-equal (length '(1)) 1))
 

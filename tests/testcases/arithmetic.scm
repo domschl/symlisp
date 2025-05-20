@@ -172,8 +172,8 @@
 (define-test-thunked "expt-fraction-neg-exp" (lambda () (assert-equal (expt 2/3 -2) 9/4)))
 (define-test-thunked "expt-neg-base-neg-exp" (lambda () (assert-equal (expt -3 -3) -1/27)))
 ; Error cases (optional, depending on how you want errors handled/tested)
-; (define-test "expt-error-0-neg-exp" (assert-error? (expt 0 -2)))
-; (define-test "expt-error-non-integer-exp" (assert-error? (expt 2 1/2)))
+; (define-test-thunked "expt-error-0-neg-exp" (lambda () (assert-error? (expt 0 -2))))
+; (define-test-thunked "expt-error-non-integer-exp" (lambda () (assert-error? (expt 2 1/2))))
 
 ;; --- SQUARE ---
 
@@ -192,7 +192,7 @@
 (define-test-thunked "eisqrt-one" (lambda () (assert-equal (exact-integer-sqrt 1) '(1 0))))
 (define-test-thunked "eisqrt-large" (lambda () (assert-equal (exact-integer-sqrt 123456789) '(11111 2468))))
 ; Error case (optional)
-; (define-test "eisqrt-error-negative" (assert-error? (exact-integer-sqrt -10)))
+; (define-test-thunked "eisqrt-error-negative" (lambda () (assert-error? (exact-integer-sqrt -10))))
 
 ;; --- FLOAT ---
 

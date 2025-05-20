@@ -83,7 +83,7 @@
 (define-test-thunked "list?-string" (lambda () (assert-equal (list? "abc") #f)))
 (define-test-thunked "list?-boolean" (lambda () (assert-equal (list? #t) #f)))
 (define-test-thunked "list?-procedure" (lambda () (assert-equal (list? +) #f)))
-; (define-test "list?-circular" (let ((x (list 'a))) (set-cdr! x x) (assert-equal (list? x) #f))) ; Requires set-cdr!
+; (define-test-thunked "list?-circular" (lambda () (let ((x (list 'a))) (set-cdr! x x) (assert-equal (list? x) #f)))) ; Requires set-cdr!
 
 ;;;-----------------------------------------------------------------------------
 ;;; Character Predicates
@@ -100,8 +100,8 @@
 (define-test-thunked "char-alphabetic?-cyrillic" (lambda () (assert-true (char-alphabetic? #\я)))) ; U+044F
 (define-test-thunked "char-alphabetic?-armenian" (lambda () (assert-true (char-alphabetic? #\Ա)))) ; U+0531
 (define-test-thunked "char-alphabetic?-georgian" (lambda () (assert-true (char-alphabetic? #\ა)))) ; U+10D0
-;(define-test "char-alphabetic?-error-type" (assert-error? (char-alphabetic? "a")))
-;(define-test "char-alphabetic?-error-arity" (assert-error? (char-alphabetic? #\a #\b)))
+;(define-test-thunked "char-alphabetic?-error-type" (lambda () (assert-error? (char-alphabetic? "a"))))
+;(define-test-thunked "char-alphabetic?-error-arity" (lambda () (assert-error? (char-alphabetic? #\a #\b))))
 
 ;;; char-numeric? Tests
 (define-test-thunked "char-numeric?-digit" (lambda () (assert-true (char-numeric? #\7))))
@@ -110,8 +110,8 @@
 (define-test-thunked "char-numeric?-space" (lambda () (assert-false (char-numeric? #\space))))
 (define-test-thunked "char-numeric?-punct" (lambda () (assert-false (char-numeric? #\.))))
 ; Note: This only tests ASCII 0-9 based on current C implementation
-;(define-test "char-numeric?-error-type" (assert-error? (char-numeric? 7)))
-;(define-test "char-numeric?-error-arity" (assert-error? (char-numeric? #\1 #\2)))
+;(define-test-thunked "char-numeric?-error-type" (lambda () (assert-error? (char-numeric? 7))))
+;(define-test-thunked "char-numeric?-error-arity" (lambda () (assert-error? (char-numeric? #\1 #\2))))
 
 ;;; char-whitespace? Tests
 (define-test-thunked "char-whitespace?-space" (lambda () (assert-true (char-whitespace? #\space))))
@@ -123,8 +123,8 @@
 (define-test-thunked "char-whitespace?-alpha" (lambda () (assert-false (char-whitespace? #\a))))
 (define-test-thunked "char-whitespace?-digit" (lambda () (assert-false (char-whitespace? #\0))))
 (define-test-thunked "char-whitespace?-punct" (lambda () (assert-false (char-whitespace? #\.))))
-;(define-test "char-whitespace?-error-type" (assert-error? (char-whitespace? " ")))
-;(define-test "char-whitespace?-error-arity" (assert-error? (char-whitespace? #\space #\tab)))
+;(define-test-thunked "char-whitespace?-error-type" (lambda () (assert-error? (char-whitespace? " "))))
+;(define-test-thunked "char-whitespace?-error-arity" (lambda () (assert-error? (char-whitespace? #\space #\tab))))
 
 ;;; char-upper-case? Tests
 (define-test-thunked "char-upper-case?-upper-ascii" (lambda () (assert-true (char-upper-case? #\A))))
@@ -138,8 +138,8 @@
 (define-test-thunked "char-upper-case?-cyrillic" (lambda () (assert-true (char-upper-case? #\Я)))) ; U+042F
 (define-test-thunked "char-upper-case?-armenian" (lambda () (assert-true (char-upper-case? #\Ֆ)))) ; U+0556
 (define-test-thunked "char-upper-case?-georgian" (lambda () (assert-true (char-upper-case? #\Ჰ)))) ; U+1CB0
-;(define-test "char-upper-case?-error-type" (assert-error? (char-upper-case? "A")))
-;(define-test "char-upper-case?-error-arity" (assert-error? (char-upper-case? #\A #\B)))
+;(define-test-thunked "char-upper-case?-error-type" (lambda () (assert-error? (char-upper-case? "A"))))
+;(define-test-thunked "char-upper-case?-error-arity" (lambda () (assert-error? (char-upper-case? #\A #\B))))
 
 ;;; char-lower-case? Tests
 (define-test-thunked "char-lower-case?-lower-ascii" (lambda () (assert-true (char-lower-case? #\a))))
@@ -153,8 +153,8 @@
 (define-test-thunked "char-lower-case?-cyrillic" (lambda () (assert-true (char-lower-case? #\я)))) ; U+044F
 (define-test-thunked "char-lower-case?-armenian" (lambda () (assert-true (char-lower-case? #\ֆ)))) ; U+0586
 (define-test-thunked "char-lower-case?-georgian" (lambda () (assert-true (char-lower-case? #\ჰ)))) ; U+10F0
-;(define-test "char-lower-case?-error-type" (assert-error? (char-lower-case? "a")))
-;(define-test "char-lower-case?-error-arity" (assert-error? (char-lower-case? #\a #\b)))
+;(define-test-thunked "char-lower-case?-error-type" (lambda () (assert-error? (char-lower-case? "a"))))
+;(define-test-thunked "char-lower-case?-error-arity" (lambda () (assert-error? (char-lower-case? #\a #\b))))
 
 ;;;-----------------------------------------------------------------------------
 ;;; Numeric Predicates (Additional)

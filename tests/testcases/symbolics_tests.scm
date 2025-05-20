@@ -9,66 +9,87 @@
 
 
 
-(define-test "symbolics-constant?-is-number-positive-integer"
-  (assert-equal (constant? 5) #t))
-(define-test "symbolics-constant?-is-number-zero"
-  (assert-equal (constant? 0) #t))
-(define-test "symbolics-constant?-is-number-negative-integer"
-  (assert-equal (constant? -10) #t))
-(define-test "symbolics-constant?-is-number-float"
-  (assert-equal (constant? 3.14) #t))
-(define-test "symbolics-constant?-is-number-rational"
-  (assert-equal (constant? 1/2) #t))
+; (define-test "symbolics-constant?-is-number-positive-integer"
+;   (assert-equal (constant? 5) #t))
+(define-test-thunked "symbolics-constant?-is-number-positive-integer" (lambda () (assert-equal (constant? 5) #t)))
+; (define-test "symbolics-constant?-is-number-zero"
+;   (assert-equal (constant? 0) #t))
+(define-test-thunked "symbolics-constant?-is-number-zero" (lambda () (assert-equal (constant? 0) #t)))
+; (define-test "symbolics-constant?-is-number-negative-integer"
+;   (assert-equal (constant? -10) #t))
+(define-test-thunked "symbolics-constant?-is-number-negative-integer" (lambda () (assert-equal (constant? -10) #t)))
+; (define-test "symbolics-constant?-is-number-float"
+;   (assert-equal (constant? 3.14) #t))
+(define-test-thunked "symbolics-constant?-is-number-float" (lambda () (assert-equal (constant? 3.14) #t)))
+; (define-test "symbolics-constant?-is-number-rational"
+;   (assert-equal (constant? 1/2) #t))
+(define-test-thunked "symbolics-constant?-is-number-rational" (lambda () (assert-equal (constant? 1/2) #t)))
 
-(define-test "symbolics-constant?-is-not-symbol"
-  (assert-equal (constant? 'x) #f))
-(define-test "symbolics-constant?-is-not-list"
-  (assert-equal (constant? '(+ 1 2)) #f))
-(define-test "symbolics-constant?-is-not-string"
-  (assert-equal (constant? "hello") #f))
-(define-test "symbolics-constant?-is-not-boolean"
-  (assert-equal (constant? #t) #f))
+; (define-test "symbolics-constant?-is-not-symbol"
+;   (assert-equal (constant? 'x) #f))
+(define-test-thunked "symbolics-constant?-is-not-symbol" (lambda () (assert-equal (constant? 'x) #f)))
+; (define-test "symbolics-constant?-is-not-list"
+;   (assert-equal (constant? '(+ 1 2)) #f))
+(define-test-thunked "symbolics-constant?-is-not-list" (lambda () (assert-equal (constant? '(+ 1 2)) #f)))
+; (define-test "symbolics-constant?-is-not-string"
+;   (assert-equal (constant? "hello") #f))
+(define-test-thunked "symbolics-constant?-is-not-string" (lambda () (assert-equal (constant? "hello") #f)))
+; (define-test "symbolics-constant?-is-not-boolean"
+;   (assert-equal (constant? #t) #f))
+(define-test-thunked "symbolics-constant?-is-not-boolean" (lambda () (assert-equal (constant? #t) #f)))
 
-(define-test "symbolics-variable?-is-symbol-simple"
-  (assert-equal (variable? 'x) #t))
-(define-test "symbolics-variable?-is-symbol-greek"
-  (assert-equal (variable? 'alpha) #t))
-(define-test "symbolics-variable?-is-symbol-with-hyphen"
-  (assert-equal (variable? 'my-var) #t))
+; (define-test "symbolics-variable?-is-symbol-simple"
+;   (assert-equal (variable? 'x) #t))
+(define-test-thunked "symbolics-variable?-is-symbol-simple" (lambda () (assert-equal (variable? 'x) #t)))
+; (define-test "symbolics-variable?-is-symbol-greek"
+;   (assert-equal (variable? 'alpha) #t))
+(define-test-thunked "symbolics-variable?-is-symbol-greek" (lambda () (assert-equal (variable? 'alpha) #t)))
+; (define-test "symbolics-variable?-is-symbol-with-hyphen"
+;   (assert-equal (variable? 'my-var) #t))
+(define-test-thunked "symbolics-variable?-is-symbol-with-hyphen" (lambda () (assert-equal (variable? 'my-var) #t)))
 
-(define-test "symbolics-variable?-is-not-number"
-  (assert-equal (variable? 5) #f))
-(define-test "symbolics-variable?-is-not-list"
-  (assert-equal (variable? '(+ x 1)) #f))
-(define-test "symbolics-variable?-is-not-operator-plus"
-  (assert-equal (variable? '+) #f))
-(define-test "symbolics-variable?-is-not-operator-sin"
-  (assert-equal (variable? 'sin) #f))
+; (define-test "symbolics-variable?-is-not-number"
+;   (assert-equal (variable? 5) #f))
+(define-test-thunked "symbolics-variable?-is-not-number" (lambda () (assert-equal (variable? 5) #f)))
+; (define-test "symbolics-variable?-is-not-list"
+;   (assert-equal (variable? '(+ x 1)) #f))
+(define-test-thunked "symbolics-variable?-is-not-list" (lambda () (assert-equal (variable? '(+ x 1)) #f)))
+; (define-test "symbolics-variable?-is-not-operator-plus"
+;   (assert-equal (variable? '+) #f))
+(define-test-thunked "symbolics-variable?-is-not-operator-plus" (lambda () (assert-equal (variable? '+) #f)))
+; (define-test "symbolics-variable?-is-not-operator-sin"
+;   (assert-equal (variable? 'sin) #f))
+(define-test-thunked "symbolics-variable?-is-not-operator-sin" (lambda () (assert-equal (variable? 'sin) #f)))
 
-(define-test "symbolics-atomic-expr?-is-number"
-  (assert-equal (atomic-expr? 5) #t))
-(define-test "symbolics-atomic-expr?-is-variable"
-  (assert-equal (atomic-expr? 'x) #t))
+; (define-test "symbolics-atomic-expr?-is-number"
+;   (assert-equal (atomic-expr? 5) #t))
+(define-test-thunked "symbolics-atomic-expr?-is-number" (lambda () (assert-equal (atomic-expr? 5) #t)))
+; (define-test "symbolics-atomic-expr?-is-variable"
+;   (assert-equal (atomic-expr? 'x) #t))
+(define-test-thunked "symbolics-atomic-expr?-is-variable" (lambda () (assert-equal (atomic-expr? 'x) #t)))
 
-(define-test "symbolics-atomic-expr?-is-not-list"
-  (assert-equal (atomic-expr? '(+ 1 2)) #f))
-(define-test "symbolics-atomic-expr?-is-not-operator"
-  (assert-equal (atomic-expr? '+) #f))
+; (define-test "symbolics-atomic-expr?-is-not-list"
+;   (assert-equal (atomic-expr? '(+ 1 2)) #f))
+(define-test-thunked "symbolics-atomic-expr?-is-not-list" (lambda () (assert-equal (atomic-expr? '(+ 1 2)) #f)))
+; (define-test "symbolics-atomic-expr?-is-not-operator"
+;   (assert-equal (atomic-expr? '+) #f))
+(define-test-thunked "symbolics-atomic-expr?-is-not-operator" (lambda () (assert-equal (atomic-expr? '+) #f)))
 
-(define-test "symbolics-compound-expr?-is-sum"
-  (assert-equal (compound-expr? '(+ 1 x)) #t))
-(define-test "symbolics-compound-expr?-is-product"
-  (assert-equal (compound-expr? '(* a b c)) #t))
-(define-test "symbolics-compound-expr?-is-negation"
-  (assert-equal (compound-expr? '(- y)) #t))
-(define-test "symbolics-compound-expr?-is-quotient"
-  (assert-equal (compound-expr? '(/ 10 2)) #t))
-(define-test "symbolics-compound-expr?-is-power"
-  (assert-equal (compound-expr? '(^ x 2)) #t))
-(define-test "symbolics-compound-expr?-is-sin"
-  (assert-equal (compound-expr? '(sin x)) #t))
-(define-test "symbolics-compound-expr?-is-operator-no-args"
-  (assert-equal (compound-expr? '(+)) #t))
+
+(define-test-thunked "symbolics-compound-expr?-is-sum" (lambda ()
+  (assert-equal (compound-expr? '(+ 1 x)) #t)))
+(define-test-thunked "symbolics-compound-expr?-is-product" (lambda ()
+  (assert-equal (compound-expr? '(* a b c)) #t)))
+(define-test-thunked "symbolics-compound-expr?-is-negation" (lambda ()
+  (assert-equal (compound-expr? '(- y)) #t)))
+(define-test-thunked "symbolics-compound-expr?-is-quotient" (lambda ()
+  (assert-equal (compound-expr? '(/ 10 2)) #t)))
+(define-test-thunked "symbolics-compound-expr?-is-power" (lambda ()
+  (assert-equal (compound-expr? '(^ x 2)) #t)))
+(define-test-thunked "symbolics-compound-expr?-is-sin" (lambda ()
+  (assert-equal (compound-expr? '(sin x)) #t)))
+(define-test-thunked "symbolics-compound-expr?-is-operator-no-args" (lambda ()
+  (assert-equal (compound-expr? '(+)) #t)))
 
 
 (define-test "symbolics-compound-expr?-is-not-number"

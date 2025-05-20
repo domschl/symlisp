@@ -92,98 +92,98 @@
   (assert-equal (compound-expr? '(+)) #t)))
 
 
-(define-test "symbolics-compound-expr?-is-not-number"
-  (assert-equal (compound-expr? 5) #f))
-(define-test "symbolics-compound-expr?-is-not-variable"
-  (assert-equal (compound-expr? 'x) #f))
-(define-test "symbolics-compound-expr?-is-not-unknown-operator"
-  (assert-equal (compound-expr? '(foo x y)) #f))
-(define-test "symbolics-compound-expr?-is-not-empty-list"
-  (assert-equal (compound-expr? '()) #f))
-(define-test "symbolics-compound-expr?-is-not-list-starting-with-number"
-  (assert-equal (compound-expr? '(1 + 2)) #f))
+(define-test-thunked "symbolics-compound-expr?-is-not-number"
+  (lambda () (assert-equal (compound-expr? 5) #f)))
+(define-test-thunked "symbolics-compound-expr?-is-not-variable"
+  (lambda () (assert-equal (compound-expr? 'x) #f)))
+(define-test-thunked "symbolics-compound-expr?-is-not-unknown-operator"
+  (lambda () (assert-equal (compound-expr? '(foo x y)) #f)))
+(define-test-thunked "symbolics-compound-expr?-is-not-empty-list"
+  (lambda () (assert-equal (compound-expr? '()) #f)))
+(define-test-thunked "symbolics-compound-expr?-is-not-list-starting-with-number"
+  (lambda () (assert-equal (compound-expr? '(1 + 2)) #f)))
 
-(define-test "symbolics-sum?-is-sum-binary"
-  (assert-equal (sum? '(+ 1 x)) #t))
-(define-test "symbolics-sum?-is-sum-nary"
-  (assert-equal (sum? '(+ a b c d)) #t))
-(define-test "symbolics-sum?-is-sum-no-args"
-  (assert-equal (sum? '(+)) #t))
+(define-test-thunked "symbolics-sum?-is-sum-binary"
+  (lambda () (assert-equal (sum? '(+ 1 x)) #t)))
+(define-test-thunked "symbolics-sum?-is-sum-nary"
+  (lambda () (assert-equal (sum? '(+ a b c d)) #t)))
+(define-test-thunked "symbolics-sum?-is-sum-no-args"
+  (lambda () (assert-equal (sum? '(+)) #t)))
 
-(define-test "symbolics-sum?-is-not-product"
-  (assert-equal (sum? '(* 1 x)) #f))
-(define-test "symbolics-sum?-is-not-unknown-op"
-  (assert-equal (sum? '(plus 1 x)) #f))
-(define-test "symbolics-sum?-is-not-number"
-  (assert-equal (sum? 5) #f))
+(define-test-thunked "symbolics-sum?-is-not-product"
+  (lambda () (assert-equal (sum? '(* 1 x)) #f)))
+(define-test-thunked "symbolics-sum?-is-not-unknown-op"
+  (lambda () (assert-equal (sum? '(plus 1 x)) #f)))
+(define-test-thunked "symbolics-sum?-is-not-number"
+  (lambda () (assert-equal (sum? 5) #f)))
 
-(define-test "symbolics-product?-is-product-binary"
-  (assert-equal (product? '(* 1 x)) #t))
-(define-test "symbolics-product?-is-product-nary"
-  (assert-equal (product? '(* a b c d)) #t))
-(define-test "symbolics-product?-is-product-no-args"
-  (assert-equal (product? '(*)) #t))
+(define-test-thunked "symbolics-product?-is-product-binary"
+  (lambda () (assert-equal (product? '(* 1 x)) #t)))
+(define-test-thunked "symbolics-product?-is-product-nary"
+  (lambda () (assert-equal (product? '(* a b c d)) #t)))
+(define-test-thunked "symbolics-product?-is-product-no-args"
+  (lambda () (assert-equal (product? '(*)) #t)))
 
-(define-test "symbolics-product?-is-not-sum"
-  (assert-equal (product? '(+ 1 x)) #f))
-(define-test "symbolics-product?-is-not-unknown-op"
-  (assert-equal (product? '(times 1 x)) #f))
-(define-test "symbolics-product?-is-not-variable"
-  (assert-equal (product? 'x) #f))
+(define-test-thunked "symbolics-product?-is-not-sum"
+  (lambda () (assert-equal (product? '(+ 1 x)) #f)))
+(define-test-thunked "symbolics-product?-is-not-unknown-op"
+  (lambda () (assert-equal (product? '(times 1 x)) #f)))
+(define-test-thunked "symbolics-product?-is-not-variable"
+  (lambda () (assert-equal (product? 'x) #f)))
 
-(define-test "symbolics-power?-is-power-var-num"
-  (assert-equal (power? '(^ x 2)) #t))
-(define-test "symbolics-power?-is-power-expr-var"
-  (assert-equal (power? '(^ (+ a b) y)) #t))
+(define-test-thunked "symbolics-power?-is-power-var-num"
+  (lambda () (assert-equal (power? '(^ x 2)) #t)))
+(define-test-thunked "symbolics-power?-is-power-expr-var"
+  (lambda () (assert-equal (power? '(^ (+ a b) y)) #t)))
 
-(define-test "symbolics-power?-is-not-sum"
-  (assert-equal (power? '(+ x 2)) #f))
-(define-test "symbolics-power?-is-not-unary"
-  (assert-equal (power? '(^ x)) #f))
-(define-test "symbolics-power?-is-not-ternary"
-  (assert-equal (power? '(^ x 2 3)) #f))
-(define-test "symbolics-power?-is-not-unknown-op"
-  (assert-equal (power? '(pow x 2)) #f))
+(define-test-thunked "symbolics-power?-is-not-sum"
+  (lambda () (assert-equal (power? '(+ x 2)) #f)))
+(define-test-thunked "symbolics-power?-is-not-unary"
+  (lambda () (assert-equal (power? '(^ x)) #f)))
+(define-test-thunked "symbolics-power?-is-not-ternary"
+  (lambda () (assert-equal (power? '(^ x 2 3)) #f)))
+(define-test-thunked "symbolics-power?-is-not-unknown-op"
+  (lambda () (assert-equal (power? '(pow x 2)) #f)))
 
-(define-test "symbolics-negation?-is-negation-var"
-  (assert-equal (negation? '(- x)) #t))
-(define-test "symbolics-negation?-is-negation-expr"
-  (assert-equal (negation? '(- (+ a b))) #t))
+(define-test-thunked "symbolics-negation?-is-negation-var"
+  (lambda () (assert-equal (negation? '(- x)) #t)))
+(define-test-thunked "symbolics-negation?-is-negation-expr"
+  (lambda () (assert-equal (negation? '(- (+ a b))) #t)))
 
-(define-test "symbolics-negation?-is-not-difference"
-  (assert-equal (negation? '(- x y)) #f))
-(define-test "symbolics-negation?-is-not-no-args"
-  (assert-equal (negation? '(-)) #f))
-(define-test "symbolics-negation?-is-not-sum"
-  (assert-equal (negation? '(+ x)) #f))
+(define-test-thunked "symbolics-negation?-is-not-difference"
+  (lambda () (assert-equal (negation? '(- x y)) #f)))
+(define-test-thunked "symbolics-negation?-is-not-no-args"
+  (lambda () (assert-equal (negation? '(-)) #f)))
+(define-test-thunked "symbolics-negation?-is-not-sum"
+  (lambda () (assert-equal (negation? '(+ x)) #f)))
 
-(define-test "symbolics-difference?-is-difference-var-var"
-  (assert-equal (difference? '(- x y)) #t))
-(define-test "symbolics-difference?-is-difference-num-num"
-  (assert-equal (difference? '(- 10 2)) #t))
+(define-test-thunked "symbolics-difference?-is-difference-var-var"
+  (lambda () (assert-equal (difference? '(- x y)) #t)))
+(define-test-thunked "symbolics-difference?-is-difference-num-num"
+  (lambda () (assert-equal (difference? '(- 10 2)) #t)))
 
-(define-test "symbolics-difference?-is-not-negation"
-  (assert-equal (difference? '(- x)) #f))
-(define-test "symbolics-difference?-is-not-no-args"
-  (assert-equal (difference? '(-)) #f))
-(define-test "symbolics-difference?-is-not-ternary"
-  (assert-equal (difference? '(- x y z)) #f))
-(define-test "symbolics-difference?-is-not-sum"
-  (assert-equal (difference? '(+ x y)) #f))
+(define-test-thunked "symbolics-difference?-is-not-negation"
+  (lambda () (assert-equal (difference? '(- x)) #f)))
+(define-test-thunked "symbolics-difference?-is-not-no-args"
+  (lambda () (assert-equal (difference? '(-)) #f)))
+(define-test-thunked "symbolics-difference?-is-not-ternary"
+  (lambda () (assert-equal (difference? '(- x y z)) #f)))
+(define-test-thunked "symbolics-difference?-is-not-sum"
+  (lambda () (assert-equal (difference? '(+ x y)) #f)))
 
-(define-test "symbolics-quotient?-is-quotient-var-var"
-  (assert-equal (quotient? '(/ x y)) #t))
-(define-test "symbolics-quotient?-is-quotient-num-num"
-  (assert-equal (quotient? '(/ 10 2)) #t))
+(define-test-thunked "symbolics-quotient?-is-quotient-var-var"
+  (lambda () (assert-equal (quotient? '(/ x y)) #t)))
+(define-test-thunked "symbolics-quotient?-is-quotient-num-num"
+  (lambda () (assert-equal (quotient? '(/ 10 2)) #t)))
 
-(define-test "symbolics-quotient?-is-not-unary"
-  (assert-equal (quotient? '(/ x)) #f))
-(define-test "symbolics-quotient?-is-not-no-args"
-  (assert-equal (quotient? '(/)) #f))
-(define-test "symbolics-quotient?-is-not-ternary"
-  (assert-equal (quotient? '(/ x y z)) #f))
-(define-test "symbolics-quotient?-is-not-product"
-  (assert-equal (quotient? '(* x y)) #f))
+(define-test-thunked "symbolics-quotient?-is-not-unary"
+  (lambda () (assert-equal (quotient? '(/ x)) #f)))
+(define-test-thunked "symbolics-quotient?-is-not-no-args"
+  (lambda () (assert-equal (quotient? '(/)) #f)))
+(define-test-thunked "symbolics-quotient?-is-not-ternary"
+  (lambda () (assert-equal (quotient? '(/ x y z)) #f)))
+(define-test-thunked "symbolics-quotient?-is-not-product"
+  (lambda () (assert-equal (quotient? '(* x y)) #f)))
 
 ;;; --- Tests for Accessors ---
 

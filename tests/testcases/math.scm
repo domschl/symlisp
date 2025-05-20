@@ -26,20 +26,20 @@
 ;(define-test-thunked "prime-factors-error-arity-0" (assert-error? (prime-factors)))
 ;(define-test-thunked "prime-factors-error-arity-2" (assert-error? (prime-factors 12 13)))
 
-(define-test "next-prime-from-2" (assert-equal 3 (next-prime 2)))
-(define-test "next-prime-from-3" (assert-equal 5 (next-prime 3)))
-(define-test "next-prime-from-4" (assert-equal 5 (next-prime 4)))
-(define-test "next-prime-from-10" (assert-equal 11 (next-prime 10)))
-(define-test "next-prime-from-11" (assert-equal 13 (next-prime 11)))
-(define-test "next-prime-from-0" (assert-equal 2 (next-prime 0)))
-(define-test "next-prime-from-1" (assert-equal 2 (next-prime 1)))
-(define-test "next-prime-from-neg-5" (assert-equal 2 (next-prime -5)))
-(define-test "next-prime-from-large-prime" (assert-equal 7927 (next-prime 7919))) ; 7927 is prime
-(define-test "next-prime-from-large-composite" (assert-equal 7927 (next-prime 7921)))
-(define-test "next-prime-from-big"
-    (let ((p1 (expt 2 61))) ; A large number
-      (assert-equal 2305843009213693951 (next-prime (- p1 2))))) ; Next prime after 2^61-1 (which is prime)
-;(define-test "next-prime-error-type" (assert-error? (next-prime "10")))
-;(define-test "next-prime-error-type-rational" (assert-error? (next-prime (/ 21 2))))
-;(define-test "next-prime-error-arity-0" (assert-error? (next-prime)))
-;(define-test "next-prime-error-arity-2" (assert-error? (next-prime 10 11)))
+(define-test-thunked "next-prime-from-2" (lambda () (assert-equal 3 (next-prime 2))))
+(define-test-thunked "next-prime-from-3" (lambda () (assert-equal 5 (next-prime 3))))
+(define-test-thunked "next-prime-from-4" (lambda () (assert-equal 5 (next-prime 4))))
+(define-test-thunked "next-prime-from-10" (lambda () (assert-equal 11 (next-prime 10))))
+(define-test-thunked "next-prime-from-11" (lambda () (assert-equal 13 (next-prime 11))))
+(define-test-thunked "next-prime-from-0" (lambda () (assert-equal 2 (next-prime 0))))
+(define-test-thunked "next-prime-from-1" (lambda () (assert-equal 2 (next-prime 1))))
+(define-test-thunked "next-prime-from-neg-5" (lambda () (assert-equal 2 (next-prime -5))))
+(define-test-thunked "next-prime-from-large-prime" (lambda () (assert-equal 7927 (next-prime 7919)))) ; 7927 is prime
+(define-test-thunked "next-prime-from-large-composite" (lambda () (assert-equal 7927 (next-prime 7921))))
+(define-test-thunked "next-prime-from-big"
+    (lambda () (let ((p1 (expt 2 61))) ; A large number
+      (assert-equal 2305843009213693951 (next-prime (- p1 2)))))) ; Next prime after 2^61-1 (which is prime)
+;(define-test-thunked "next-prime-error-type" (lambda () (assert-error? (next-prime "10"))))
+;(define-test-thunked "next-prime-error-type-rational" (lambda () (assert-error? (next-prime (/ 21 2)))))
+;(define-test-thunked "next-prime-error-arity-0" (lambda () (assert-error? (next-prime))))
+;(define-test-thunked "next-prime-error-arity-2" (lambda () (assert-error? (next-prime 10 11))))

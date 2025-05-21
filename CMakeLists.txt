@@ -56,6 +56,9 @@ add_subdirectory(symlisplib)
 # Add the REPL directory which defines the executable
 add_subdirectory(repl)
 
+# Add the MCP server directory
+add_subdirectory(mcp_symlisp)
+
 # Add the Jupyter kernel directory
 add_subdirectory(jupyter_kernel)
 

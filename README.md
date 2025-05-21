@@ -13,6 +13,7 @@ The system includes a growing symbolic algebra system, also written in Scheme, a
 *   UTF-8 support for strings and symbols.
 *   A simple Read-Eval-Print Loop (REPL).
 *   A Jupyter kernel for interactive notebook usage, supporting Markdown and LaTeX output for symbolic expressions.
+*   MCP Server that allows usage of the interpreter by LLMs
 *   A standard library written in Scheme, providing list utilities, infix parsing, and symbolic operations.
 
 ## Build Instructions
@@ -70,6 +71,48 @@ This will start an interactive session where you can type SymLisp expressions.
     jupyter notebook
     ```
     You should be able to create new notebooks using the "SymLisp" kernel.
+
+### MCP (Model Context Protocol) Server
+
+SymLisp includes an MCP server implementation that allows other applications to interact with the SymLisp interpreter through a standard JSON-RPC 2.0 interface over stdio.
+
+### MCP Server Usage
+
+To run the MCP server:
+
+```bash
+./build/mcp_symlisp/mcp_symlisp [options]
+```
+
+Command-line Options
+
+- -n: Do not load the standard library
+- -l path: Specify a custom path to the standard library folder (defaults to "../stdsymlisp")
+
+#### Supported Methods
+
+The MCP server supports the following JSON-RPC methods:
+
+- eval: Evaluates SymLisp code
+
+```json
+{"jsonrpc": "2.0", "method": "eval", "params": {"code": "(+ 1 2)"}, "id": 1}
+```
+
+- version: Returns version information about the MCP server
+
+```json
+{"jsonrpc": "2.0", "method": "version", "id": 2}
+```
+- capabilities: Returns information about the server's capabilities
+
+```json
+{"jsonrpc": "2.0", "method": "capabilities", "id": 3}
+```
+
+#### Integration
+
+The MCP server can be used to integrate SymLisp with other applications, tools, or language models. It provides a standardized way to evaluate SymLisp code and retrieve results in a structured JSON format.
 
 ## Contributing
 Contributions are welcome! Please see the `CONTRIBUTING.md` file for more details on the development process, planned features, and how to contribute.

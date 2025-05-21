@@ -1008,137 +1008,6 @@
            ;; 10. Default: No specific simplification rule applied by core logic
            (else (make-power b exp-val))))))))
 
-;; Revised simplify-power:
-(define (simplify-power expr)
-  (let ((original-base (base expr))
-        (original-exponent (exponent expr)))
-    (cond
-      ;; Rule 4.5 (Moved to top & modified to use original-base structure)
-      ;; (^ (base_inner^N_inner) (1/D_outer)) where N_inner = D_outer
-      ((and (power? original-base) ; Check structure of original-base
-            (let ((simplified-outer-exp (simplify original-exponent))) ; Simplify outer exponent for checks
-              (and (rational? simplified-outer-exp)
-                   (= (numerator simplified-outer-exp) 1) ; Outer exponent is 1/D_outer
-                   (let ((N_inner (exponent original-base)) ; From original-base's structure
-                         (D_outer (denominator simplified-outer-exp)))
-                     ;; N_inner must be a positive integer, and N_inner must equal D_outer
-                     (and (integer? N_inner) (> N_inner 0)
-                          (equal? N_inner D_outer))))))
-       (let* ((base_inner (base original-base))  ; Innermost base from original structure
-              (N_inner (exponent original-base))) ; N_inner from original structure
-         (if (odd? N_inner)
-             (simplify base_inner) ; Simplify the innermost base before returning
-             (simplify (make-abs (simplify base_inner)))))) ; Simplify arg of abs, then simplify abs expr itself
-
-      ;; If Rule 4.5 didn't match, proceed with simplified base and exponent for other rules
-      (else
-       (let ((b (simplify original-base)) ; Now simplify base for other rules
-             (exp-val (simplify original-exponent))) ; and exponent for other rules
-         (cond
-           ;; 1. Constant folding for INTEGER exponents
-           ((and (constant? b) (constant? exp-val) (integer? exp-val))
-            (if (and (number? b) (= b 0) (<= exp-val 0))
-                (if (= exp-val 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
-                (expt b exp-val)))
-
-           ;; 2. Rule for i^n where n is an integer
-           ((and (eq? b 'i) (integer? exp-val))
-            (let ((rem (modulo exp-val 4)))
-              (cond
-                ((= rem 0) 1)
-                ((= rem 1) 'i)
-                ((= rem 2) -1)
-                ((= rem 3) (make-negation 'i))
-                (else (make-power b exp-val)))))
-
-           ;; 3. Rule: (^ -1 rational-exponent)
-           ((and (equal? b -1) (rational? exp-val) (not (integer? exp-val)))
-            (let ((N (numerator exp-val))
-                  (D (denominator exp-val)))
-              (if (odd? D)
-                  (if (odd? N) -1 1) 
-                  (let ((k (/ D 2))) 
-                    (simplify (make-power 'i (/ N k)))))))
-
-           ;; 4. Standard identities
-           ((and (constant? exp-val) (= exp-val 0)) 1)
-           ((and (constant? exp-val) (= exp-val 1)) b)
-           ((and (constant? b) (= b 0))
-            (if (and (constant? exp-val) (> exp-val 0)) 0 (make-power b exp-val)))
-           ((and (constant? b) (= b 1)) 1)
-
-           ;; 5. Structural Rule: Power of a power (uses simplified b)
-           ((power? b) ; 'b' here is (simplify original-base)
-            (simplify (make-power (base b) (simplify (make-product (list (exponent b) exp-val))))))
-
-           ;; 6. Structural Rule: Power of a product
-           ((product? b)
-            (simplify (make-product (map (lambda (factor) (make-power factor exp-val)) (operands b)))))
-           
-           ;; 7. Structural Rule: Power of a negation (integer exponent)
-           ((and (negation? b) (integer? exp-val) (>= exp-val 0))
-            (let ((base-of-negation (negated-expr b)))
-              (if (even? exp-val)
-                  (simplify (make-power base-of-negation exp-val))
-                  (simplify (make-negation (make-power base-of-negation exp-val))))))
-
-           ;; 8. Negative Constant Base with Rational Exponent (neg-const != -1)
-           ((and (constant? b) (< b 0) (not (equal? b -1)) (rational? exp-val) (not (integer? exp-val)))
-            (let ((N (numerator exp-val))
-                  (D (denominator exp-val))
-                  (abs-b (abs b)))
-              (if (and (even? D) (odd? N)) 
-                  (simplify (make-product (list (make-power -1 exp-val)
-                                                (make-power abs-b exp-val))))
-                  (if (odd? D) 
-                      (let ((term-abs (simplify (make-power abs-b exp-val))))
-                        (if (odd? N)
-                            (simplify (make-negation term-abs))
-                            term-abs)) 
-                      (make-power b exp-val)))))
-
-           ;; 9. Numeric Specific Rule: Simplifying roots of positive integers
-           ((and (integer? b) (> b 0) (rational? exp-val) (not (integer? exp-val)))
-            (let ((num-exp (numerator exp-val))
-                  (den-exp (denominator exp-val)))
-              (if (= b 1) 
-                  1
-                  (let* ((prime-factor-list (prime-factors b))) 
-                    (if (null? prime-factor-list) 
-                        (make-power b exp-val) 
-                        (let* ((unique-primes (remove-duplicates prime-factor-list))
-                               (grouped-prime-powers 
-                                (map (lambda (p) (cons p (count (lambda (x) (= x p)) prime-factor-list)))
-                                     unique-primes))
-                               (new-factors
-                                (map (lambda (prime-power-pair) 
-                                       (let* ((prime (car prime-power-pair))
-                                              (original-power (cdr prime-power-pair))
-                                              (new-exponent-numerator (* original-power num-exp))
-                                              (common-divisor (gcd new-exponent-numerator den-exp))
-                                              (reduced-exp-num (/ new-exponent-numerator common-divisor))
-                                              (reduced-exp-den (/ den-exp common-divisor)))
-                                         (if (= reduced-exp-den 1) 
-                                             (make-power prime reduced-exp-num)
-                                             (let* ((integer-part-of-exponent (quotient reduced-exp-num reduced-exp-den))
-                                                    (fractional-numerator (remainder reduced-exp-num reduced-exp-den)))
-                                               (cond
-                                                 ((= fractional-numerator 0) 
-                                                  (make-power prime integer-part-of-exponent))
-                                                 ((= integer-part-of-exponent 0) 
-                                                  (make-power prime (/ fractional-numerator reduced-exp-den)))
-                                                 (else 
-                                                  (make-product (list (make-power prime integer-part-of-exponent)
-                                                                      (make-power prime (/ fractional-numerator reduced-exp-den))))))))))
-                                     grouped-prime-powers))
-                               (product-of-new-factors (make-product new-factors))
-                               (current-power-form (list '^ b exp-val)))
-                          (if (equal? product-of-new-factors current-power-form)
-                              current-power-form
-                              (simplify product-of-new-factors))))))))
-           
-           ;; 10. Default: No specific simplification rule applied
-           (else (make-power b exp-val))))))))
 
 ;; Helper to create a negation, possibly simplifying double negations
 ;; This is used by simplify-product when prod-const is -1
@@ -1177,27 +1046,6 @@
       ;; Canonical form: (- a b) -> (+ a (* -1 b))
       (else (simplify (list '+ s-a (list '* -1 s-b)))))))
 
-;; Simplification for quotients '(/ a b)'
-(define (simplify-quotient expr) ;; This is the original simplify-quotient
-  (let ((s-num (simplify (quotient-numerator expr)))
-        (s-den (simplify (quotient-denominator expr))))
-    (cond
-      ;; Denominator is 0 - division by zero (return unsimplified or error)
-      ((and (constant? s-den) (zero? s-den)) (list '/ s-num s-den)) ; Or (error "Division by zero" expr)
-      ;; Numerator is 0 (and denominator is not) -- Rule moved
-      ;; ((and (constant? s-num) (zero? s-num)) 0)
-      ;; Both are constants (and denominator is not 0)
-      ((and (constant? s-num) (constant? s-den)) (/ s-num s-den))
-      ;; Denominator is 1 -- Rule moved
-      ;; ((and (constant? s-den) (= s-den 1)) s-num)
-      ;; Numerator and denominator are equal (and not zero) -- Rule moved
-      ;; ((equal? s-num s-den) 1)
-      ;; Tan definition check: -- Rule moved
-      ;; ((and (sin? s-num) (cos? s-den) (equal? (sin-arg s-num) (cos-arg s-den)))
-      ;;  (simplify (make-tan (sin-arg s-num))))
-      ;; Default case
-      (else (list '/ s-num s-den)))))
-
 ;; Core simplification logic for quotients (cases not covered by rules)
 (define (simplify-quotient-core expr)
   (let ((s-num (simplify (quotient-numerator expr)))
@@ -1209,31 +1057,6 @@
       ((and (constant? s-num) (constant? s-den) (not (zero? s-den))) (/ s-num s-den))
       ;; Default case for core logic if rules didn't handle it
       (else (list '/ s-num s-den)))))
-
-;; Simplification function for exp (original)
-(define (simplify-exp expr)
-  (let ((arg (simplify (exp-arg expr)))) ; Simplify argument first
-    (cond
-      ;; Rule: (exp 0) -> 1 -- Rule moved
-      ;; ((equal? arg 0) 1)
-      ;; Rule: (exp 1) -> e -- Rule moved
-      ;; ((equal? arg 1) 'e)
-      ;; Rule: (exp (ln x)) -> x -- Rule moved
-      ;; ((ln? arg)
-      ;;  (ln-arg arg))
-      ;; Rule: (exp (* k (ln X))) -> (^ X k)
-      ((product? arg)
-       (let* ((factors (operands arg))
-              (ln-factor (find-if ln? factors)))
-         (if ln-factor
-             (let ((inner-ln-arg (ln-arg ln-factor))
-                   (other-factors (remove ln-factor factors)))
-               (if (null? other-factors)
-                   inner-ln-arg ; This is (exp (ln X)), covered by rule, but harmless here
-                   (simplify (make-power inner-ln-arg (simplify (make-product other-factors))))))
-             (make-exp arg))))
-      ;; Default: no further simplification
-      (else (make-exp arg)))))
 
 ;; Core simplification logic for exp (cases not covered by rules)
 (define (simplify-exp-core expr)
@@ -1257,31 +1080,6 @@
              (make-exp arg)))) ; Product does not contain ln
       ;; Default for core logic
       (else (make-exp arg)))))
-
-;; Simplification function for ln (original)
-(define (simplify-ln expr)
-  (let ((arg (simplify (ln-arg expr)))) ; Simplify argument first
-    (cond
-      ;; Rule: (ln 1) -> 0 -- Rule moved
-      ;; ((equal? arg 1) 0)
-      ;; Rule: (ln e) -> 1 (e is the symbolic constant) -- Rule moved
-      ;; ((equal? arg 'e) 1)
-      ;; Rule: (ln (exp x)) -> x -- Rule moved
-      ((exp? arg)
-       (exp-arg arg))
-      ;; Rule: (ln (^ base exponent)) -> (* exponent (ln base)) -- Rule moved
-      ((power? arg)
-       (let ((base (base arg))
-             (exponent (exponent arg)))
-         (simplify (make-product (list exponent (make-ln base))))))
-      ;; Rule: (ln (* f1 f2 ...)) -> (+ (ln f1) (ln f2) ...)
-      ((product? arg)
-       (let ((factors (operands arg)))
-         (if (member 0 factors)
-             (make-ln arg)
-             (simplify (make-sum (map make-ln factors))))))
-      ;; Default: no further simplification
-      (else (make-ln arg)))))
 
 ;; Core simplification logic for ln (cases not covered by rules)
 (define (simplify-ln-core expr)

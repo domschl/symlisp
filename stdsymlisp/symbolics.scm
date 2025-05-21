@@ -1007,7 +1007,7 @@
                               (simplify product-of-new-factors))))))))
            ;; 10. Default: No specific simplification rule applied by core logic
            (else (make-power b exp-val))))))))
-           
+
 ;; Revised simplify-power:
 (define (simplify-power expr)
   (let ((original-base (base expr))
@@ -1611,6 +1611,28 @@
       ;; Default: no specific expansion rule for cos's argument structure
       (else cos-expr))))
 
+(define (expand-tan-expression tan-expr) ; tan-expr is like (tan expanded-arg)
+  (let ((arg (tan-arg tan-expr))) ; Argument is already expanded
+    (cond
+      ;; tan(A+B) -> (/ (+ (tan A) (tan B)) (- 1 (* (tan A) (tan B))))
+      ((and (sum? arg) (= (length (operands arg)) 2))
+       (let ((termA (car (operands arg))) (termB (cadr (operands arg))))
+         ;; Recursively call expand on the new structure
+         (expand (list '/
+                       (make-sum (list (make-tan termA) (make-tan termB)))
+                       (make-sum (list 1 (make-product (list -1 (make-tan termA) (make-tan termB)))))))))
+
+      ;; tan(2A) which is tan (* 2 A) -> (/ (* 2 (tan A)) (- 1 (^ (tan A) 2)))
+      ((and (product? arg) (= (length (operands arg)) 2) (equal? (car (operands arg)) 2))
+       (let ((termA (cadr (operands arg))))
+         ;; Recursively call expand on the new structure
+         (expand (list '/
+                       (make-product (list 2 (make-tan termA)))
+                       (make-sum (list 1 (make-product (list -1 (make-power (make-tan termA) 2)))))))))
+      
+      ;; Default: no specific expansion rule for tan's argument structure
+      (else tan-expr))))
+
 ;; Main expand function
 ;; Recursively expands expressions and simplifies the result.
 (set! expand
@@ -1626,6 +1648,7 @@
                 (cond
                   ((sin? expr-with-expanded-operands) (expand-sin-expression expr-with-expanded-operands))
                   ((cos? expr-with-expanded-operands) (expand-cos-expression expr-with-expanded-operands))
+                  ((tan? expr-with-expanded-operands) (expand-tan-expression expr-with-expanded-operands)) ; Added
                   ((product? expr-with-expanded-operands) (expand-product-distributive expr-with-expanded-operands))
                   ((power? expr-with-expanded-operands) (expand-power-rules expr-with-expanded-operands))
                   ;; Add other top-level expansion rules here if any (e.g., for sums, though not typical for "expansion")

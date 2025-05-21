@@ -1195,6 +1195,31 @@
     (assert-equal (expand '(cos (* 2 A)))
                 (simplify '(+ (^ (cos A) 2) (* -1 (^ (sin A) 2)))))))
 
+(define-test "expand-cos-2x"
+  (lambda () (assert-equal (expand '(cos (* 2 x))) '(+ (- (^ (sin x) 2)) (^ (cos x) 2)))))
+
+;; Tests for tan expansions
+(define-test "expand-tan-x-plus-y"
+  (lambda ()
+    (assert-equal (expand '(tan (+ x y)))
+                  '(/ (+ (tan x) (tan y)) (+ 1 (- (* (tan x) (tan y))))))))
+
+(define-test "expand-tan-2x"
+  (lambda ()
+    (assert-equal (expand '(tan (* 2 x)))
+                  '(/ (* 2 (tan x)) (+ 1 (- (^ (tan x) 2)))))))
+
+(define-test "expand-tan-of-product-with-constant"
+  (lambda ()
+    (assert-equal (expand '(tan (* 2 pi))) ; tan(2pi) simplifies to 0
+                  0)))
+
+(define-test "expand-tan-already-simple"
+  (lambda () (assert-equal (expand '(tan x)) '(tan x))))
+
+(define-test "expand-tan-arg-is-atomic"
+  (lambda () (assert-equal (expand '(tan x)) '(tan x))))
+
 ;; Contraction Test (using `simplify`)
 
 (define-test "simplify-2sinAcosA-to-sin2A"

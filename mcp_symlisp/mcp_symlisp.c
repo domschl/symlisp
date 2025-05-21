@@ -232,14 +232,14 @@ int main(int argc, char *argv[]) {
     sl_mem_init(0);  // Use default heap size for now
 
     // Create the global environment
-    printf("Creating global environment...\n");
+    fprintf(stderr, "Creating global environment...\n");
     sl_global_env = sl_env_create(NULL);  // Top-level env has no parent
     if (!sl_global_env || sl_global_env == SL_OUT_OF_MEMORY_ERROR) {
         fprintf(stderr, "Fatal: Failed to create global environment.\n");
         sl_mem_shutdown();  // Use shutdown before exit
         return 1;
     }
-    printf("Global environment created.\n");
+    fprintf(stderr, "Global environment created.\n");
     sl_gc_add_root(&sl_global_env);  // Keep global env rooted
 
     // Initialize built-in functions and add them to the global environment

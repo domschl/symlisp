@@ -206,16 +206,21 @@ void run_mcp_server() {
 int main(int argc, char *argv[]) {
     bool load_stdlib = true;  // Default to loading stdlib
     int opt;
+    char *stdlib_path = NULL;  // Path to standard library, NULL means use default
 
     // Simple argument parsing using getopt
-    while ((opt = getopt(argc, argv, "n")) != -1) {
+    while ((opt = getopt(argc, argv, "nl:")) != -1) {
         switch (opt) {
         case 'n':
             load_stdlib = false;
             break;
+        case 'l':
+            stdlib_path = optarg;
+            break;
         case '?':  // Unknown option or missing argument
-            fprintf(stderr, "Usage: %s [-n]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-n] [-l path]\n", argv[0]);
             fprintf(stderr, "  -n: Do not load standard library\n");
+            fprintf(stderr, "  -l path: Specify path to standard library folder\n");
             return 1;
         default:
             // Should not happen with this simple option string
@@ -242,8 +247,10 @@ int main(int argc, char *argv[]) {
 
     // --- Load Standard Library (conditionally) ---
     if (load_stdlib) {
-        printf("Loading standard library from: %s\n", DEFAULT_STDLIB_PATH);
-        sl_object *load_lib_result = sl_load_directory(DEFAULT_STDLIB_PATH, sl_global_env);
+        // Use specified path or default
+        const char *path_to_use = stdlib_path ? stdlib_path : DEFAULT_STDLIB_PATH;
+        printf("Loading standard library from: %s\n", path_to_use);
+        sl_object *load_lib_result = sl_load_directory(path_to_use, sl_global_env);
         if (load_lib_result != SL_TRUE) {
             fprintf(stderr, "Error loading standard library:\n");
             // Print the error object returned by sl_load_directory

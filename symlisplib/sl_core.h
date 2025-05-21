@@ -103,6 +103,7 @@ typedef struct sl_object {
 // --- Global Variables ---
 extern sl_object *sl_global_env;    // Now an sl_object*
 extern sl_object *sl_symbol_table;  // Interned symbol table (e.g., a list or hash table)
+extern int sl_error_catch_depth; // Positive value means catch errors, 0 means default abort behavior.
 
 // --- Global Constants ---
 extern sl_object *SL_NIL;
@@ -341,6 +342,11 @@ bool fits_int64(const mpz_t val);
 sl_object *make_number_from_mpq(mpq_t val);
 // --- Error Handling Accessors ---
 // #define sl_error_message(obj) ((obj)->data.error_str)  // <<< CORRECTED
+
+// --- Error Catch Mode Management ---
+void sl_enter_error_catch_mode(void);
+void sl_exit_error_catch_mode(void);
+bool sl_is_error_catch_mode_active(void); // Helper to check if depth > 0
 
 typedef struct {
     char *buffer;

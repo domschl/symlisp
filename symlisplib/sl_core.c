@@ -53,6 +53,7 @@ sl_object *SL_UNDEFINED = NULL;  // <<< ADDED
 // --- Global Environment & Symbol Table (Definitions) ---
 sl_object *sl_global_env = NULL;
 sl_object *sl_symbol_table = NULL;  // Simple list for now
+int sl_error_catch_depth = 0;
 
 // --- Forward Declarations ---
 static void sl_gc_mark(sl_object *root);

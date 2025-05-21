@@ -125,7 +125,20 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
 
         if (strcmp(op_name, "unquote") == 0) {
             if (!sl_is_pair(template_args) || sl_cdr(template_args) != SL_NIL) {
-                result = sl_make_errorf("Eval: Malformed unquote (expected one argument)");
+                sl_object* error_obj = sl_make_errorf("Eval: Malformed unquote (expected one argument)");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                    result = SL_OUT_OF_MEMORY_ERROR;
+                    // any specific cleanup for this error before goto, if necessary
+                    goto cleanup_qqt; 
+                }
+
+                if (sl_is_error_catch_mode_active()) {
+                    result = error_obj;
+                } else {
+                    fprintf(stderr, "Error: Eval: Malformed unquote (expected one argument)\n");
+                    result = SL_PARSE_ERROR; 
+                }
+                // any specific cleanup for this error before goto, if necessary
                 goto cleanup_qqt;
             }
             sl_object *arg = sl_car(template_args);
@@ -166,7 +179,21 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
 
         } else if (strcmp(op_name, "quasiquote") == 0) {  // Nested quasiquote: `ARG
             if (!sl_is_pair(template_args) || sl_cdr(template_args) != SL_NIL) {
-                result = sl_make_errorf("Eval: Malformed nested quasiquote (expected one argument)");
+                sl_object* error_obj = sl_make_errorf("Eval: Malformed nested quasiquote (expected one argument)");
+
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                    result = SL_OUT_OF_MEMORY_ERROR;
+                    // No specific cleanup needed here before goto
+                    goto cleanup_qqt; 
+                }
+
+                if (sl_is_error_catch_mode_active()) {
+                    result = error_obj;
+                } else {
+                    fprintf(stderr, "Error: Eval: Malformed nested quasiquote (expected one argument)\n");
+                    result = SL_PARSE_ERROR; 
+                }
+                // No specific cleanup needed here before goto
                 goto cleanup_qqt;
             }
             sl_object *nested_qq_arg = sl_car(template_args);
@@ -188,7 +215,21 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
 
         } else if (strcmp(op_name, "unquote-splicing") == 0) {  // ,@ARG
             if (!sl_is_pair(template_args) || sl_cdr(template_args) != SL_NIL) {
-                result = sl_make_errorf("Eval: Malformed unquote-splicing (expected one argument)");
+                sl_object* error_obj = sl_make_errorf("Eval: Malformed unquote-splicing (expected one argument)");
+
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                    result = SL_OUT_OF_MEMORY_ERROR;
+                    // No specific cleanup needed here before goto
+                    goto cleanup_qqt; 
+                }
+
+                if (sl_is_error_catch_mode_active()) {
+                    result = error_obj;
+                } else {
+                    fprintf(stderr, "Error: Eval: Malformed unquote-splicing (expected one argument)\n");
+                    result = SL_PARSE_ERROR; 
+                }
+                // No specific cleanup needed here before goto
                 goto cleanup_qqt;
             }
             if (level == 1) {  // Active unquote-splicing ,@ARG (template is (unquote-splicing ARG))
@@ -201,13 +242,36 @@ static sl_object *eval_quasiquote_template(sl_object *template, sl_object *env, 
                         (strcmp(arg_op_name, "unquote") == 0 ||
                          strcmp(arg_op_name, "unquote-splicing") == 0 ||
                          strcmp(arg_op_name, "quasiquote") == 0)) {
-                        result = sl_make_errorf("Eval: unquote-splicing argument cannot be a literal quasiquote control form: %s", sl_to_string_debug(arg));
+                        const char *arg_str_debug = sl_to_string_debug(arg); // Get string before potential free/change of arg
+                        sl_object* error_obj = sl_make_errorf("Eval: unquote-splicing argument cannot be a literal quasiquote control form: %s", arg_str_debug);
+                        
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                            result = SL_OUT_OF_MEMORY_ERROR;
+                            // No specific cleanup needed here before goto
+                            goto cleanup_qqt; 
+                        }
+
+                        if (sl_is_error_catch_mode_active()) {
+                            result = error_obj;
+                        } else {
+                            fprintf(stderr, "Error: Eval: unquote-splicing argument cannot be a literal quasiquote control form: %s\n", arg_str_debug);
+                            result = SL_PARSE_ERROR; 
+                        }
+                        // No specific cleanup needed here before goto
                         goto cleanup_qqt;
                     }
                 }
                 result = sl_eval(arg, env);  // Evaluate to get the list to splice
+                // If sl_eval returns an error, it's already handled by sl_eval's own logic.
+                // We only create a new error if sl_eval succeeded but returned a non-list.
                 if (!(result == SL_OUT_OF_MEMORY_ERROR || sl_is_error(result) || sl_is_list(result))) {
-                    result = sl_make_errorf("Eval: unquote-splicing did not evaluate to a list: %s", sl_to_string_debug(result));
+                    sl_object* error_obj = sl_make_errorf("Eval: unquote-splicing did not evaluate to a list: %s", sl_to_string_debug(result));
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: unquote-splicing did not evaluate to a list: %s\n", sl_to_string_debug(result));
+                        result = SL_PARSE_ERROR;
+                    }
                 }
                 // The caller (list builder) will handle the actual splicing if this was an item.
                 // If this was the *entire* template, e.g. eval(`,@foo`), it's an error at sl_eval stage.
@@ -661,10 +725,27 @@ top_of_eval:;
         if (binding_pair == SL_NIL) {
             // Symbol not found (lookup returned NIL)
             const char *sym_name = sl_symbol_name(obj);
-            result = sl_make_errorf("Eval: Unbound symbol '%s'", sym_name);
+            sl_object* error_obj = sl_make_errorf("Eval: Unbound symbol '%s'", sym_name);
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                result = SL_OUT_OF_MEMORY_ERROR;
+            } else if (sl_is_error_catch_mode_active()) {
+                result = error_obj;
+            } else {
+                fprintf(stderr, "Error: Unbound symbol '%s'\n", sym_name);
+                result = SL_PARSE_ERROR; // Abort-inducing error
+            }
         } else if (!sl_is_pair(binding_pair)) {
             // Should not happen if lookup is correct, but check defensively
-            result = sl_make_errorf("Eval: Internal error - lookup returned non-pair for found symbol '%s'", sl_symbol_name(obj));
+            const char *sym_name = sl_symbol_name(obj); // Get symbol name for error
+            sl_object* error_obj = sl_make_errorf("Eval: Internal error - lookup returned non-pair for found symbol '%s'", sym_name);
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                result = SL_OUT_OF_MEMORY_ERROR;
+            } else if (sl_is_error_catch_mode_active()) {
+                result = error_obj;
+            } else {
+                fprintf(stderr, "Error: Internal error - lookup returned non-pair for found symbol '%s'\n", sym_name);
+                result = SL_PARSE_ERROR; // Abort-inducing error
+            }
         } else {
             // Symbol found, the value is the cdr of the binding pair
             result = sl_cdr(binding_pair);  // <<< CHANGED: Get value from cdr
@@ -736,7 +817,13 @@ top_of_eval:;
                 SL_GC_ADD_ROOT(&args);  // Root the arguments to define-syntax
                 // (define-syntax keyword transformer-expr)
                 if (!sl_is_pair(args) || !sl_is_pair(sl_cdr(args)) || sl_cdr(sl_cdr(args)) != SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed define-syntax (expected keyword and transformer-expr)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed define-syntax (expected keyword and transformer-expr)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) result = SL_OUT_OF_MEMORY_ERROR;
+                    else if (sl_is_error_catch_mode_active()) result = error_obj;
+                    else {
+                        fprintf(stderr, "Error: Malformed define-syntax (expected keyword and transformer-expr)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -744,7 +831,14 @@ top_of_eval:;
                 sl_object *transformer_expr = sl_cadr(args);
 
                 if (!sl_is_symbol(keyword_sym)) {
-                    result = sl_make_errorf("Eval: define-syntax keyword must be a symbol, got %s", sl_type_name(keyword_sym ? keyword_sym->type : -1));
+                    const char* type_name_str = sl_type_name(keyword_sym ? keyword_sym->type : -1);
+                    sl_object* error_obj = sl_make_errorf("Eval: define-syntax keyword must be a symbol, got %s", type_name_str);
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) result = SL_OUT_OF_MEMORY_ERROR;
+                    else if (sl_is_error_catch_mode_active()) result = error_obj;
+                    else {
+                        fprintf(stderr, "Error: define-syntax keyword must be a symbol, got %s\n", type_name_str);
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -755,9 +849,15 @@ top_of_eval:;
                 SL_GC_ADD_ROOT(&transformer_proc_obj);
 
                 if (transformer_proc_obj == SL_OUT_OF_MEMORY_ERROR || sl_is_error(transformer_proc_obj)) {
-                    result = transformer_proc_obj;  // Propagate error
+                    result = transformer_proc_obj;  // Propagate error from sl_eval (already handled)
                 } else if (!sl_is_function(transformer_proc_obj)) {
-                    result = sl_make_errorf("Eval: define-syntax transformer expression did not evaluate to a procedure.");
+                    sl_object* error_obj = sl_make_errorf("Eval: define-syntax transformer expression did not evaluate to a procedure.");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) result = SL_OUT_OF_MEMORY_ERROR;
+                    else if (sl_is_error_catch_mode_active()) result = error_obj;
+                    else {
+                        fprintf(stderr, "Error: define-syntax transformer expression did not evaluate to a procedure.\n");
+                        result = SL_PARSE_ERROR;
+                    }
                 } else {
                     sl_env_define_macro(env, keyword_sym, transformer_proc_obj);
                     result = keyword_sym;  // R7RS says define-syntax returns an unspecified value. Keyword is fine.
@@ -770,7 +870,13 @@ top_of_eval:;
             if (strcmp(op_name, "quote") == 0) {
                 SL_GC_ADD_ROOT(&args);  // Root args for safety
                 if (args == SL_NIL || sl_cdr(args) != SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed quote");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed quote");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) result = SL_OUT_OF_MEMORY_ERROR;
+                    else if (sl_is_error_catch_mode_active()) result = error_obj;
+                    else {
+                        fprintf(stderr, "Error: Malformed quote\n");
+                        result = SL_PARSE_ERROR;
+                    }
                 } else {
                     result = sl_car(args);  // Don't eval args of quote
                 }
@@ -781,7 +887,13 @@ top_of_eval:;
             else if (strcmp(op_name, "quasiquote") == 0) {
                 SL_GC_ADD_ROOT(&args);  // Root args for safety
                 if (args == SL_NIL || !sl_is_pair(args) || sl_cdr(args) != SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed quasiquote (expected one argument)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed quasiquote (expected one argument)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) result = SL_OUT_OF_MEMORY_ERROR;
+                    else if (sl_is_error_catch_mode_active()) result = error_obj;
+                    else {
+                        fprintf(stderr, "Error: Malformed quasiquote (expected one argument)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -791,17 +903,34 @@ top_of_eval:;
                 SL_GC_REMOVE_ROOT(&args);  // Unroot args before calling helper
 
                 result = eval_quasiquote_template(template, env, 1);
-                // eval_quasiquote_template handles rooting of its return value or returns OOM/error
+                // eval_quasiquote_template handles rooting of its return value or returns OOM/error.
+                // If it returns an error, and we are not in catch mode, we might need to print it here.
+                if(sl_is_error(result) && !sl_is_error_catch_mode_active() && result != SL_OUT_OF_MEMORY_ERROR) {
+                    fprintf(stderr, "Error: %s\n", sl_error_message(result));
+                    result = SL_PARSE_ERROR; // Abort
+                }
                 break;
             }
             // --- UNQUOTE (error if top-level) --- // <<< NEW BLOCK
             else if (strcmp(op_name, "unquote") == 0) {
-                result = sl_make_errorf("Eval: unquote appeared outside of quasiquote");
+                sl_object* error_obj = sl_make_errorf("Eval: unquote appeared outside of quasiquote");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) result = SL_OUT_OF_MEMORY_ERROR;
+                else if (sl_is_error_catch_mode_active()) result = error_obj;
+                else {
+                    fprintf(stderr, "Error: unquote appeared outside of quasiquote\n");
+                    result = SL_PARSE_ERROR;
+                }
                 break;
             }
             // --- UNQUOTE-SPLICING (error if top-level) --- // <<< NEW BLOCK
             else if (strcmp(op_name, "unquote-splicing") == 0) {
-                result = sl_make_errorf("Eval: unquote-splicing appeared outside of quasiquote");
+                sl_object* error_obj = sl_make_errorf("Eval: unquote-splicing appeared outside of quasiquote");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) result = SL_OUT_OF_MEMORY_ERROR;
+                else if (sl_is_error_catch_mode_active()) result = error_obj;
+                else {
+                    fprintf(stderr, "Error: unquote-splicing appeared outside of quasiquote\n");
+                    result = SL_PARSE_ERROR;
+                }
                 break;
             }
             // --- IF ---
@@ -819,7 +948,13 @@ top_of_eval:;
 
                 // Check structure
                 if (test_expr == SL_NIL || conseq_expr == SL_NIL || !sl_is_pair(arg2_pair) || (sl_is_pair(arg3_pair) && sl_cdr(arg3_pair) != SL_NIL)) {
-                    result = sl_make_errorf("Eval: Malformed if structure");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed if structure");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed if structure\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;  // Break from switch
                 }
@@ -860,7 +995,13 @@ top_of_eval:;
                 SL_GC_ADD_ROOT(&args);
                 // (define symbol value) or (define (fn params...) body...)
                 if (args == SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed define (no symbol/value)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed define (no symbol/value)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed define (no symbol/value)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -873,7 +1014,13 @@ top_of_eval:;
                     sl_object *body_list = value_expr_pair;  // <<< Use the whole list
 
                     if (!sl_is_symbol(fn_name_sym)) {
-                        result = sl_make_errorf("Eval: Function name in define must be a symbol");
+                        sl_object* error_obj = sl_make_errorf("Eval: Function name in define must be a symbol");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Function name in define must be a symbol\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         SL_GC_REMOVE_ROOT(&args);
                         break;
                     }
@@ -882,13 +1029,22 @@ top_of_eval:;
 
                     // Store the *list* of body expressions in the closure
                     sl_object *lambda = sl_make_closure(params, body_list, env);  // <<< Pass body_list
-                    CHECK_ALLOC(lambda);
-                    sl_env_define(env, fn_name_sym, lambda);
-                    result = fn_name_sym;
+                    CHECK_ALLOC(lambda); // This macro already handles OOM and returns SL_OUT_OF_MEMORY_ERROR
+                    if (lambda == SL_OUT_OF_MEMORY_ERROR) { result = lambda; } // Propagate OOM
+                    else {
+                        sl_env_define(env, fn_name_sym, lambda);
+                        result = fn_name_sym;
+                    }
 
                 } else if (sl_is_symbol(target)) {  // Variable definition
                     if (value_expr_pair == SL_NIL || sl_cdr(value_expr_pair) != SL_NIL) {
-                        result = sl_make_errorf("Eval: Malformed define (wrong number of args for variable)");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed define (wrong number of args for variable)");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed define (wrong number of args for variable)\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         SL_GC_REMOVE_ROOT(&args);
                         break;
                     }
@@ -901,8 +1057,8 @@ top_of_eval:;
                     sl_object *value = sl_eval(value_expr, env);
                     SL_GC_ADD_ROOT(&value);
 
-                    if (value == SL_OUT_OF_MEMORY_ERROR) {
-                        result = value;
+                    if (value == SL_OUT_OF_MEMORY_ERROR || sl_is_error(value)) { // Check if sl_eval returned error
+                        result = value; // Propagate (sl_eval already handled printing if not catch_mode)
                     } else {
                         // sl_env_define returns void
                         sl_env_define(env, target, value);
@@ -912,7 +1068,13 @@ top_of_eval:;
                     SL_GC_REMOVE_ROOT(&value);
 
                 } else {
-                    result = sl_make_errorf("Eval: Invalid target for define");
+                    sl_object* error_obj = sl_make_errorf("Eval: Invalid target for define");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Invalid target for define\n");
+                        result = SL_PARSE_ERROR;
+                    }
                 }
                 SL_GC_REMOVE_ROOT(&args);
                 break;
@@ -922,7 +1084,13 @@ top_of_eval:;
                 SL_GC_ADD_ROOT(&args);  // Root args
                 // (set! symbol value)
                 if (args == SL_NIL || !sl_is_pair(args) || sl_cdr(args) == SL_NIL || !sl_is_pair(sl_cdr(args)) || sl_cdr(sl_cdr(args)) != SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed set!");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed set!");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed set!\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -930,7 +1098,13 @@ top_of_eval:;
                 sl_object *value_expr = sl_cadr(args);  // Use helper or sl_car(sl_cdr(args))
 
                 if (!sl_is_symbol(target_sym)) {
-                    result = sl_make_errorf("Eval: Target for set! must be a symbol");
+                    sl_object* error_obj = sl_make_errorf("Eval: Target for set! must be a symbol");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Target for set! must be a symbol\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -940,12 +1114,19 @@ top_of_eval:;
                 sl_object *value = sl_eval(value_expr, env);  // Eval value - MIGHT GC
                 SL_GC_ADD_ROOT(&value);                       // Root result
 
-                if (value == SL_OUT_OF_MEMORY_ERROR) {
-                    result = value;  // Propagate error
+                if (value == SL_OUT_OF_MEMORY_ERROR || sl_is_error(value)) { // Check if sl_eval returned error
+                    result = value;  // Propagate (sl_eval already handled printing if not catch_mode)
                 } else {
                     // sl_env_set returns bool indicating if symbol was found and set
                     if (!sl_env_set(env, target_sym, value)) {
-                        result = sl_make_errorf("Eval: Cannot set! unbound symbol '%s'", sl_symbol_name(target_sym));
+                        const char* target_name = sl_symbol_name(target_sym);
+                        sl_object* error_obj = sl_make_errorf("Eval: Cannot set! unbound symbol '%s'", target_name);
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Cannot set! unbound symbol '%s'\n", target_name);
+                            result = SL_PARSE_ERROR;
+                        }
                     } else {
                         result = value;  // set! usually returns the value
                     }
@@ -958,7 +1139,13 @@ top_of_eval:;
                 SL_GC_ADD_ROOT(&args);  // Root args
                 // (lambda (params...) body...)
                 if (args == SL_NIL || sl_cdr(args) == SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed lambda (missing params or body)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed lambda (missing params or body)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed lambda (missing params or body)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -992,7 +1179,13 @@ top_of_eval:;
                 SL_GC_ADD_ROOT(&args);  // Root the rest of the let form
 
                 if (args == SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed let (missing bindings/body)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed let (missing bindings/body)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed let (missing bindings/body)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -1007,7 +1200,13 @@ top_of_eval:;
                     name_sym = first_arg;
                     SL_GC_ADD_ROOT(&name_sym);  // Root name symbol
                     if (body_list == SL_NIL || !sl_is_pair(body_list)) {
-                        result = sl_make_errorf("Eval: Malformed named let (missing bindings/body)");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed named let (missing bindings/body)");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed named let (missing bindings/body)\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         SL_GC_REMOVE_ROOT(&name_sym);
                         SL_GC_REMOVE_ROOT(&args);
                         break;
@@ -1021,13 +1220,25 @@ top_of_eval:;
 
                 // Validate bindings structure and body
                 if (!sl_is_list(bindings)) {  // sl_is_list checks for proper list or NIL
-                    result = sl_make_errorf("Eval: Malformed let bindings (not a list)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed let bindings (not a list)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed let bindings (not a list)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     if (name_sym != SL_NIL) SL_GC_REMOVE_ROOT(&name_sym);
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
-                if (body_list == SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed let (missing body)");
+                if (body_list == SL_NIL) { // body_list must be a pair for sequence eval, NIL means no body expressions
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed let (missing body)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed let (missing body)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     if (name_sym != SL_NIL) SL_GC_REMOVE_ROOT(&name_sym);
                     SL_GC_REMOVE_ROOT(&args);
                     break;
@@ -1051,13 +1262,25 @@ top_of_eval:;
 
                 while (current_binding != SL_NIL) {
                     if (!sl_is_pair(current_binding)) {  // Should be caught by sl_is_list, but double check
-                        result = sl_make_errorf("Eval: Malformed let bindings (improper list)");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed let bindings (improper list)");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed let bindings (improper list)\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         init_eval_ok = false;
                         break;
                     }
                     sl_object *binding_pair = sl_car(current_binding);
                     if (!sl_is_pair(binding_pair) || sl_cdr(binding_pair) == SL_NIL || !sl_is_pair(sl_cdr(binding_pair)) || sl_cdr(sl_cdr(binding_pair)) != SL_NIL) {
-                        result = sl_make_errorf("Eval: Malformed let binding pair");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed let binding pair");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed let binding pair\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         init_eval_ok = false;
                         break;
                     }
@@ -1065,7 +1288,13 @@ top_of_eval:;
                     sl_object *init_expr = sl_cadr(binding_pair);
 
                     if (!sl_is_symbol(var_sym)) {
-                        result = sl_make_errorf("Eval: Variable in let binding must be a symbol");
+                        sl_object* error_obj = sl_make_errorf("Eval: Variable in let binding must be a symbol");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Variable in let binding must be a symbol\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         init_eval_ok = false;
                         break;
                     }
@@ -1169,7 +1398,13 @@ top_of_eval:;
                 SL_GC_ADD_ROOT(&args);  // Root the rest of the form
 
                 if (args == SL_NIL || !sl_is_pair(args)) {
-                    result = sl_make_errorf("Eval: Malformed let* (missing bindings/body)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed let* (missing bindings/body)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed let* (missing bindings/body)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -1177,12 +1412,24 @@ top_of_eval:;
                 sl_object *body_list = sl_cdr(args);
 
                 if (!sl_is_list(bindings)) {
-                    result = sl_make_errorf("Eval: Malformed let* bindings (not a list)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed let* bindings (not a list)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed let* bindings (not a list)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 if (body_list == SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed let* (missing body)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed let* (missing body)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed let* (missing body)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -1198,19 +1445,37 @@ top_of_eval:;
 
                 while (current_binding_node != SL_NIL) {
                     if (!sl_is_pair(current_binding_node)) {
-                        result = sl_make_errorf("Eval: Malformed let* bindings (improper list)");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed let* bindings (improper list)");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed let* bindings (improper list)\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         goto cleanup_let_star;
                     }
                     sl_object *binding_pair = sl_car(current_binding_node);
                     if (!sl_is_pair(binding_pair) || sl_cdr(binding_pair) == SL_NIL || !sl_is_pair(sl_cdr(binding_pair)) || sl_cdr(sl_cdr(binding_pair)) != SL_NIL) {
-                        result = sl_make_errorf("Eval: Malformed let* binding pair");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed let* binding pair");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed let* binding pair\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         goto cleanup_let_star;
                     }
                     sl_object *var_sym = sl_car(binding_pair);
                     sl_object *init_expr = sl_cadr(binding_pair);
 
                     if (!sl_is_symbol(var_sym)) {
-                        result = sl_make_errorf("Eval: Variable in let* binding must be a symbol");
+                        sl_object* error_obj = sl_make_errorf("Eval: Variable in let* binding must be a symbol");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Variable in let* binding must be a symbol\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         goto cleanup_let_star;
                     }
 
@@ -1276,7 +1541,13 @@ top_of_eval:;
                 SL_GC_ADD_ROOT(&args);  // Root the rest of the form
 
                 if (args == SL_NIL || !sl_is_pair(args)) {
-                    result = sl_make_errorf("Eval: Malformed letrec* (missing bindings/body)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed letrec* (missing bindings/body)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed letrec* (missing bindings/body)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -1284,12 +1555,24 @@ top_of_eval:;
                 sl_object *body_list = sl_cdr(args);
 
                 if (!sl_is_list(bindings)) {
-                    result = sl_make_errorf("Eval: Malformed letrec* bindings (not a list)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed letrec* bindings (not a list)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed letrec* bindings (not a list)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
                 if (body_list == SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed letrec* (missing body)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed letrec* (missing body)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed letrec* (missing body)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     SL_GC_REMOVE_ROOT(&args);
                     break;
                 }
@@ -1332,13 +1615,25 @@ top_of_eval:;
                 bool init_ok = true;
                 while (current_binding_node != SL_NIL) {
                     if (!sl_is_pair(current_binding_node)) {
-                        result = sl_make_errorf("Eval: Malformed letrec* bindings (improper list)");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed letrec* bindings (improper list)");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed letrec* bindings (improper list)\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         init_ok = false;
                         break;
                     }
                     sl_object *binding_pair = sl_car(current_binding_node);
                     if (!sl_is_pair(binding_pair) || sl_cdr(binding_pair) == SL_NIL || !sl_is_pair(sl_cdr(binding_pair)) || sl_cdr(sl_cdr(binding_pair)) != SL_NIL) {
-                        result = sl_make_errorf("Eval: Malformed letrec* binding pair");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed letrec* binding pair");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed letrec* binding pair\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         init_ok = false;
                         break;
                     }
@@ -1346,7 +1641,13 @@ top_of_eval:;
                     sl_object *init_expr = sl_cadr(binding_pair);
 
                     if (!sl_is_symbol(var_sym)) {
-                        result = sl_make_errorf("Eval: Variable in letrec* binding must be a symbol");
+                        sl_object* error_obj = sl_make_errorf("Eval: Variable in letrec* binding must be a symbol");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Variable in letrec* binding must be a symbol\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         init_ok = false;
                         break;
                     }
@@ -1355,7 +1656,7 @@ top_of_eval:;
                     sl_object *init_val = sl_eval(init_expr, letrec_env);  // MIGHT GC
                     SL_GC_ADD_ROOT(&init_val);
 
-                    if (init_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(init_val)) {
+                    if (init_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(init_val)) { // sl_eval already handled printing
                         result = init_val;  // Propagate error
                         SL_GC_REMOVE_ROOT(&init_val);
                         init_ok = false;
@@ -1365,7 +1666,14 @@ top_of_eval:;
                     // Update the placeholder binding using set! semantics
                     if (!sl_env_set(letrec_env, var_sym, init_val)) {
                         // Should not happen if placeholder was created correctly
-                        result = sl_make_errorf("Eval: Internal error - failed to set! letrec* variable '%s'", sl_symbol_name(var_sym));
+                        const char* var_name = sl_symbol_name(var_sym);
+                        sl_object* error_obj = sl_make_errorf("Eval: Internal error - failed to set! letrec* variable '%s'", var_name);
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Internal error - failed to set! letrec* variable '%s'\n", var_name);
+                            result = SL_PARSE_ERROR;
+                        }
                         SL_GC_REMOVE_ROOT(&init_val);
                         init_ok = false;
                         break;
@@ -1416,7 +1724,13 @@ top_of_eval:;
 
                 while (current_clause_node != SL_NIL) {
                     if (!sl_is_pair(current_clause_node)) {
-                        result = sl_make_errorf("Eval: Malformed cond (improper list of clauses)");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed cond (improper list of clauses)");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed cond (improper list of clauses)\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         goto cleanup_cond;
                     }
 
@@ -1424,7 +1738,13 @@ top_of_eval:;
                     sl_object *next_clause_node = sl_cdr(current_clause_node);
 
                     if (!sl_is_pair(clause)) {
-                        result = sl_make_errorf("Eval: Malformed cond clause (not a pair)");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed cond clause (not a pair)");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed cond clause (not a pair)\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         goto cleanup_cond;
                     }
 
@@ -1436,7 +1756,13 @@ top_of_eval:;
                         is_else_clause = true;
                         // 'else' must be the last clause
                         if (next_clause_node != SL_NIL) {
-                            result = sl_make_errorf("Eval: 'else' clause must be the last clause in cond");
+                            sl_object* error_obj = sl_make_errorf("Eval: 'else' clause must be the last clause in cond");
+                            if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                            else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                            else {
+                                fprintf(stderr, "Error: 'else' clause must be the last clause in cond\n");
+                                result = SL_PARSE_ERROR;
+                            }
                             goto cleanup_cond;
                         }
                     }
@@ -1506,7 +1832,13 @@ top_of_eval:;
 
                         // Check for improper body list
                         if (current_body_node != SL_NIL) {
-                            result = sl_make_errorf("Eval: Malformed cond clause body (improper list)");
+                            sl_object* error_obj = sl_make_errorf("Eval: Malformed cond clause body (improper list)");
+                            if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                            else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                            else {
+                                fprintf(stderr, "Error: Malformed cond clause body (improper list)\n");
+                                result = SL_PARSE_ERROR;
+                            }
                         }
                         // If loop finished normally (e.g. empty body list initially), result is NIL.
                         // If error occurred, result holds the error.
@@ -1567,7 +1899,13 @@ top_of_eval:;
 
                 // Check for improper list of arguments
                 if (current_node != SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed 'and' (improper argument list)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed 'and' (improper argument list)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed 'and' (improper argument list)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                 }
                 // If loop finished normally (e.g. empty args), result is SL_TRUE.
                 // If error occurred, result holds the error.
@@ -1615,7 +1953,13 @@ top_of_eval:;
 
                 // Check for improper list of arguments
                 if (current_node != SL_NIL) {
-                    result = sl_make_errorf("Eval: Malformed 'or' (improper argument list)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed 'or' (improper argument list)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed 'or' (improper argument list)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                 }
                 // If loop finished normally (e.g. empty args), result is SL_FALSE.
                 // If error occurred, result holds the error.
@@ -1631,7 +1975,13 @@ top_of_eval:;
 
                 // --- 1. Parse Structure ---
                 if (!sl_is_pair(args) || !sl_is_pair(sl_cdr(args))) {
-                    result = sl_make_errorf("Eval: Malformed do (missing bindings or test/result)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed do (missing bindings or test/result)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed do (missing bindings or test/result)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     goto cleanup_do;
                 }
                 sl_object *bindings = sl_car(args);
@@ -1639,15 +1989,33 @@ top_of_eval:;
                 sl_object *commands = sl_cddr(args);  // Can be NIL
 
                 if (!sl_is_list(bindings)) {
-                    result = sl_make_errorf("Eval: Malformed do bindings (not a list)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed do bindings (not a list)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed do bindings (not a list)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     goto cleanup_do;
                 }
                 if (!sl_is_pair(test_result_pair)) {
-                    result = sl_make_errorf("Eval: Malformed do test/result pair");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed do test/result pair");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed do test/result pair\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     goto cleanup_do;
                 }
                 if (!sl_is_list(commands)) {  // commands can be NIL, sl_is_list handles that
-                    result = sl_make_errorf("Eval: Malformed do commands (improper list)");
+                    sl_object* error_obj = sl_make_errorf("Eval: Malformed do commands (improper list)");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                    else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                    else {
+                        fprintf(stderr, "Error: Malformed do commands (improper list)\n");
+                        result = SL_PARSE_ERROR;
+                    }
                     goto cleanup_do;
                 }
 
@@ -1689,7 +2057,13 @@ top_of_eval:;
 
                     // Validate binding spec: (var init step)
                     if (!sl_is_pair(binding_spec) || !sl_is_pair(sl_cdr(binding_spec)) || !sl_is_pair(sl_cddr(binding_spec)) || sl_cdr(sl_cddr(binding_spec)) != SL_NIL) {
-                        result = sl_make_errorf("Eval: Malformed do binding spec (should be list of 3 elements)");
+                        sl_object* error_obj = sl_make_errorf("Eval: Malformed do binding spec (should be list of 3 elements)");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Malformed do binding spec (should be list of 3 elements)\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         init_ok = false;
                         break;
                     }
@@ -1698,7 +2072,13 @@ top_of_eval:;
                     sl_object *step_expr = sl_caddr(binding_spec);
 
                     if (!sl_is_symbol(var_sym)) {
-                        result = sl_make_errorf("Eval: Variable in do binding must be a symbol");
+                        sl_object* error_obj = sl_make_errorf("Eval: Variable in do binding must be a symbol");
+                        if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                        else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                        else {
+                            fprintf(stderr, "Error: Variable in do binding must be a symbol\n");
+                            result = SL_PARSE_ERROR;
+                        }
                         init_ok = false;
                         break;
                     }
@@ -1821,8 +2201,14 @@ top_of_eval:;
 
                         while (current_res_expr_node != SL_NIL) {
                             if (!sl_is_pair(current_res_expr_node)) {
-                                result = sl_make_errorf("Eval: Malformed do result expressions (improper list)");
-                                goto cleanup_do_results;
+                                sl_object* error_obj = sl_make_errorf("Eval: Malformed do result expressions (improper list)");
+                                if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                                else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                                else {
+                                    fprintf(stderr, "Error: Malformed do result expressions (improper list)\n");
+                                    result = SL_PARSE_ERROR;
+                                }
+                                goto cleanup_do_results; // This was already correct
                             }
                             sl_object *res_expr = sl_car(current_res_expr_node);
                             SL_GC_REMOVE_ROOT(&result);            // Unroot previous result
@@ -1891,7 +2277,7 @@ top_of_eval:;
                         }
 
                         if (!append_to_list(&step_vals_list, &step_vals_tail_node, step_val)) {
-                            result = sl_make_errorf("Eval: OOM building do step values");
+                            result = SL_OUT_OF_MEMORY_ERROR; // OOM: append_to_list uses sl_make_pair
                             SL_GC_REMOVE_ROOT(&step_val);
                             step_ok = false;
                             break;
@@ -1912,7 +2298,14 @@ top_of_eval:;
 
                         if (!sl_env_set(loop_env, sl_car(v_iter), sl_car(sv_iter))) {
                             // Should not happen if vars were defined correctly
-                            result = sl_make_errorf("Eval: Internal error - failed to set! do variable '%s'", sl_symbol_name(sl_car(v_iter)));
+                            const char* var_name = sl_symbol_name(sl_car(v_iter));
+                            sl_object* error_obj = sl_make_errorf("Eval: Internal error - failed to set! do variable '%s'", var_name); // This was already correct
+                            if (error_obj == SL_OUT_OF_MEMORY_ERROR) { result = SL_OUT_OF_MEMORY_ERROR; }
+                            else if (sl_is_error_catch_mode_active()) { result = error_obj; }
+                            else {
+                                fprintf(stderr, "Error: Internal error - failed to set! do variable '%s'\n", var_name);
+                                result = SL_PARSE_ERROR;
+                            }
                             goto cleanup_do_loop;
                         }
 
@@ -1957,9 +2350,20 @@ top_of_eval:;
             goto cleanup_fn_call;
         }
         if (!sl_is_function(fn)) {
-            char *op_str = sl_object_to_string(op_obj);
-            result = sl_make_errorf("Eval: Not a function: %s", op_str ? op_str : "<?>");
+            char *op_str = sl_object_to_string(op_obj); // op_obj is the unevaluated operator form
+            sl_object* error_obj = sl_make_errorf("Eval: Not a function: %s", op_str ? op_str : "<?>");
             free(op_str);
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                result = SL_OUT_OF_MEMORY_ERROR;
+            } else if (sl_is_error_catch_mode_active()) {
+                result = error_obj;
+            } else {
+                // Re-create op_str for fprintf as it was freed
+                op_str = sl_object_to_string(op_obj);
+                fprintf(stderr, "Error: Not a function: %s\n", op_str ? op_str : "<?>");
+                free(op_str);
+                result = SL_PARSE_ERROR; // Abort-inducing error
+            }
             goto cleanup_fn_call;
         }
 

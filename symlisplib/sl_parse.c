@@ -131,12 +131,14 @@ static sl_object *read_atom(FILE *stream) {
             size_t new_capacity = (buffer_capacity == 0) ? initial_capacity : buffer_capacity * 2;
             char *new_buffer = realloc(token_buffer, new_capacity);
             if (!new_buffer) {
-                fprintf(stderr, "Parser Error: Out of memory reading atom.\n");
                 free(token_buffer);
-                // Need to handle the character 'c' that was read but not processed.
-                // Maybe ungetc(c, stream)? Or just signal error.
-                if (c != EOF) ungetc(c, stream);  // Try to put back delimiter
-                return SL_NIL;                    // Signal error
+                if (c != EOF) ungetc(c, stream);
+                if (sl_is_error_catch_mode_active()) {
+                    return SL_OUT_OF_MEMORY_ERROR; // OOM, propagate
+                } else {
+                    fprintf(stderr, "Parser Error: Out of memory reading atom.\n");
+                    return SL_NIL;                    // Original behavior
+                }
             }
             token_buffer = new_buffer;
             buffer_capacity = new_capacity;
@@ -161,9 +163,13 @@ static sl_object *read_atom(FILE *stream) {
         size_t new_capacity = buffer_capacity + 1;  // Just need one more byte
         char *new_buffer = realloc(token_buffer, new_capacity);
         if (!new_buffer) {
-            fprintf(stderr, "Parser Error: Out of memory finalizing atom buffer.\n");
             free(token_buffer);
-            return SL_NIL;
+            if (sl_is_error_catch_mode_active()) {
+                return SL_OUT_OF_MEMORY_ERROR; // OOM, propagate
+            } else {
+                fprintf(stderr, "Parser Error: Out of memory finalizing atom buffer.\n");
+                return SL_NIL; // Original behavior
+            }
         }
         token_buffer = new_buffer;
         buffer_capacity = new_capacity;
@@ -211,11 +217,20 @@ static sl_object *read_atom(FILE *stream) {
 
     // Check if object creation failed due to memory
     if (result == SL_OUT_OF_MEMORY_ERROR) {
-        fprintf(stderr, "Parser Error: Out of memory creating object for atom.\n");
-        return SL_NIL;  // Signal error
+        // No sbuf_free here as token_buffer is already freed.
+        if (sl_is_error_catch_mode_active()) {
+            return SL_OUT_OF_MEMORY_ERROR; // OOM, propagate
+        } else {
+            fprintf(stderr, "Parser Error: Out of memory creating object for atom.\n");
+            return SL_NIL;  // Original behavior
+        }
     }
+    // If result is SL_NIL for other reasons (e.g. sl_make_symbol failed not due to OOM, though unlikely)
+    // it's already handled by the general error creation in parse_stream_atom if this path is taken.
+    // However, read_atom is usually called by parse_stream_atom, which has its own error checks.
+    // This function (read_atom) is more of a lexer. The SL_NIL here usually means "not a valid atom format".
 
-    return result;  // Return the parsed object (#t, #f, number, symbol) or SL_NIL on error
+    return result;
 }
 
 // --- Parsing Implementation ---
@@ -592,9 +607,17 @@ static sl_object *parse_character_literal(const char **input) {
                 *input = hex_end;  // Consume 'x' + hex digits
                 return sl_make_char((uint32_t)char_code);
             } else {
-                fprintf(stderr, "Error: Invalid hex character code #\\x%s\n", hex_str);
+                // fprintf(stderr, "Error: Invalid hex character code #\\x%s\n", hex_str);
                 *input = hex_end;       // Consume the invalid sequence
-                return SL_PARSE_ERROR;  // Use dedicated error object
+                // return SL_PARSE_ERROR;  // Use dedicated error object
+                sl_object* error_obj = sl_make_errorf("Parser Error: Invalid hex character code #\\x%s", hex_str);
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Invalid hex character code #\\x%s\n", hex_str);
+                    return SL_PARSE_ERROR;
+                }
             }
         }
         // If 'x' is not followed by hex digits, fall through to single char parsing
@@ -603,8 +626,16 @@ static sl_object *parse_character_literal(const char **input) {
     // Otherwise, it must be a single ASCII character literal for now
     // (UTF-8 decoding needed for multi-byte chars like #\é)
     if (start[0] == '\0') {
-        fprintf(stderr, "Error: Unexpected end of input after #\\\n");  // <<< REPLACE
-        return SL_NIL;
+        // fprintf(stderr, "Error: Unexpected end of input after #\\\n");  // <<< REPLACE
+        // return SL_NIL;
+        sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after #\\");
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Error: Unexpected end of input after #\\\n");
+            return SL_NIL;
+        }
     }
 
     // Create a temporary pointer to pass to the decoder
@@ -612,14 +643,30 @@ static sl_object *parse_character_literal(const char **input) {
     uint32_t code_point = decode_utf8(&char_ptr);  // decode_utf8 advances char_ptr
 
     if (code_point == 0 && char_ptr == start) {  // Check if decode_utf8 hit EOF immediately
-        fprintf(stderr, "Error: Unexpected end of input after #\\\n");
-        return SL_NIL;
+        // fprintf(stderr, "Error: Unexpected end of input after #\\\n");
+        // return SL_NIL;
+        sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after #\\");
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Error: Unexpected end of input after #\\\n");
+            return SL_NIL;
+        }
     }
     if (code_point == UTF8_REPLACEMENT_CHAR) {
         // Decoder encountered an error
-        fprintf(stderr, "Error: Invalid UTF-8 sequence for character literal starting with byte 0x%02X\n", (unsigned char)*start);
+        // fprintf(stderr, "Error: Invalid UTF-8 sequence for character literal starting with byte 0x%02X\n", (unsigned char)*start);
         *input = char_ptr;  // Update main pointer past the invalid byte
-        return SL_NIL;
+        // return SL_NIL;
+        sl_object* error_obj = sl_make_errorf("Parser Error: Invalid UTF-8 sequence for character literal starting with byte 0x%02X", (unsigned char)*start);
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Error: Invalid UTF-8 sequence for character literal starting with byte 0x%02X\n", (unsigned char)*start);
+            return SL_NIL;
+        }
     }
     *input = char_ptr;                // Update main pointer past the consumed bytes
     return sl_make_char(code_point);  // Cast ASCII char to code point
@@ -673,8 +720,16 @@ static sl_object *parse_expression(const char **input) {
         return parse_list(input);
     } else if (current_char == ')') {
         // Unexpected closing parenthesis
-        fprintf(stderr, "Error: Unexpected ')'.\n");
-        return SL_NIL;  // Indicate error
+        // fprintf(stderr, "Error: Unexpected ')'.\n");
+        // return SL_NIL;  // Indicate error
+        sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected ')'");
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Error: Unexpected ')'.\n");
+            return SL_NIL;
+        }
     } else if (current_char == '\'') {
         // Quote reader macro: '<datum> -> (quote <datum>)
         (*input)++;                            // Consume the quote character
@@ -685,12 +740,23 @@ static sl_object *parse_expression(const char **input) {
         // --- CORRECTED ERROR/EOF CHECK ---
         if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || sl_is_error(datum)) {
             // Error parsing the datum after quote, or OOM
+            // If datum is already an error object (e.g. from a nested call in catch mode), propagate it.
+            // If it's OOM, propagate it.
+            // If it's NIL due to a non-catch mode error deeper, the specific error was already printed.
             return datum;  // Propagate error or OOM
         }
         // Check specifically for EOF/failure *before* datum parsing started
         if (datum == SL_NIL && *input == datum_start_ptr) {
-            fprintf(stderr, "Error: Unexpected end of input after quote (').\n");
-            return SL_NIL;  // Return NIL indicating parse failure
+            // fprintf(stderr, "Error: Unexpected end of input after quote (').\n");
+            // return SL_NIL;  // Return NIL indicating parse failure
+            sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after quote (')");
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+            if (sl_is_error_catch_mode_active()) {
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Unexpected end of input after quote (').\n");
+                return SL_NIL;
+            }
         }
         // --- END CORRECTION ---
         // If we reach here, 'datum' is a valid object (including SL_NIL if '()' was parsed)
@@ -714,8 +780,16 @@ static sl_object *parse_expression(const char **input) {
             return datum;  // Propagate error or OOM
         }
         if (datum == SL_NIL && *input == datum_start_ptr) {
-            fprintf(stderr, "Error: Unexpected end of input after quasiquote (`).\n");
-            return SL_NIL;
+            // fprintf(stderr, "Error: Unexpected end of input after quasiquote (`).\n");
+            // return SL_NIL;
+            sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after quasiquote (`).");
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+            if (sl_is_error_catch_mode_active()) {
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Unexpected end of input after quasiquote (`).\n");
+                return SL_NIL;
+            }
         }
 
         sl_object *quasiquote_sym = sl_make_symbol("quasiquote");
@@ -751,8 +825,16 @@ static sl_object *parse_expression(const char **input) {
             return datum;  // Propagate error or OOM
         }
         if (datum == SL_NIL && *input == datum_start_ptr) {
-            fprintf(stderr, "Error: Unexpected end of input after %s.\n", op_name_str);
-            return SL_NIL;
+            // fprintf(stderr, "Error: Unexpected end of input after %s.\n", op_name_str);
+            // return SL_NIL;
+            sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after %s.", op_name_str);
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+            if (sl_is_error_catch_mode_active()) {
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Unexpected end of input after %s.\n", op_name_str);
+                return SL_NIL;
+            }
         }
 
         sl_object *op_sym = sl_make_symbol(op_name_str);
@@ -805,9 +887,17 @@ static sl_object *parse_list(const char **input) {
         }
 
         if (current_char == '\0') {
-            fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
+            // fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
             SL_GC_REMOVE_ROOT(&head);
-            return SL_NIL;  // Indicate error
+            // return SL_NIL;  // Indicate error
+            sl_object* error_obj = sl_make_errorf("Parser Error: Unterminated list (reached end of input).");
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+            if (sl_is_error_catch_mode_active()) {
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
+                return SL_NIL;
+            }
         }
 
         // Check for dotted pair syntax: . <datum> )
@@ -818,28 +908,63 @@ static sl_object *parse_list(const char **input) {
 
             sl_object *cdr_val = parse_expression(input);
             if (!cdr_val || cdr_val == SL_OUT_OF_MEMORY_ERROR || sl_is_error(cdr_val)) {
-                fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
+                // fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
                 SL_GC_REMOVE_ROOT(&head);
-                return cdr_val;  // Propagate error or OOM
+                // If cdr_val is already an error object or OOM, propagate it.
+                // Otherwise, create a new one if in catch mode.
+                if (sl_is_error(cdr_val) || cdr_val == SL_OUT_OF_MEMORY_ERROR) return cdr_val;
+
+                sl_object* error_obj = sl_make_errorf("Parser Error: Failed to parse datum after '.' in list.");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
+                    return SL_NIL; // Original behavior might have been NIL here
+                }
             }
             if (cdr_val == SL_NIL) {  // Check if cdr parsing hit EOF unexpectedly
-                fprintf(stderr, "Error: Unexpected end of input after '.' in list.\n");
+                // fprintf(stderr, "Error: Unexpected end of input after '.' in list.\n");
                 SL_GC_REMOVE_ROOT(&head);
-                return SL_NIL;
+                // return SL_NIL;
+                sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after '.' in list.");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Unexpected end of input after '.' in list.\n");
+                    return SL_NIL;
+                }
             }
 
             skip_whitespace_and_comments(input);  // <<< Skip before checking for ')'
             if (**input != ')') {
-                fprintf(stderr, "Error: Expected ')' after datum following '.' in list, got '%c'.\n", **input);
+                // fprintf(stderr, "Error: Expected ')' after datum following '.' in list, got '%c'.\n", **input);
                 SL_GC_REMOVE_ROOT(&head);
-                return SL_NIL;  // Missing closing parenthesis
+                // return SL_NIL;  // Missing closing parenthesis
+                sl_object* error_obj = sl_make_errorf("Parser Error: Expected ')' after datum following '.' in list, got '%c'.", **input);
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Expected ')' after datum following '.' in list, got '%c'.\n", **input);
+                    return SL_NIL;
+                }
             }
             (*input)++;  // Consume ')'
 
             if (head == SL_NIL) {
-                fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
+                // fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
                 SL_GC_REMOVE_ROOT(&head);
-                return SL_NIL;
+                // return SL_NIL;
+                sl_object* error_obj = sl_make_errorf("Parser Error: Dot notation '.' cannot appear at the beginning of a list.");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
+                    return SL_NIL;
+                }
             }
 
             // Set the cdr of the last pair
@@ -854,13 +979,23 @@ static sl_object *parse_list(const char **input) {
         if (!element || element == SL_OUT_OF_MEMORY_ERROR || sl_is_error(element)) {
             // Error parsing element, or OOM
             SL_GC_REMOVE_ROOT(&head);
-            return element;  // Propagate error or OOM
+            // If element is already an error object or OOM, propagate it.
+            // Otherwise, create a new one if in catch mode.
+            if (sl_is_error(element) || element == SL_OUT_OF_MEMORY_ERROR) return element;
+
+            sl_object* error_obj = sl_make_errorf("Parser Error: Failed to parse list element.");
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+            if (sl_is_error_catch_mode_active()) {
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Failed to parse list element.\n"); // Or a more specific error if possible
+                return SL_NIL; // Original behavior might have been NIL here
+            }
         }
-        if (element == SL_NIL && 0) {  // Check if element parsing hit EOF unexpectedly
-            fprintf(stderr, "Error: Unexpected end of input while parsing list element.\n");
-            SL_GC_REMOVE_ROOT(&head);
-            return SL_NIL;
-        }
+        // The check `if (element == SL_NIL && *input == element_start_ptr)` (from parse_expression)
+        // should handle unexpected EOF for elements. If parse_expression returns SL_NIL
+        // without advancing input, it means EOF. If it returns an error object, that's handled above.
+        // The `&& 0` made the original check dead code.
 
         // Append the element to the list
         sl_object *new_pair = sl_make_pair(element, SL_NIL);
@@ -915,8 +1050,16 @@ static sl_object *parse_atom(const char **input) {
     size_t len = ptr - start;
     if (len == 0) {
         // This shouldn't happen if called correctly after checking non-delimiter start
-        fprintf(stderr, "Internal Error: Tried to parse empty atom.\n");
-        return SL_NIL;
+        // fprintf(stderr, "Internal Error: Tried to parse empty atom.\n");
+        // return SL_NIL;
+        sl_object* error_obj = sl_make_errorf("Parser Internal Error: Tried to parse empty atom.");
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Internal Error: Tried to parse empty atom.\n");
+            return SL_NIL;
+        }
     }
 
     // --- Create a null-terminated copy for parsing ---
@@ -967,8 +1110,16 @@ static sl_object *parse_atom(const char **input) {
 
     // If neither worked, it's an error
     *input = ptr;  // Consume the characters anyway to avoid loops
-    fprintf(stderr, "Error: Could not parse '%.*s' as a number, symbol, or boolean.\n", (int)len, start);
-    return SL_NIL;  // Indicate error
+    // fprintf(stderr, "Error: Could not parse '%.*s' as a number, symbol, or boolean.\n", (int)len, start);
+    // return SL_NIL;  // Indicate error
+    sl_object* error_obj = sl_make_errorf("Parser Error: Could not parse '%.*s' as a number, symbol, or boolean.", (int)len, start);
+    if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+    if (sl_is_error_catch_mode_active()) {
+        return error_obj;
+    } else {
+        fprintf(stderr, "Error: Could not parse '%.*s' as a number, symbol, or boolean.\n", (int)len, start);
+        return SL_NIL;
+    }
 }
 
 // Parses a string literal starting after the opening '"'
@@ -988,9 +1139,25 @@ static sl_object *parse_string_literal(const char **input) {
         }
 
         if (current_char == '\0') {
-            fprintf(stderr, "Error: Unterminated string literal.\n");
-            success = false;
-            break;  // Unterminated
+            // fprintf(stderr, "Error: Unterminated string literal.\n");
+            // success = false;
+            // break;  // Unterminated
+            sl_object* error_obj = sl_make_errorf("Parser Error: Unterminated string literal.");
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                // Special handling for OOM inside loop, need to set str_obj and break
+                sbuf_free(&sbuf); // Free buffer before returning OOM
+                *input = ptr;
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+            if (sl_is_error_catch_mode_active()) {
+                sbuf_free(&sbuf);
+                *input = ptr;
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Unterminated string literal.\n");
+                success = false; // To fall through to normal error handling path for non-catch mode
+            }
+            break; // Exit loop after handling error
         }
 
         if (current_char == '\\') {
@@ -998,9 +1165,24 @@ static sl_object *parse_string_literal(const char **input) {
             ptr++;  // Consume '\'
             char escaped_char = *ptr;
             if (escaped_char == '\0') {
-                fprintf(stderr, "Error: Unterminated escape sequence in string literal.\n");
-                success = false;
-                break;
+                // fprintf(stderr, "Error: Unterminated escape sequence in string literal.\n");
+                // success = false;
+                // break;
+                sl_object* error_obj = sl_make_errorf("Parser Error: Unterminated escape sequence in string literal.");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                    sbuf_free(&sbuf);
+                    *input = ptr;
+                    return SL_OUT_OF_MEMORY_ERROR;
+                }
+                if (sl_is_error_catch_mode_active()) {
+                    sbuf_free(&sbuf);
+                    *input = ptr;
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Unterminated escape sequence in string literal.\n");
+                    success = false;
+                }
+                break; // Exit loop
             }
             ptr++;  // Consume the character after '\'
 
@@ -1030,22 +1212,57 @@ static sl_object *parse_string_literal(const char **input) {
                     hex_str[1] = ptr[1];
                     ptr += 2;  // Consume HH *after* the 'x'
                     long byte_val = strtol(hex_str, NULL, 16);
-                    if (!sbuf_append_char(&sbuf, (char)byte_val)) { success = false; }
+                    if (!sbuf_append_char(&sbuf, (char)byte_val)) { 
+                        // sbuf_append_char sets its own OOM if it happens
+                        success = false; 
+                    }
                 } else {
-                    fprintf(stderr, "Error: Invalid hex escape sequence \\x%.*s\n",
-                            isxdigit((unsigned char)ptr[0]) ? 2 : (ptr[0] ? 1 : 0), ptr);
-                    success = false;
+                    // fprintf(stderr, "Error: Invalid hex escape sequence \\x%.*s\n",
+                    //         isxdigit((unsigned char)ptr[0]) ? 2 : (ptr[0] ? 1 : 0), ptr);
+                    // success = false;
+                    char temp_hex_display[3] = {0};
+                    if (ptr[0]) temp_hex_display[0] = ptr[0];
+                    if (ptr[0] && ptr[1]) temp_hex_display[1] = ptr[1];
+
+                    sl_object* error_obj = sl_make_errorf("Parser Error: Invalid hex escape sequence \\x%s", temp_hex_display);
+                     if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                        sbuf_free(&sbuf);
+                        *input = ptr; // Consume up to here
+                        return SL_OUT_OF_MEMORY_ERROR;
+                    }
+                    if (sl_is_error_catch_mode_active()) {
+                        sbuf_free(&sbuf);
+                        *input = ptr; // Consume up to here
+                        return error_obj;
+                    } else {
+                        fprintf(stderr, "Error: Invalid hex escape sequence \\x%s\n", temp_hex_display);
+                        success = false;
+                    }
                     // Consume the bad chars after \x to avoid loops
                     if (isxdigit((unsigned char)ptr[0])) ptr++;
-                    if (isxdigit((unsigned char)ptr[1])) ptr++;  // Might consume too much if only 1 hex digit
+                    if (isxdigit((unsigned char)ptr[1])) ptr++;
                 }
                 break;  // Break from switch
             }
             default:
                 // Invalid escape sequence
                 simple_escape = false;  // Not a simple char append
-                fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
-                success = false;
+                // fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
+                // success = false;
+                sl_object* error_obj = sl_make_errorf("Parser Error: Invalid escape sequence '\\%c' in string literal.", escaped_char);
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                    sbuf_free(&sbuf);
+                    *input = ptr;
+                    return SL_OUT_OF_MEMORY_ERROR;
+                }
+                if (sl_is_error_catch_mode_active()) {
+                    sbuf_free(&sbuf);
+                    *input = ptr;
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
+                    success = false;
+                }
                 break;  // Break from switch
             }
 
@@ -1074,25 +1291,33 @@ static sl_object *parse_string_literal(const char **input) {
 
     sl_object *str_obj = SL_NIL;
     if (success) {
-        // Null-terminate buffer before creating object
-        if (!sbuf_append_char(&sbuf, '\0')) {
-            fprintf(stderr, "Error: Failed to null-terminate string buffer.\n");
-            success = false;
-        } else {
-            // Adjust length back as null terminator isn't part of the Scheme string value
-            sbuf.length--;
-            const char *string_to_make = (sbuf.buffer != NULL) ? sbuf.buffer : "";
-            str_obj = sl_make_string(string_to_make);
-            if (str_obj == SL_OUT_OF_MEMORY_ERROR) {
-                fprintf(stderr, "Error: Out of memory creating string object.\n");
-                success = false;   // Mark as failure
-                str_obj = SL_NIL;  // Ensure NIL is returned
-            }
+        if (!sbuf_append_char(&sbuf, '\0')) { // Try to null-terminate
+            sbuf_free(&sbuf);
+            *input = ptr;
+            // sbuf_append_char failure means OOM. sbuf_ensure_capacity printed to stderr.
+            // No specific error object here, just propagate OOM.
+            return SL_OUT_OF_MEMORY_ERROR;
         }
+        sbuf.length--; // Adjust length back
+        const char *string_to_make = (sbuf.buffer != NULL) ? sbuf.buffer : "";
+        str_obj = sl_make_string(string_to_make); // This can return SL_OUT_OF_MEMORY_ERROR
+
+        if (str_obj == SL_OUT_OF_MEMORY_ERROR) {
+            sbuf_free(&sbuf);
+            *input = ptr;
+            // sl_make_string returning OOM means propagate it.
+            // It would have printed its own OOM message if not in catch mode (though usually it just returns the static object).
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+    } else { // success is false
+        // An error occurred in the loop.
+        // If in catch mode, we would have returned an error object already.
+        // If not in catch mode, fprintf was called, and we fall through to return SL_NIL.
+        str_obj = SL_NIL; // Ensure SL_NIL is returned for non-catch mode errors handled in the loop.
     }
 
     sbuf_free(&sbuf);
-    return success ? str_obj : SL_NIL;  // Return object or NIL on failure
+    return str_obj; // If success true: valid string. If success false (non-catch mode error): SL_NIL.
 }
 
 // --- parse_number and parse_symbol_or_bool implementations ---
@@ -1237,9 +1462,17 @@ static sl_object *parse_stream_expression(FILE *stream) {
     } else if (current_char == '(') {
         return parse_stream_list(stream);
     } else if (current_char == ')') {
-        fprintf(stderr, "Error: Unexpected ')'.\n");
+        // fprintf(stderr, "Error: Unexpected ')'.\n");
         fgetc(stream);          // Consume the ')' to avoid loops
-        return SL_PARSE_ERROR;  // Use the dedicated parse error object
+        // return SL_PARSE_ERROR;  // Use the dedicated parse error object
+        sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected ')' in stream.");
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Error: Unexpected ')'.\n");
+            return SL_PARSE_ERROR;
+        }
     } else if (current_char == '\'') {
         fgetc(stream);  // Consume the quote character
 
@@ -1247,10 +1480,18 @@ static sl_object *parse_stream_expression(FILE *stream) {
 
         if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || datum == SL_PARSE_ERROR || datum == SL_EOF_OBJECT) {
             if (datum == SL_EOF_OBJECT) {
-                fprintf(stderr, "Error: Unexpected end of input after quote (').\n");
+                // fprintf(stderr, "Error: Unexpected end of input after quote (').\n");
+                sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after quote (') in stream.");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Unexpected end of input after quote (').\n");
+                    return SL_EOF_OBJECT; // Keep original error type for this path
+                }
             }
-            // Error parsing the datum after quote, or OOM, or EOF
-            return datum;  // Propagate error, OOM, or EOF
+            // Error parsing the datum after quote, or OOM, or other parse error
+            return datum;  // Propagate error, OOM
         }
 
         sl_object *quote_sym = sl_make_symbol("quote");
@@ -1270,7 +1511,15 @@ static sl_object *parse_stream_expression(FILE *stream) {
 
         if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || datum == SL_PARSE_ERROR || datum == SL_EOF_OBJECT) {
             if (datum == SL_EOF_OBJECT) {
-                fprintf(stderr, "Error: Unexpected end of input after quasiquote (`).\n");
+                // fprintf(stderr, "Error: Unexpected end of input after quasiquote (`).\n");
+                sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after quasiquote (`) in stream.");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Unexpected end of input after quasiquote (`).\n");
+                    return SL_EOF_OBJECT;
+                }
             }
             return datum;
         }
@@ -1303,7 +1552,15 @@ static sl_object *parse_stream_expression(FILE *stream) {
         sl_object *datum = parse_stream_expression(stream);
         if (!datum || datum == SL_OUT_OF_MEMORY_ERROR || datum == SL_PARSE_ERROR || datum == SL_EOF_OBJECT) {
             if (datum == SL_EOF_OBJECT) {
-                fprintf(stderr, "Error: Unexpected end of input after %s.\n", op_name_str);
+                // fprintf(stderr, "Error: Unexpected end of input after %s.\n", op_name_str);
+                sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input after %s in stream.", op_name_str);
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Unexpected end of input after %s.\n", op_name_str);
+                    return SL_EOF_OBJECT;
+                }
             }
             return datum;
         }
@@ -1349,9 +1606,17 @@ static sl_object *parse_stream_list(FILE *stream) {
         }
 
         if (current_char == EOF) {
-            fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
+            // fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
             SL_GC_REMOVE_ROOT(&head);
-            return SL_PARSE_ERROR;
+            // return SL_PARSE_ERROR;
+            sl_object* error_obj = sl_make_errorf("Parser Error: Unterminated list (reached end of input) in stream.");
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+            if (sl_is_error_catch_mode_active()) {
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Unterminated list (reached end of input).\n");
+                return SL_PARSE_ERROR;
+            }
         }
 
         // Check for dotted pair syntax: . <datum> )
@@ -1368,23 +1633,48 @@ static sl_object *parse_stream_list(FILE *stream) {
 
                 sl_object *cdr_val = parse_stream_expression(stream);
                 if (!cdr_val || cdr_val == SL_OUT_OF_MEMORY_ERROR || cdr_val == SL_PARSE_ERROR || cdr_val == SL_EOF_OBJECT) {
-                    fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
+                    // fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
                     SL_GC_REMOVE_ROOT(&head);
-                    return cdr_val;  // Propagate error, OOM, or EOF
+                    // Propagate actual error/OOM/EOF. If it's a generic parse error, create a specific one.
+                    if (cdr_val == SL_PARSE_ERROR && sl_is_error_catch_mode_active()) {
+                         sl_object* error_obj = sl_make_errorf("Parser Error: Failed to parse datum after '.' in stream list.");
+                         if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                         return error_obj;
+                    } else if (cdr_val == SL_PARSE_ERROR) { // Not catch mode
+                        fprintf(stderr, "Error: Failed to parse datum after '.' in list.\n");
+                        return SL_PARSE_ERROR;
+                    }
+                    return cdr_val;
                 }
 
                 skip_stream_whitespace_and_comments(stream);
                 if (peek_char(stream) != ')') {
-                    fprintf(stderr, "Error: Expected ')' after datum following '.' in list.\n");
+                    // fprintf(stderr, "Error: Expected ')' after datum following '.' in list.\n");
                     SL_GC_REMOVE_ROOT(&head);
-                    return SL_PARSE_ERROR;
+                    // return SL_PARSE_ERROR;
+                    sl_object* error_obj = sl_make_errorf("Parser Error: Expected ')' after datum following '.' in stream list, got '%c'.", peek_char(stream));
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                    if (sl_is_error_catch_mode_active()) {
+                        return error_obj;
+                    } else {
+                        fprintf(stderr, "Error: Expected ')' after datum following '.' in list.\n");
+                        return SL_PARSE_ERROR;
+                    }
                 }
                 fgetc(stream);  // Consume ')'
 
                 if (head == SL_NIL) {
-                    fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
+                    // fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
                     SL_GC_REMOVE_ROOT(&head);
-                    return SL_PARSE_ERROR;
+                    // return SL_PARSE_ERROR;
+                    sl_object* error_obj = sl_make_errorf("Parser Error: Dot notation '.' cannot appear at the beginning of a stream list.");
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                    if (sl_is_error_catch_mode_active()) {
+                        return error_obj;
+                    } else {
+                        fprintf(stderr, "Error: Dot notation '.' cannot appear at the beginning of a list.\n");
+                        return SL_PARSE_ERROR;
+                    }
                 }
 
                 sl_set_cdr(tail, cdr_val);
@@ -1397,10 +1687,20 @@ static sl_object *parse_stream_list(FILE *stream) {
         sl_object *element = parse_stream_expression(stream);
         if (!element || element == SL_OUT_OF_MEMORY_ERROR || element == SL_PARSE_ERROR || element == SL_EOF_OBJECT) {
             if (element == SL_EOF_OBJECT) {
-                fprintf(stderr, "Error: Unexpected end of input while parsing list element.\n");
+                // fprintf(stderr, "Error: Unexpected end of input while parsing list element.\n");
+                SL_GC_REMOVE_ROOT(&head);
+                sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected end of input while parsing stream list element.");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+                if (sl_is_error_catch_mode_active()) {
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Unexpected end of input while parsing list element.\n");
+                    return SL_EOF_OBJECT; // Keep original error type
+                }
             }
             SL_GC_REMOVE_ROOT(&head);
-            return element;  // Propagate error, OOM, or EOF
+            // Propagate other errors (OOM, or existing error object from deeper parse)
+            return element;
         }
 
         // Append the element to the list
@@ -1466,12 +1766,21 @@ static sl_object *parse_stream_atom(FILE *stream) {
 
     if (sbuf.length == 0) {  // Should not happen if called correctly
         sbuf_free(&sbuf);
-        fprintf(stderr, "Internal Error: Tried to parse empty atom from stream.\n");
-        return SL_PARSE_ERROR;
+        // fprintf(stderr, "Internal Error: Tried to parse empty atom from stream.\n");
+        // return SL_PARSE_ERROR;
+        sl_object* error_obj = sl_make_errorf("Parser Internal Error: Tried to parse empty atom from stream.");
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Internal Error: Tried to parse empty atom from stream.\n");
+            return SL_PARSE_ERROR;
+        }
     }
 
     // Null-terminate the buffer
     if (!sbuf_append_char(&sbuf, '\0')) {  // Ensure space for null terminator
+                                          // sbuf_append_char handles OOM message
         sbuf_free(&sbuf);
         return SL_OUT_OF_MEMORY_ERROR;
     }
@@ -1510,14 +1819,25 @@ static sl_object *parse_stream_atom(FILE *stream) {
 
     // Check if object creation failed due to memory
     if (result == SL_OUT_OF_MEMORY_ERROR) {
-        fprintf(stderr, "Parser Error: Out of memory creating object for atom.\n");
+        // fprintf(stderr, "Parser Error: Out of memory creating object for atom.\n"); // sl_make_symbol or make_number_from_mpq should handle this if they are the source
+        sbuf_free(&sbuf); // free buffer before returning OOM
         return SL_OUT_OF_MEMORY_ERROR;
     }
-    if (!result) {  // Should only happen if sl_make_symbol fails for non-OOM reasons (unlikely)
-        fprintf(stderr, "Parser Error: Failed to create object for atom '%s'.\n", token);
-        return SL_PARSE_ERROR;
+    if (!result) {  // Should only happen if sl_make_symbol fails for non-OOM reasons (unlikely) or number parsing failed and it wasn't #t/#f
+        sbuf_free(&sbuf);
+        // fprintf(stderr, "Parser Error: Failed to create object for atom '%s'.\n", token);
+        // return SL_PARSE_ERROR;
+        sl_object* error_obj = sl_make_errorf("Parser Error: Failed to create object for atom '%s' in stream.", token);
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR; // Should free token here too if error_obj is OOM
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Parser Error: Failed to create object for atom '%s'.\n", token);
+            return SL_PARSE_ERROR;
+        }
     }
 
+    sbuf_free(&sbuf); // sbuf_free was after result in original, moved before return for all paths
     return result;
 }
 
@@ -1537,8 +1857,20 @@ static sl_object *parse_stream_string_literal(FILE *stream) {
         }
 
         if (current_char == EOF) {
-            fprintf(stderr, "Error: Unterminated string literal (EOF).\n");
-            success = false;
+            // fprintf(stderr, "Error: Unterminated string literal (EOF).\n");
+            // success = false;
+            sl_object* error_obj = sl_make_errorf("Parser Error: Unterminated string literal (EOF) in stream.");
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                sbuf_free(&sbuf);
+                return SL_OUT_OF_MEMORY_ERROR;
+            }
+            if (sl_is_error_catch_mode_active()) {
+                sbuf_free(&sbuf);
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Unterminated string literal (EOF).\n");
+                success = false;
+            }
             break;
         }
 
@@ -1546,8 +1878,20 @@ static sl_object *parse_stream_string_literal(FILE *stream) {
             // Handle Escape Sequence
             int escaped_char = fgetc(stream);
             if (escaped_char == EOF) {
-                fprintf(stderr, "Error: Unterminated escape sequence in string literal (EOF).\n");
-                success = false;
+                // fprintf(stderr, "Error: Unterminated escape sequence in string literal (EOF).\n");
+                // success = false;
+                sl_object* error_obj = sl_make_errorf("Parser Error: Unterminated escape sequence in string literal (EOF) in stream.");
+                if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                    sbuf_free(&sbuf);
+                    return SL_OUT_OF_MEMORY_ERROR;
+                }
+                if (sl_is_error_catch_mode_active()) {
+                    sbuf_free(&sbuf);
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Unterminated escape sequence in string literal (EOF).\n");
+                    success = false;
+                }
                 break;
             }
 
@@ -1574,10 +1918,22 @@ static sl_object *parse_stream_string_literal(FILE *stream) {
                 if (isxdigit(d1) && isxdigit(d2)) {
                     char hex_str[3] = {(char)d1, (char)d2, '\0'};
                     long byte_val = strtol(hex_str, NULL, 16);
-                    if (!sbuf_append_char(&sbuf, (char)byte_val)) { success = false; }
+                    if (!sbuf_append_char(&sbuf, (char)byte_val)) { /* OOM handled by sbuf_append_char */ success = false; }
                 } else {
-                    fprintf(stderr, "Error: Invalid hex escape sequence \\x%c%c\n", d1, d2);
-                    success = false;
+                    // fprintf(stderr, "Error: Invalid hex escape sequence \\x%c%c\n", d1, d2);
+                    // success = false;
+                    sl_object* error_obj = sl_make_errorf("Parser Error: Invalid hex escape sequence \\x%c%c in stream string.", d1, d2);
+                    if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                        sbuf_free(&sbuf);
+                        return SL_OUT_OF_MEMORY_ERROR;
+                    }
+                    if (sl_is_error_catch_mode_active()) {
+                        sbuf_free(&sbuf);
+                        return error_obj;
+                    } else {
+                        fprintf(stderr, "Error: Invalid hex escape sequence \\x%c%c\n", d1, d2);
+                        success = false;
+                    }
                     // Put back non-hex chars if possible
                     if (d2 != EOF) ungetc(d2, stream);
                     if (d1 != EOF) ungetc(d1, stream);
@@ -1586,8 +1942,20 @@ static sl_object *parse_stream_string_literal(FILE *stream) {
             }
             default:
                 simple_escape = false;
-                fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
-                success = false;
+                // fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
+                // success = false;
+                sl_object* error_obj = sl_make_errorf("Parser Error: Invalid escape sequence '\\%c' in stream string literal.", escaped_char);
+                 if (error_obj == SL_OUT_OF_MEMORY_ERROR) {
+                    sbuf_free(&sbuf);
+                    return SL_OUT_OF_MEMORY_ERROR;
+                }
+                if (sl_is_error_catch_mode_active()) {
+                    sbuf_free(&sbuf);
+                    return error_obj;
+                } else {
+                    fprintf(stderr, "Error: Invalid escape sequence '\\%c' in string literal.\n", escaped_char);
+                    success = false;
+                }
                 break;
             }
             if (simple_escape && success) {
@@ -1599,31 +1967,51 @@ static sl_object *parse_stream_string_literal(FILE *stream) {
         }
     }  // End while(success)
 
-    sl_object *str_obj = SL_NIL;  // Use NIL as error indicator for now
+    sl_object *str_obj = SL_NIL;
     if (success) {
-        if (!sbuf_append_char(&sbuf, '\0')) {  // Null terminate
-            success = false;
-            str_obj = SL_OUT_OF_MEMORY_ERROR;
-        } else {
-            sbuf.length--;  // Don't include null in Scheme string value
-            const char *string_to_make = (sbuf.buffer != NULL) ? sbuf.buffer : "";
-            str_obj = sl_make_string(string_to_make);
-            if (str_obj == SL_OUT_OF_MEMORY_ERROR) {
-                success = false;  // Mark as failure
-            }
+        if (!sbuf_append_char(&sbuf, '\0')) { // Try to null-terminate
+            sbuf_free(&sbuf);
+            // sbuf_append_char failure implies OOM. sbuf_ensure_capacity printed to stderr.
+            return SL_OUT_OF_MEMORY_ERROR; // Propagate OOM
         }
+        sbuf.length--; // Adjust length back
+        const char *string_to_make = (sbuf.buffer != NULL) ? sbuf.buffer : "";
+        str_obj = sl_make_string(string_to_make); // This can return SL_OUT_OF_MEMORY_ERROR
+
+        if (str_obj == SL_OUT_OF_MEMORY_ERROR) {
+            sbuf_free(&sbuf);
+            // sl_make_string returning OOM means propagate it.
+            return SL_OUT_OF_MEMORY_ERROR;
+        }
+    } else { // success is false
+        // An error occurred in the loop.
+        // If in catch mode, we would have returned an error object already.
+        // If not in catch mode, fprintf was called, and we fall through.
+        // The function will return SL_PARSE_ERROR in this case.
+        str_obj = SL_PARSE_ERROR; // Indicate parse error for non-catch mode
     }
 
     sbuf_free(&sbuf);
-    return success ? str_obj : (str_obj == SL_OUT_OF_MEMORY_ERROR ? str_obj : SL_PARSE_ERROR);
+    // If success was true, str_obj is the valid string.
+    // If success was false (due to non-OOM error in non-catch mode), str_obj is SL_PARSE_ERROR.
+    // OOM errors or catch-mode errors would have returned earlier.
+    return str_obj;
 }
 
 // Parses a character literal from stream starting after #\ character
 static sl_object *parse_stream_character_literal(FILE *stream) {
     int c1 = fgetc(stream);
     if (c1 == EOF) {
-        fprintf(stderr, "Error: Unexpected EOF after #\\\n");
-        return SL_PARSE_ERROR;
+        // fprintf(stderr, "Error: Unexpected EOF after #\\\n");
+        // return SL_PARSE_ERROR;
+        sl_object* error_obj = sl_make_errorf("Parser Error: Unexpected EOF after #\\ in stream.");
+        if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+        if (sl_is_error_catch_mode_active()) {
+            return error_obj;
+        } else {
+            fprintf(stderr, "Error: Unexpected EOF after #\\\n");
+            return SL_PARSE_ERROR;
+        }
     }
 
     // Buffer to read potential multi-character name like "newline" or "xHH"
@@ -1654,8 +2042,16 @@ static sl_object *parse_stream_character_literal(FILE *stream) {
         if (char_code >= 0 && char_code <= 0x10FFFF && !(char_code >= 0xD800 && char_code <= 0xDFFF)) {
             return sl_make_char((uint32_t)char_code);
         } else {
-            fprintf(stderr, "Error: Invalid hex character code #\\%s\n", name_buf);
-            return SL_PARSE_ERROR;
+            // fprintf(stderr, "Error: Invalid hex character code #\\%s\n", name_buf);
+            // return SL_PARSE_ERROR;
+            sl_object* error_obj = sl_make_errorf("Parser Error: Invalid hex character code #\\%s in stream.", name_buf);
+            if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+            if (sl_is_error_catch_mode_active()) {
+                return error_obj;
+            } else {
+                fprintf(stderr, "Error: Invalid hex character code #\\%s\n", name_buf);
+                return SL_PARSE_ERROR;
+            }
         }
     }
 
@@ -1668,8 +2064,16 @@ static sl_object *parse_stream_character_literal(FILE *stream) {
     }
 
     // If none of the above matched
-    fprintf(stderr, "Error: Unknown character literal #\\%s\n", name_buf);
-    return SL_PARSE_ERROR;
+    // fprintf(stderr, "Error: Unknown character literal #\\%s\n", name_buf);
+    // return SL_PARSE_ERROR;
+    sl_object* error_obj = sl_make_errorf("Parser Error: Unknown character literal #\\%s in stream.", name_buf);
+    if (error_obj == SL_OUT_OF_MEMORY_ERROR) return SL_OUT_OF_MEMORY_ERROR;
+    if (sl_is_error_catch_mode_active()) {
+        return error_obj;
+    } else {
+        fprintf(stderr, "Error: Unknown character literal #\\%s\n", name_buf);
+        return SL_PARSE_ERROR;
+    }
 }
 
 // --- Public Parsing Function (Stream) ---

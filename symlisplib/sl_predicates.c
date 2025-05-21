@@ -99,6 +99,14 @@ static sl_object *sl_predicate_environmentp(sl_object *args) {
     // Or: return (obj != NULL && obj->type == SL_TYPE_ENV) ? SL_TRUE : SL_FALSE;
 }
 
+// (atom? obj) -> #t if obj is not a pair, #f otherwise
+static sl_object *sl_predicate_atomp(sl_object *args) {
+    sl_object *arity_check = check_arity("atom?", args, 1);
+    if (arity_check != SL_TRUE) return arity_check;
+    sl_object *obj = sl_car(args);
+    return sl_is_pair(obj) ? SL_FALSE : SL_TRUE;
+}
+
 // --- Type Predicates ---
 
 // --- Numeric Predicates ---
@@ -252,8 +260,9 @@ void sl_predicates_init(sl_object *global_env) {
     define_builtin(global_env, "null?", sl_predicate_nullp);
     define_builtin(global_env, "list?", sl_predicate_listp);
     define_builtin(global_env, "char?", sl_predicate_charp);
-    define_builtin(global_env, "error?", sl_predicate_errorp);  // <<< ADDED
+    define_builtin(global_env, "error?", sl_predicate_errorp);
     define_builtin(global_env, "environment?", sl_predicate_environmentp);
+    define_builtin(global_env, "atom?", sl_predicate_atomp);  // <<< ADDED
 
     // Numeric Predicates
     define_builtin(global_env, "integer?", sl_predicate_integerp);  // <<< ADDED

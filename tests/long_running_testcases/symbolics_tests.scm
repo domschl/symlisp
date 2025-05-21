@@ -777,7 +777,7 @@
 (define-test "simplify-product-mixed-factors-with-i-squared"
   (lambda () (assert-equal (simplify '(* x i y i)) '(- (* x y))))) ; simplify-product sorts to (* -1 x y)
 (define-test "simplify-product-mixed-factors-with-i-cubed"
-  (lambda () (assert-equal (simplify '(* x i y i z i)) '(* x y z (- i))))) ; simplify-product sorts
+  (lambda () (assert-equal (simplify '(* x i y i z i)) '(- (* i x y z))))) ; simplify-product sorts
 
 ;; Expand with i
 (define-test "expand-product-i-times-i"
@@ -1194,6 +1194,31 @@
     ;; cos(2A) -> cos^2(A)-sin^2(A)
     (assert-equal (expand '(cos (* 2 A)))
                 (simplify '(+ (^ (cos A) 2) (* -1 (^ (sin A) 2)))))))
+
+(define-test "expand-cos-2x"
+  (lambda () (assert-equal (expand '(cos (* 2 x))) '(+ (- (^ (sin x) 2)) (^ (cos x) 2)))))
+
+;; Tests for tan expansions
+(define-test "expand-tan-x-plus-y"
+  (lambda ()
+    (assert-equal (expand '(tan (+ x y)))
+                  '(/ (+ (tan x) (tan y)) (+ 1 (- (* (tan x) (tan y))))))))
+
+(define-test "expand-tan-2x"
+  (lambda ()
+    (assert-equal (expand '(tan (* 2 x)))
+                  '(/ (* 2 (tan x)) (+ 1 (- (^ (tan x) 2)))))))
+
+(define-test "expand-tan-of-product-with-constant"
+  (lambda ()
+    (assert-equal (expand '(tan (* 2 pi))) ; tan(2pi) simplifies to 0
+                  0)))
+
+(define-test "expand-tan-already-simple"
+  (lambda () (assert-equal (expand '(tan x)) '(tan x))))
+
+(define-test "expand-tan-arg-is-atomic"
+  (lambda () (assert-equal (expand '(tan x)) '(tan x))))
 
 ;; Contraction Test (using `simplify`)
 

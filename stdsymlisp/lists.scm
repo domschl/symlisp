@@ -38,6 +38,22 @@
     ((pred (car lst)) (pred (car lst))) ; Return the true value from pred
     (else (exists pred (cdr lst)))))
 
+;; (list-ref lst k)
+;; Returns the k-th element of list lst (0-indexed).
+;; Errors if k is out of bounds or k is not a non-negative integer.
+(define (list-ref lst k)
+  (cond
+    ((not (integer? k))
+     (error "list-ref: index k must be an integer" k))
+    ((< k 0)
+     (error "list-ref: index k must be non-negative" k))
+    ((null? lst)
+     (error "list-ref: index k out of bounds for list" k lst))
+    ((= k 0)
+     (car lst))
+    (else
+     (list-ref (cdr lst) (- k 1)))))
+
 ;; (find-if pred lst)
 ;; Returns the first element in lst that satisfies pred.
 ;; If no element satisfies pred, returns #f.

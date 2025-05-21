@@ -364,7 +364,7 @@ void sl_mem_init(size_t first_chunk_size) {
 
     srand(time(NULL));
 
-    printf("Initializing SymLisp memory...\n");
+    // fprintf("Initializing SymLisp memory...\n");
     if (first_chunk_size == 0) first_chunk_size = DEFAULT_CHUNK_OBJECT_COUNT;
 
     if (!allocate_new_chunk(first_chunk_size)) {
@@ -449,7 +449,7 @@ void sl_mem_shutdown() {
     if (root_count != 2 || debug_root_balance_counter != 2) {
         fprintf(stderr, "[DEBUG] ERROR: GC root balance mismatch, expected 2, found %ld, root_count: %ld, expected 2.\n", root_count, debug_root_balance_counter);
     } else {
-        printf("[DEBUG] Shutting down memory, root_count: %ld (OK, symbol_table and global_env), root_balance: %ld (OK)\n", root_count, debug_root_balance_counter);
+        fprintf(stderr, "[DEBUG] Shutting down memory, root_count: %ld (OK, symbol_table and global_env), root_balance: %ld (OK)\n", root_count, debug_root_balance_counter);
     }
     heap_chunk *current_chunk = first_chunk;
     while (current_chunk != NULL) {
@@ -1207,7 +1207,7 @@ static void sl_gc_sweep() {
                 } else if (obj->type == SL_TYPE_FUNCTION && obj->data.function.is_builtin) {
                     // Check if a builtin function object itself is being freed
                     if (strcmp(obj->data.function.def.builtin.name, "set!") == 0) {  // Check name stored in builtin
-                        printf("[DEBUG GC SWEEP] *** ERROR: Freeing 'set!' BUILTIN function object (%p) ***\n", (void *)obj);
+                        fprintf(stderr, "[DEBUG GC SWEEP] *** ERROR: Freeing 'set!' BUILTIN function object (%p) ***\n", (void *)obj);
                         is_critical = true;
                     }
                 }
@@ -1273,10 +1273,10 @@ void sl_gc() {
 
         // Basic sanity checks (add more specific checks if needed)
         if (root_var_addr == NULL) {
-            printf("[DEBUG GC VALIDATE] !!! Root %zu has NULL variable address!\n", i);
+            fprintf(stderr, "[DEBUG GC VALIDATE] !!! Root %zu has NULL variable address!\n", i);
         } else if (root_obj_ptr == NULL) {
             // This might be okay if NULL pointers are allowed roots, but flag it
-            printf("[DEBUG GC VALIDATE] --- Root %zu points to NULL object.\n", i);
+            fprintf(stderr, "[DEBUG GC VALIDATE] --- Root %zu points to NULL object.\n", i);
         }
         // Add check if root_obj_ptr is within expected heap range if possible
         // Add check for alignment if relevant: if (((uintptr_t)root_obj_ptr % sizeof(void*)) != 0) { ... }

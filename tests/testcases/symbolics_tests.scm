@@ -777,7 +777,7 @@
 (define-test "simplify-product-mixed-factors-with-i-squared"
   (lambda () (assert-equal (simplify '(* x i y i)) '(- (* x y))))) ; simplify-product sorts to (* -1 x y)
 (define-test "simplify-product-mixed-factors-with-i-cubed"
-  (lambda () (assert-equal (simplify '(* x i y i z i)) '(* x y z (- i))))) ; simplify-product sorts
+  (lambda () (assert-equal (simplify '(* x i y i z i)) '(- (* i x y z))))) ; simplify-product sorts
 
 ;; Expand with i
 (define-test "expand-product-i-times-i"

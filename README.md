@@ -2,7 +2,7 @@
 
 ## SymLisp: A Scheme-like Interpreter for Symbolic Computation written entirely by AI systems
 
-SymLisp is a lightweight, embeddable Scheme-like interpreter with a focus on symbolic computation capabilities. Its core interpreter logic is written in C, its symbolic algebra system and standard library extensions are written in its own Scheme dialect (all by Gemini Pro), and its Jupyter Kernel is written in Python and an CMP Server written in 'C' (by Claude 3).
+SymLisp is a lightweight, embeddable Scheme-like interpreter with a focus on symbolic computation capabilities. Its core interpreter logic is written in C, its symbolic algebra system and standard library extensions are written in its own Scheme dialect (all by Gemini Pro), and its Jupyter Kernel is written in Python and an MCP Server written in 'C' (by Claude 3).
 
 The system includes a growing symbolic algebra system, also written in Scheme, allowing for expression simplification and expansion.
 

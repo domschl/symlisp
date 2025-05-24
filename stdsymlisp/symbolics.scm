@@ -12,7 +12,7 @@
 
 ;; Helper: List of known operators. This might grow.
 ;; For now, it helps distinguish variables from operators if they are symbols.
-(define *known-operators* '(+ - * / ^ abs sin cos tan ln exp sqrt)) ; Add more as needed
+(define *known-operators* '(+ - * / ^ abs sin cos tan ln exp sqrt expt)) ; Add more as needed
 
 ;; Predicates
 
@@ -104,6 +104,25 @@
 (define (cos? expr) (unary-op-check expr 'cos))
 (define (tan? expr) (unary-op-check expr 'tan))
 (define (sqrt? expr) (unary-op-check expr 'sqrt))
+
+;; Predicate for (expt base exponent)
+(define (expt? expr)
+  (and (compound-expr? expr)
+       (eq? (car expr) 'expt)
+       (pair? (cdr expr))          ; Must have base
+       (pair? (cddr expr))         ; Must have exponent
+       (null? (cddr (cdr expr))))) ; Must have exactly two operands
+
+;; Accessors for (expt base exponent)
+(define (expt-base expr)
+  (if (expt? expr)
+      (cadr expr)
+      (error "expt-base: Not an expt expression" expr)))
+
+(define (expt-exponent expr)
+  (if (expt? expr)
+      (caddr expr)
+      (error "expt-exponent: Not an expt expression" expr)))
 
 ;; Accessors
 
@@ -197,6 +216,190 @@
   (if (quotient? expr)
       (caddr expr)
       (error "quotient-denominator: Not a quotient expression" expr)))
+
+;; --- Rule Engine Core ---
+
+(define *simplify-rules* '())
+;; Define other rule sets as needed later
+;; (define *expand-rules* '())
+
+;; Helper to check if a symbol is a pattern variable (e.g., ?x)
+(define (pattern-variable? sym)
+  (and (symbol? sym)
+       (let ((s (symbol->string sym)))
+         (and (> (string-length s) 0)
+              (char=? #\? (string-ref s 0))))))
+
+;; (get-binding bindings var-symbol) -> value or #f
+;; Retrieves the value bound to a pattern variable from the bindings alist.
+(define (get-binding bindings var-symbol)
+  (let ((pair (assoc var-symbol bindings)))
+    (if pair
+        (cdr pair)
+        #f)))
+
+;; (match pattern expr bindings) -> new-bindings or #f
+;; Tries to match expr against pattern, extending bindings.
+(define (match pattern expr bindings)
+  (cond
+    ((eq? pattern '_) bindings) ; Wildcard matches anything, no new binding
+    ((pattern-variable? pattern)
+     (let ((found-binding (assoc pattern bindings)))
+       (if found-binding
+           (if (equal? (cdr found-binding) expr)
+               bindings ; Variable already bound to the same value
+               #f)      ; Variable bound to a different value, match fails
+           (cons (cons pattern expr) bindings)))) ; New binding
+    ((and (atom? pattern) (atom? expr)) ; Literals (numbers, non-pattern symbols)
+     (if (equal? pattern expr) bindings #f))
+    ((and (pair? pattern) (pair? expr))
+     (let ((car-bindings (match (car pattern) (car expr) bindings)))
+       (if car-bindings
+           (match (cdr pattern) (cdr expr) car-bindings)
+           #f)))
+    ((and (null? pattern) (null? expr)) bindings) ; Both empty lists match
+    (else #f))) ; Structure mismatch or type mismatch
+
+;; (transform template bindings) -> new-expression
+;; Constructs a new expression from template using bindings.
+(define (transform template bindings)
+  (cond
+    ((null? template) '())
+    ((pattern-variable? template)
+     (let ((binding (get-binding bindings template)))
+       (if binding
+           binding
+           (error "transform: Unbound pattern variable in template" template))))
+    ((atom? template) template) ; Literal
+    ((pair? template)
+     (cons (transform (car template) bindings)
+           (transform (cdr template) bindings)))
+    (else (error "transform: Unknown template structure" template))))
+
+;; Helper to find the index of an item in a list (needed by apply-rules)
+;; Uses 'equal?' for comparison by default.
+(define (list-position item lst . cmp)
+  (let ((compare (if (null? cmp) equal? (car cmp))))
+    (let loop ((sub-list lst) (idx 0))
+      (cond
+        ((null? sub-list) #f)
+        ((compare (car sub-list) item) idx)
+        (else (loop (cdr sub-list) (+ idx 1)))))))
+
+;; (apply-rules expr ruleset) -> (cons new-expr #t) if a rule applied,
+;;                            or (cons expr #f) if no rule applied.
+(define (apply-rules expr ruleset)
+  (let loop ((remaining-rules ruleset))
+    (if (null? remaining-rules)
+        (cons expr #f) ; No rule applied
+        (let* ((rule (car remaining-rules))
+               (rule-id (car rule)) ; For debugging
+               (operation (cadr rule)) ; For context
+               (pattern-idx 2)
+               (pattern (car (list-drop rule pattern-idx)))
+               (arrow-idx (list-position '=> rule)))
+
+          (if (not arrow-idx)
+              (begin
+                (display "Error: Malformed rule, missing '=>': ") (display rule) (newline)
+                (error "apply-rules: Malformed rule structure"))
+              #f) ; Dummy value, proceed if arrow-idx is found
+
+          (let* ((template (car (list-drop rule (+ arrow-idx 1))))
+                 (condition-proc #f) ; Renamed from 'condition'
+                 (condition-candidate-idx (+ pattern-idx 1)))
+
+            (if (< condition-candidate-idx arrow-idx) ; A condition predicate exists
+                (set! condition-proc (car (list-drop rule condition-candidate-idx))))
+
+            (let ((bindings (match pattern expr '())))
+              (if bindings
+                  (if condition-proc ; Check if a condition procedure exists
+                      (if (condition-proc bindings) ; Call the procedure stored in condition-proc
+                          (cons (transform template bindings) #t)
+                          (loop (cdr remaining-rules))) ; Condition false, try next rule
+                      (cons (transform template bindings) #t)) ; No condition, rule applies
+                  (loop (cdr remaining-rules))))))))) ; Match failed, try next rule
+
+;; --- End Rule Engine Core ---
+
+;; --- Initial Set of Simplification Rules ---
+(set! *simplify-rules*
+  (list
+   ;; Rules from simplify-exp
+   (list 'simplify-exp-zero 'simplify '(exp 0) '=> 1)
+   (list 'simplify-exp-one 'simplify '(exp 1) '=> 'e)
+   (list 'simplify-exp-ln 'simplify '(exp (ln ?x)) '=> '?x)
+   (list 'simplify-exp-prod-k-ln-x 'simplify '(exp (* ?k (ln ?x))) '=> '(^ ?x ?k)) ; Corrected template
+
+   ;; Rules from simplify-ln
+   (list 'simplify-ln-one 'simplify '(ln 1) '=> 0)
+   (list 'simplify-ln-e 'simplify '(ln e) '=> 1)
+   (list 'simplify-ln-exp 'simplify '(ln (exp ?x)) '=> '?x)
+   (list 'simplify-ln-pow 'simplify '(ln (^ ?base ?exponent)) '=> '(* ?exponent (ln ?base))) ; Corrected template
+
+   ;; Rules from simplify-quotient
+   (list 'simplify-quotient-num-zero 'simplify '(/ 0 ?den)
+         (lambda (b) (not (equal? (get-binding b '?den) 0))) ; Condition: den != 0
+         '=> 0)
+   (list 'simplify-quotient-den-one 'simplify '(/ ?num 1) '=> '?num)
+   (list 'simplify-quotient-self 'simplify '(/ ?x ?x)
+         (lambda (b) (not (equal? (get-binding b '?x) 0))) ; Condition: x != 0
+         '=> 1)
+   (list 'simplify-tan-def-from-quotient 'simplify '(/ (sin ?arg) (cos ?arg)) '=> '(tan ?arg))
+
+   ;; --- Rules from simplify-power ---
+   ;; (^ 0 ?e) -> 0, if e > 0
+   (list 'simplify-pow-base-zero 'simplify '(^ 0 ?e)
+         (lambda (b) (let ((e-val (get-binding b '?e))) (and (number? e-val) (> e-val 0))))
+         '=> 0)
+   ;; (^ 1 ?e) -> 1
+   (list 'simplify-pow-base-one 'simplify '(^ 1 ?e) '=> 1)
+   ;; (^ ?b 0) -> 1, if b != 0
+   (list 'simplify-pow-exp-zero 'simplify '(^ ?b 0)
+         (lambda (b) (not (equal? (get-binding b '?b) 0)))
+         '=> 1)
+   ;; (^ ?b 1) -> ?b
+   (list 'simplify-pow-exp-one 'simplify '(^ ?b 1) '=> '?b)
+
+   ;; (^ i int-exp) ; four rules for i^n mod 4
+   (list 'simplify-pow-i-mod4-0 'simplify '(^ i ?e)
+         (lambda (b) (let ((e-val (get-binding b '?e))) (and (integer? e-val) (= (modulo e-val 4) 0))))
+         '=> 1)
+   (list 'simplify-pow-i-mod4-1 'simplify '(^ i ?e)
+         (lambda (b) (let ((e-val (get-binding b '?e))) (and (integer? e-val) (= (modulo e-val 4) 1))))
+         '=> 'i)
+   (list 'simplify-pow-i-mod4-2 'simplify '(^ i ?e)
+         (lambda (b) (let ((e-val (get-binding b '?e))) (and (integer? e-val) (= (modulo e-val 4) 2))))
+         '=> -1)
+   (list 'simplify-pow-i-mod4-3 'simplify '(^ i ?e)
+         (lambda (b) (let ((e-val (get-binding b '?e))) (and (integer? e-val) (= (modulo e-val 4) 3))))
+         '=> '(- i))
+
+   ;; (^ (num-const) (int-const)) -> (expt num-const int-const)
+   (list 'simplify-pow-const-base-int-exp 'simplify '(^ ?cb ?ce)
+         (lambda (b) (let ((cb-val (get-binding b '?cb)) (ce-val (get-binding b '?ce)))
+                       (and (number? cb-val) (integer? ce-val)
+                            ;; Avoid 0 to non-positive integer power for direct evaluation by this rule
+                            (not (and (= cb-val 0) (<= ce-val 0))))))
+         '=> '(expt ?cb ?ce)) ; Relies on simplify evaluating (expt num1 num2)
+
+   ;; (^ (^ ?b1 ?e1) ?e2) -> (^ ?b1 (* ?e1 ?e2))
+   ;; (list 'simplify-pow-of-pow 'simplify '(^ (^ ?b1 ?e1) ?e2) '=> '(^ ?b1 (* ?e1 ?e2)))
+
+   ;; (^ (- ?base-neg) (?e :integer :even :non-negative)) -> (^ ?base-neg ?e)
+   (list 'simplify-pow-neg-base-even-exp 'simplify '(^ (- ?bn) ?e)
+         (lambda (b) (let ((e-val (get-binding b '?e)))
+                       (and (integer? e-val) (even? e-val) (>= e-val 0))))
+         '=> '(^ ?bn ?e))
+
+   ;; (^ (- ?base-neg) (?e :integer :odd :non-negative)) -> (- (^ ?base-neg ?e))
+   (list 'simplify-pow-neg-base-odd-exp 'simplify '(^ (- ?bn) ?e)
+         (lambda (b) (let ((e-val (get-binding b '?e)))
+                       (and (integer? e-val) (odd? e-val) (>= e-val 0))))
+         '=> '(- (^ ?bn ?e)))
+   ))
+
 
 ;; Generic accessor for unary function arguments
 ;; Precondition: The corresponding predicate (e.g., abs?) should be true.
@@ -704,126 +907,96 @@
       ;; Default: no further simplification for abs, return (abs simplified_arg)
       (else (make-abs arg)))))
 
-;; Revised simplify-power:
-(define (simplify-power expr)
+;; Revised simplify-power, renamed to simplify-power-core:
+;; This will contain rules that are complex, procedural, or depend on original (unsimplified) sub-expression structure.
+(define (simplify-power-core expr)
   (let ((original-base (base expr))
         (original-exponent (exponent expr)))
     (cond
-      ;; Rule 4.5 (Moved to top & modified to use original-base structure)
+      ;; Rule 4.5 (Kept in core due to complexity and use of original-base structure)
       ;; (^ (base_inner^N_inner) (1/D_outer)) where N_inner = D_outer
-      ((and (power? original-base) ; Check structure of original-base
-            (let ((simplified-outer-exp (simplify original-exponent))) ; Simplify outer exponent for checks
+      ((and (power? original-base)
+            (let ((simplified-outer-exp (simplify original-exponent)))
               (and (rational? simplified-outer-exp)
-                   (= (numerator simplified-outer-exp) 1) ; Outer exponent is 1/D_outer
-                   (let ((N_inner (exponent original-base)) ; From original-base's structure
+                   (= (numerator simplified-outer-exp) 1)
+                   (let ((N_inner (exponent original-base))
                          (D_outer (denominator simplified-outer-exp)))
-                     ;; N_inner must be a positive integer, and N_inner must equal D_outer
                      (and (integer? N_inner) (> N_inner 0)
                           (equal? N_inner D_outer))))))
-       (let* ((base_inner (base original-base))  ; Innermost base from original structure
-              (N_inner (exponent original-base))) ; N_inner from original structure
+       (let* ((base_inner (base original-base))
+              (N_inner (exponent original-base)))
          (if (odd? N_inner)
-             (simplify base_inner) ; Simplify the innermost base before returning
-             (simplify (make-abs (simplify base_inner)))))) ; Simplify arg of abs, then simplify abs expr itself
+             (simplify base_inner)
+             (simplify (make-abs (simplify base_inner))))))
 
       ;; If Rule 4.5 didn't match, proceed with simplified base and exponent for other rules
       (else
-       (let ((b (simplify original-base)) ; Now simplify base for other rules
-             (exp-val (simplify original-exponent))) ; and exponent for other rules
+       (let ((b (simplify original-base))
+             (exp-val (simplify original-exponent)))
          (cond
-           ;; 1. Constant folding for INTEGER exponents
-           ((and (constant? b) (constant? exp-val) (integer? exp-val))
-            (if (and (number? b) (= b 0) (<= exp-val 0))
-                (if (= exp-val 0) 1 (error "simplify-power: 0 to a negative power is undefined"))
-                (expt b exp-val)))
-
-           ;; 2. Rule for i^n where n is an integer
-           ((and (eq? b 'i) (integer? exp-val))
-            (let ((rem (modulo exp-val 4)))
-              (cond
-                ((= rem 0) 1)
-                ((= rem 1) 'i)
-                ((= rem 2) -1)
-                ((= rem 3) (make-negation 'i))
-                (else (make-power b exp-val)))))
-
-           ;; 3. Rule: (^ -1 rational-exponent)
+           ;; 3. Rule: (^ -1 rational-exponent) - Kept in core
            ((and (equal? b -1) (rational? exp-val) (not (integer? exp-val)))
             (let ((N (numerator exp-val))
                   (D (denominator exp-val)))
               (if (odd? D)
-                  (if (odd? N) -1 1) 
-                  (let ((k (/ D 2))) 
+                  (if (odd? N) -1 1)
+                  (let ((k (/ D 2)))
                     (simplify (make-power 'i (/ N k)))))))
 
-           ;; 4. Standard identities
-           ((and (constant? exp-val) (= exp-val 0)) 1)
-           ((and (constant? exp-val) (= exp-val 1)) b)
-           ((and (constant? b) (= b 0))
-            (if (and (constant? exp-val) (> exp-val 0)) 0 (make-power b exp-val)))
-           ((and (constant? b) (= b 1)) 1)
-
-           ;; 5. Structural Rule: Power of a power (uses simplified b)
+           ;; ADDED: Structural Rule: Power of a power (uses simplified b)
            ((power? b) ; 'b' here is (simplify original-base)
             (simplify (make-power (base b) (simplify (make-product (list (exponent b) exp-val))))))
 
-           ;; 6. Structural Rule: Power of a product
+           ;; 6. Structural Rule: Power of a product - Kept in core (hard for simple pattern matcher)
            ((product? b)
             (simplify (make-product (map (lambda (factor) (make-power factor exp-val)) (operands b)))))
-           
-           ;; 7. Structural Rule: Power of a negation (integer exponent)
-           ((and (negation? b) (integer? exp-val) (>= exp-val 0))
-            (let ((base-of-negation (negated-expr b)))
-              (if (even? exp-val)
-                  (simplify (make-power base-of-negation exp-val))
-                  (simplify (make-negation (make-power base-of-negation exp-val))))))
 
-           ;; 8. Negative Constant Base with Rational Exponent (neg-const != -1)
+           ;; 8. Negative Constant Base with Rational Exponent (neg-const != -1) - Kept in core
            ((and (constant? b) (< b 0) (not (equal? b -1)) (rational? exp-val) (not (integer? exp-val)))
             (let ((N (numerator exp-val))
                   (D (denominator exp-val))
                   (abs-b (abs b)))
-              (if (and (even? D) (odd? N)) 
+              (if (and (even? D) (odd? N))
                   (simplify (make-product (list (make-power -1 exp-val)
                                                 (make-power abs-b exp-val))))
-                  (if (odd? D) 
+                  (if (odd? D)
                       (let ((term-abs (simplify (make-power abs-b exp-val))))
                         (if (odd? N)
                             (simplify (make-negation term-abs))
-                            term-abs)) 
+                            term-abs))
                       (make-power b exp-val)))))
 
-           ;; 9. Numeric Specific Rule: Simplifying roots of positive integers
+           ;; 9. Numeric Specific Rule: Simplifying roots of positive integers - Kept in core
            ((and (integer? b) (> b 0) (rational? exp-val) (not (integer? exp-val)))
             (let ((num-exp (numerator exp-val))
                   (den-exp (denominator exp-val)))
-              (if (= b 1) 
+              (if (= b 1)
                   1
-                  (let* ((prime-factor-list (prime-factors b))) 
-                    (if (null? prime-factor-list) 
-                        (make-power b exp-val) 
+                  (let* ((prime-factor-list (prime-factors b)))
+                    (if (null? prime-factor-list)
+                        (make-power b exp-val)
                         (let* ((unique-primes (remove-duplicates prime-factor-list))
-                               (grouped-prime-powers 
+                               (grouped-prime-powers
                                 (map (lambda (p) (cons p (count (lambda (x) (= x p)) prime-factor-list)))
                                      unique-primes))
                                (new-factors
-                                (map (lambda (prime-power-pair) 
+                                (map (lambda (prime-power-pair)
                                        (let* ((prime (car prime-power-pair))
                                               (original-power (cdr prime-power-pair))
                                               (new-exponent-numerator (* original-power num-exp))
                                               (common-divisor (gcd new-exponent-numerator den-exp))
                                               (reduced-exp-num (/ new-exponent-numerator common-divisor))
                                               (reduced-exp-den (/ den-exp common-divisor)))
-                                         (if (= reduced-exp-den 1) 
+                                         (if (= reduced-exp-den 1)
                                              (make-power prime reduced-exp-num)
                                              (let* ((integer-part-of-exponent (quotient reduced-exp-num reduced-exp-den))
                                                     (fractional-numerator (remainder reduced-exp-num reduced-exp-den)))
                                                (cond
-                                                 ((= fractional-numerator 0) 
+                                                 ((= fractional-numerator 0)
                                                   (make-power prime integer-part-of-exponent))
-                                                 ((= integer-part-of-exponent 0) 
+                                                 ((= integer-part-of-exponent 0)
                                                   (make-power prime (/ fractional-numerator reduced-exp-den)))
-                                                 (else 
+                                                 (else
                                                   (make-product (list (make-power prime integer-part-of-exponent)
                                                                       (make-power prime (/ fractional-numerator reduced-exp-den))))))))))
                                      grouped-prime-powers))
@@ -832,9 +1005,9 @@
                           (if (equal? product-of-new-factors current-power-form)
                               current-power-form
                               (simplify product-of-new-factors))))))))
-           
-           ;; 10. Default: No specific simplification rule applied
+           ;; 10. Default: No specific simplification rule applied by core logic
            (else (make-power b exp-val))))))))
+
 
 ;; Helper to create a negation, possibly simplifying double negations
 ;; This is used by simplify-product when prod-const is -1
@@ -873,80 +1046,57 @@
       ;; Canonical form: (- a b) -> (+ a (* -1 b))
       (else (simplify (list '+ s-a (list '* -1 s-b)))))))
 
-;; Simplification for quotients '(/ a b)'
-(define (simplify-quotient expr)
+;; Core simplification logic for quotients (cases not covered by rules)
+(define (simplify-quotient-core expr)
   (let ((s-num (simplify (quotient-numerator expr)))
         (s-den (simplify (quotient-denominator expr))))
     (cond
-      ;; Denominator is 0 - division by zero (return unsimplified or error)
-      ((and (constant? s-den) (zero? s-den)) (list '/ s-num s-den)) ; Or (error "Division by zero" expr)
-      ;; Numerator is 0 (and denominator is not)
-      ((and (constant? s-num) (zero? s-num)) 0)
+      ;; Denominator is 0 - division by zero
+      ((and (constant? s-den) (zero? s-den)) (list '/ s-num s-den))
       ;; Both are constants (and denominator is not 0)
-      ((and (constant? s-num) (constant? s-den)) (/ s-num s-den))
-      ;; Denominator is 1
-      ((and (constant? s-den) (= s-den 1)) s-num)
-      ;; Numerator and denominator are equal (and not zero)
-      ((equal? s-num s-den) 1)
-      ;; Tan definition check:
-      ((and (sin? s-num) (cos? s-den) (equal? (sin-arg s-num) (cos-arg s-den)))
-       (simplify (make-tan (sin-arg s-num)))) ; Simplify the resulting tan expression
-      ;; Default case
+      ((and (constant? s-num) (constant? s-den) (not (zero? s-den))) (/ s-num s-den))
+      ;; Default case for core logic if rules didn't handle it
       (else (list '/ s-num s-den)))))
 
-;; Simplification function for exp
-(define (simplify-exp expr)
-  (let ((arg (simplify (exp-arg expr)))) ; Simplify argument first
+;; Core simplification logic for exp (cases not covered by rules)
+(define (simplify-exp-core expr)
+  (let ((arg (simplify (exp-arg expr))))
     (cond
-      ;; Rule: (exp 0) -> 1
-      ((equal? arg 0) 1)
-      ;; Rule: (exp 1) -> e  -- NEW RULE
-      ((equal? arg 1) 'e)
-      ;; Rule: (exp (ln x)) -> x
-      ((ln? arg)
-       (ln-arg arg)) 
-      ;; Rule: (exp (* k (ln X))) -> (^ X k)
+      ;; Rule: (exp (* ... (ln X) ...)) -> (^ X other-factors)
+      ;; This is the more general version if the specific rule (exp (* ?k (ln ?x))) didn't match.
       ((product? arg)
        (let* ((factors (operands arg))
-              (ln-factor (find-if ln? factors))) 
+              (ln-factor (find-if ln? factors)))
          (if ln-factor
              (let ((inner-ln-arg (ln-arg ln-factor))
-                   ;; Call remove with only two arguments
-                   (other-factors (remove ln-factor factors))) 
-               (if (null? other-factors) 
-                   inner-ln-arg 
+                   (other-factors (remove ln-factor factors)))
+               (if (null? other-factors)
+                   ;; This case (exp (ln X)) should have been caught by a rule.
+                   ;; If it reaches here, it implies the rule wasn't specific enough or
+                   ;; the expression was structured differently.
+                   ;; For safety, returning inner-ln-arg is correct.
+                   inner-ln-arg
                    (simplify (make-power inner-ln-arg (simplify (make-product other-factors))))))
-             (make-exp arg)))) 
-      ;; Default: no further simplification
+             (make-exp arg)))) ; Product does not contain ln
+      ;; Default for core logic
       (else (make-exp arg)))))
 
-;; Simplification function for ln
-(define (simplify-ln expr)
-  (let ((arg (simplify (ln-arg expr)))) ; Simplify argument first
+;; Core simplification logic for ln (cases not covered by rules)
+(define (simplify-ln-core expr)
+  (let ((arg (simplify (ln-arg expr))))
     (cond
-      ;; Rule: (ln 1) -> 0
-      ((equal? arg 1) 0)
-      ;; Rule: (ln e) -> 1 (e is the symbolic constant)
-      ((equal? arg 'e) 1)
-      ;; Rule: (ln (exp x)) -> x
+      ;; Rule: (ln (exp x)) -> x (This was in original simplify-ln, if not caught by rule `(ln (exp ?x)) => ?x` due to structure)
+      ;; It's generally better for rules to catch these. If it's here, it's a fallback.
       ((exp? arg)
-       (exp-arg arg)) ; Argument of exp is already simplified
-      ;; Rule: (ln (^ base exponent)) -> (* exponent (ln base))
-      ((power? arg)
-       (let ((base (base arg))
-             (exponent (exponent arg)))
-         ;; Assuming base > 0 for symbolic simplification
-         (simplify (make-product (list exponent (make-ln base))))))
+       (exp-arg arg))
       ;; Rule: (ln (* f1 f2 ...)) -> (+ (ln f1) (ln f2) ...)
+      ;; This rule is complex for the current simple rule engine due to variadic nature.
       ((product? arg)
        (let ((factors (operands arg)))
-         ;; Assuming factors > 0 for symbolic simplification
-         ;; If any factor is 0 or negative, this rule is problematic in strict math,
-         ;; but symbolically we apply it.
          (if (member 0 factors) ; (ln 0) is undefined.
-             (make-ln arg) ; Or handle as an error/special value. For now, no change.
+             (make-ln arg)
              (simplify (make-sum (map make-ln factors))))))
-      ;; Default: no further simplification
+      ;; Default for core logic
       (else (make-ln arg)))))
 
 (define (simplify-sin expr)
@@ -1024,44 +1174,60 @@
       ;; Default
       (else (make-tan arg)))))
 
-;; Main simplify function
+(define MAX-SIMPLIFY-ITERATIONS 20) ; Example value, adjust as needed
+;; Main simplify function (Modified to use the rule engine)
 (set! simplify
-      (lambda (expr)
-        (cond
-          ;; 1. Atomic expressions (constants, variables) are already simple.
-          ((atomic-expr? expr) expr)
+  (lambda (initial-expr)
+    (let loop ((current-expr initial-expr) (iteration-count 0))
+      (if (> iteration-count MAX-SIMPLIFY-ITERATIONS) ; MAX-SIMPLIFY-ITERATIONS e.g., 20-50
+          (begin
+            (display "Warning: Simplification iteration limit reached for: ")
+            (display initial-expr) (newline)
+            current-expr) ; Return current state to avoid infinite loops
 
-          ;; 2. Specific known operators with dedicated simplification logic.
-          ((sum? expr) (simplify-sum expr))
-          ((product? expr) (simplify-product expr))
-          ((power? expr) (simplify-power expr))
-          ((negation? expr) (simplify-negation expr))
-          ((difference? expr) (simplify-difference expr))
-          ((quotient? expr) (simplify-quotient expr))
-          
-          ;; Rule for sqrt: (sqrt x) -> (^ x 1/2) for symbolic processing
-          ((sqrt? expr) (simplify (make-power (sqrt-arg expr) 1/2)))
-          ((abs? expr) (simplify-abs expr))
-          ((exp? expr) (simplify-exp expr))
-          ((ln? expr) (simplify-ln expr))    
-          ((sin? expr) (simplify-sin expr))
-          ((cos? expr) (simplify-cos expr))
-          ((tan? expr) (simplify-tan expr))
+          (let* (;; --- Pass 1: Apply Rules to current_expr ---
+                 (rule-application-result (apply-rules current-expr *simplify-rules*))
+                 (expr-after-rules (car rule-application-result))
+                 (rule-applied? (cdr rule-application-result)))
 
-          ;; ... add other specific functions like (simplify-sin expr) if they have rules ...
-
-          ;; 3. General case for expressions that look like function calls:
-          ;;    (function-symbol arg1 arg2 ...)
-          ;;    Simplify arguments. This applies to:
-          ;;    a) Known operators from *known-operators* that don't have a specific
-          ;;       simplify-X rule defined above (e.g., 'sin' if simplify-sin isn't written yet).
-          ;;    b) Unknown/user-defined functions (like 'foo').
-          ((and (pair? expr) (symbol? (car expr)))
-           (cons (car expr) (map simplify (cdr expr))))
-
-          ;; 4. If it's none of the above (e.g., a list not starting with a symbol like '(1 2 3),
-          ;;    or some other data type not handled), return as is.
-          (else expr))))
+            (if rule-applied?
+                ;; If a rule applied, the expression changed. Loop again with the new expression.
+                (loop expr-after-rules (+ iteration-count 1))
+                ;; --- No rule applied in this pass. Try structural simplification. ---
+                (let ((structurally-simplified-expr
+                       (cond
+                         ((atomic-expr? expr-after-rules) expr-after-rules) ; Was current-expr, now expr-after-rules
+                         ((sum? expr-after-rules) (simplify-sum expr-after-rules))
+                         ((product? expr-after-rules) (simplify-product expr-after-rules))
+                         ((power? expr-after-rules) (simplify-power-core expr-after-rules))
+                         ((negation? expr-after-rules) (simplify-negation expr-after-rules))
+                         ((difference? expr-after-rules) (simplify-difference expr-after-rules))
+                         ((quotient? expr-after-rules) (simplify-quotient-core expr-after-rules))
+                         ((exp? expr-after-rules) (simplify-exp-core expr-after-rules))
+                         ((ln? expr-after-rules) (simplify-ln-core expr-after-rules))
+                         ((sqrt? expr-after-rules) (simplify (make-power (sqrt-arg expr-after-rules) 1/2))) ; This simplify is for the new structure
+                         ((abs? expr-after-rules) (simplify-abs expr-after-rules))
+                         ((sin? expr-after-rules) (simplify-sin expr-after-rules))
+                         ((cos? expr-after-rules) (simplify-cos expr-after-rules))
+                         ((tan? expr-after-rules) (simplify-tan expr-after-rules))
+                         ((expt? expr-after-rules) ; Added case for expt
+                          (let ((b (simplify (expt-base expr-after-rules)))
+                                (e (simplify (expt-exponent expr-after-rules))))
+                            (if (and (number? b) (number? e))
+                                (expt b e) ; Use Scheme's built-in expt for numbers
+                                (list 'expt b e)))) ; Return symbolic if args not numeric
+                         ((and (pair? expr-after-rules) (symbol? (car expr-after-rules)))
+                          (cons (car expr-after-rules) (map simplify (cdr expr-after-rules))))
+                         (else expr-after-rules)))) ; Corrected: 4 closing parentheses
+                  ;; Body of the let:
+                  (if (equal? structurally-simplified-expr expr-after-rules)
+                      ;; Fixed point: No rule applied, and structural simplification didn't change it.
+                      structurally-simplified-expr
+                      ;; Structural simplification changed it. Loop again.
+                      (loop structurally-simplified-expr (+ iteration-count 1))) ; Closes inner if
+                  ) ; Closes the let
+                ) ; Closes the (if rule-applied?)
+                )))))
 
 ;;; --- Phase 2: Expansion (expand) ---
 
@@ -1243,6 +1409,28 @@
       ;; Default: no specific expansion rule for cos's argument structure
       (else cos-expr))))
 
+(define (expand-tan-expression tan-expr) ; tan-expr is like (tan expanded-arg)
+  (let ((arg (tan-arg tan-expr))) ; Argument is already expanded
+    (cond
+      ;; tan(A+B) -> (/ (+ (tan A) (tan B)) (- 1 (* (tan A) (tan B))))
+      ((and (sum? arg) (= (length (operands arg)) 2))
+       (let ((termA (car (operands arg))) (termB (cadr (operands arg))))
+         ;; Recursively call expand on the new structure
+         (expand (list '/
+                       (make-sum (list (make-tan termA) (make-tan termB)))
+                       (make-sum (list 1 (make-product (list -1 (make-tan termA) (make-tan termB)))))))))
+
+      ;; tan(2A) which is tan (* 2 A) -> (/ (* 2 (tan A)) (- 1 (^ (tan A) 2)))
+      ((and (product? arg) (= (length (operands arg)) 2) (equal? (car (operands arg)) 2))
+       (let ((termA (cadr (operands arg))))
+         ;; Recursively call expand on the new structure
+         (expand (list '/
+                       (make-product (list 2 (make-tan termA)))
+                       (make-sum (list 1 (make-product (list -1 (make-power (make-tan termA) 2)))))))))
+      
+      ;; Default: no specific expansion rule for tan's argument structure
+      (else tan-expr))))
+
 ;; Main expand function
 ;; Recursively expands expressions and simplifies the result.
 (set! expand
@@ -1258,6 +1446,7 @@
                 (cond
                   ((sin? expr-with-expanded-operands) (expand-sin-expression expr-with-expanded-operands))
                   ((cos? expr-with-expanded-operands) (expand-cos-expression expr-with-expanded-operands))
+                  ((tan? expr-with-expanded-operands) (expand-tan-expression expr-with-expanded-operands)) ; Added
                   ((product? expr-with-expanded-operands) (expand-product-distributive expr-with-expanded-operands))
                   ((power? expr-with-expanded-operands) (expand-power-rules expr-with-expanded-operands))
                   ;; Add other top-level expansion rules here if any (e.g., for sums, though not typical for "expansion")

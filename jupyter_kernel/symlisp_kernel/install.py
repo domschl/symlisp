@@ -47,7 +47,7 @@ def main(argv=None):
             "env": {}
         }
         if args.lib_path:
-            kernel_json['env']['SYMLISP_LIB_PATH'] = args.lib_path
+            kernel_json['env']['SYMLISP_LIB_PATH'] = args.lib_path  # pyrefly: ignore
     
     install_kernel_spec(kernel_json, user=args.user, prefix=args.prefix)
 

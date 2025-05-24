@@ -5,6 +5,7 @@ import sys
 import traceback
 from ipykernel.kernelbase import Kernel
 from .symlisp_wrapper import SymLispWrapper, SymLispError
+from typing import override
 
 class SymLispKernel(Kernel):
     implementation = 'symlisp'
@@ -77,7 +78,8 @@ class SymLispKernel(Kernel):
             self.log.error(f"ERROR during kernel initialization: {e}")
             self.log.error(traceback.format_exc())
             raise
-        
+
+    @override  # pyrefly: ignore    
     def do_execute(self, code, silent, store_history=True, user_expressions=None, allow_stdin=False):
         try:
             if not code.strip():
@@ -175,7 +177,7 @@ class SymLispKernel(Kernel):
         self.comms[comm_id] = {'target_name': target_name}
         
         # Send a status message back
-        self.session.send(stream, 'comm_open', 
+        self.session.send(stream, 'comm_open',  # pyrefly: ignore
                           {'comm_id': comm_id, 
                            'target_name': target_name,
                            'data': {'status': 'ok'}},
@@ -191,7 +193,7 @@ class SymLispKernel(Kernel):
         # Process the message (in a real implementation, you'd do something with it)
         # For now, just acknowledge receipt
         if comm_id in self.comms:
-            self.session.send(stream, 'comm_msg',
+            self.session.send(stream, 'comm_msg',  # pyrefly: ignore
                              {'comm_id': comm_id, 
                               'data': {'status': 'received', 'original_msg': data}},
                              ident=ident)

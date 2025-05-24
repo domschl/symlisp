@@ -1,22 +1,22 @@
 import os
 import sys
 import traceback
+from typing import Optional, Union
 from cffi import FFI
-
 class EvaluationResult:
-    def __init__(self):
-        self.has_error = False
-        self.error_message = None
-        self.standard_output = None
-        self.html_content = None
-        self.markdown_content = None
+    def __init__(self) -> None:
+        self.has_error: bool = False
+        self.error_message: Optional[str] = None
+        self.standard_output: Optional[str] = None
+        self.html_content: Optional[str] = None
+        self.markdown_content: Optional[str] = None
+        self.return_value: Optional[str] = None
         self.return_value = None
 
 class SymLispError(Exception):
     pass
-
 class SymLispWrapper:
-    def __init__(self, lib_path=''):
+    def __init__(self, lib_path: str = '') -> None:
         self.ffi = FFI()
         
         # Define the C function signatures that we'll use
@@ -90,7 +90,7 @@ class SymLispWrapper:
             
             # Add to GC roots for protection
             self.global_env_ptr = self.ffi.new("SLObject**")
-            self.global_env_ptr[0] = self.global_env
+            self.global_env_ptr[0] = self.global_env  # pyrefly: ignore
             self.lib.sl_gc_add_root(self.global_env_ptr)
             
             # Initialize built-in functions
@@ -98,8 +98,7 @@ class SymLispWrapper:
             
         except Exception as e:
             raise SymLispError(f"Error initializing SymLisp: {str(e)}")
-    
-    def __del__(self):
+    def __del__(self) -> None:
         try:
             # Remove global env from roots before shutdown
             if hasattr(self, 'global_env_ptr') and self.global_env_ptr:
@@ -110,8 +109,8 @@ class SymLispWrapper:
                 self.lib.sl_mem_shutdown()
         except:
             pass
-    
-    def eval_string(self, code):
+    def eval_string(self, code: str) -> EvaluationResult:
+        """Evaluate SymLisp code string and return the result."""
         """Evaluate SymLisp code string and return the result."""
         result = EvaluationResult()
         
@@ -160,8 +159,7 @@ class SymLispWrapper:
             print(traceback.format_exc(), file=sys.stderr)
         
         return result
-    
-    def load_standard_library(self, stdlib_path):
+    def load_standard_library(self, stdlib_path: str) -> Union[bool, str]:
         """Load the SymLisp standard library from the given directory.
         
         Args:
